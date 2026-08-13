@@ -132,7 +132,9 @@ From section 10.6 and the roadmap, not started:
 - [ ] CMIP decoder. Without it the radiance tier cannot be built and its wall
       clock is unmeasured.
 - [ ] Parquet small-file compaction step. Will matter after a year of data.
-- [ ] Initialise git and push to GitHub. Nothing has been pushed yet.
+- [x] Initialise git and push to GitHub. Done: v0.12 pushed to
+      github.com/Ibekwemmanuel7/VHAGAR, main tracking origin/main. The old v0.4
+      snapshot and its `_to_delete/` zips were replaced by the clean tree.
 - [ ] `_write_day` partial-day resume risk: it overwrites a day's tile files
       with only the granules read that run. A full day re-done in one pass is
       fine, but a resume that reads only some of a day's granules would clobber
