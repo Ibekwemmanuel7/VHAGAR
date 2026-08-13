@@ -42,12 +42,15 @@ People size archives on disk and then get surprised. There are three:
    pull a whole 4.4 MB CONUS granule to keep 4.6 KB of it. Chunked range-reads
    would not help here: at 4.4 MB the file is smaller than one s3fs block, so
    you fetch it all whatever you ask for. That changes for Full Disk.
-3. **Wall clock**, dominated by the *number of granule reads*, not bytes, but
-   the per-read cost is mostly not the network. A bare S3 read of an FDC
-   granule is about 0.12 s; fetching, parsing and navigating it is about
-   0.75 s. Size the wall clock on the full operation, and pick a worker count
-   by measuring that operation rather than a bare read. See
-   :func:`vhagar.archive.backfill.probe_workers`.
+3. **Wall clock**, dominated by the *number of granule reads*. A single warm
+   full decode is about 0.33 s for FDC and 0.78 s for CMIP (measured, single
+   worker, with the navigation cache warm). But the real backfill is bound by S3
+   and the network, not the CPU: the 7-day run averaged roughly 0.9 s of wall
+   clock per granule at 16 workers, far above the single-worker decode, because
+   throughput does not scale linearly with workers. So size the wall clock from a
+   real multi-worker run and pick a worker count with
+   :func:`vhagar.archive.backfill.probe_workers`, not from the single-worker
+   decode divided by the worker count.
 
 **Read granules in the outer loop, tiles in the inner loop.** The number of
 granule reads then depends only on cadence and duration, it is independent of
@@ -78,13 +81,13 @@ BYTES_PER_SAMPLE = 2
 #: Typical zstd ratio on smooth int16 brightness-temperature fields. Measured
 #: values run 3-6x; 4 is a defensible planning default. Verify on real data.
 DEFAULT_COMPRESSION = 4.0
-#: ABI CONUS single-band CMIP granule size on the wire, **measured** at 4.4 MB
-#: for a 2 km channel (2500 x 1500 pixels). This is resolution-dependent and
-#: the spread is large, so check :data:`ABI_BAND_RESOLUTION_M` before reusing
-#: it: a 0.5 km channel has 16x the pixels and a Full Disk granule is roughly
-#: 6x a CONUS one. All five bands VHAGAR needs are 2 km, which is why the
-#: radiance tier is affordable at all.
-DEFAULT_GRANULE_MB = 4.5
+#: ABI CONUS single-band CMIP granule size on the wire, **measured** at 4.48 MB
+#: for a 2 km channel (2500 x 1500 pixels), confirmed on GOES-18 with
+#: ``vhagar archive-plan --measure``. Resolution-dependent with a large spread,
+#: so check :data:`ABI_BAND_RESOLUTION_M` before reusing it: a 0.5 km channel has
+#: 16x the pixels and a Full Disk granule is roughly 6x a CONUS one. All five
+#: bands VHAGAR needs are 2 km, which is why the radiance tier is affordable.
+DEFAULT_GRANULE_MB = 4.48
 #: Single-worker-equivalent seconds to fetch, parse, navigate and tabulate one
 #: full-CONUS FDC granule. This is the wall clock the planner divides by the
 #: worker count, so it must be a per-granule figure, not a per-worker one.
@@ -99,9 +102,32 @@ DEFAULT_GRANULE_MB = 4.5
 #: with ``vhagar archive-plan --measure`` and ``vhagar probe-workers`` and set
 #: this from that, rather than trusting either the old 0.8 placeholder (which
 #: predicted 6 hours for a 3-year run that in fact took roughly 80) or a number
-#: measured on a different machine. The CMIP radiance figure is still unknown:
-#: no decoder exists, so any radiance wall clock is unmeasured.
+#: measured on a different machine.
+#:
+#: This is deliberately NOT the single-worker decode time. That is a different
+#: quantity: see :data:`MEASURED_SINGLE_WORKER_DECODE_S`, measured at 0.33 s for
+#: FDC on the same machine. The two differ because the real backfill is bound by
+#: S3 and the network, not the CPU, so throughput does not scale linearly with
+#: workers. Dividing a 0.33 s single-worker time by 12 workers would predict
+#: about 2 hours for a 3-year FDC backfill; the 7-day run says roughly 80. The
+#: 14.7 figure is calibrated to reproduce that observed reality, so it is what
+#: the planner divides by the worker count. Re-derive it if the connection or
+#: worker count changes materially.
 DEFAULT_SECONDS_PER_GRANULE = 14.7
+#: Single-worker, warm-navigation-cache, full-decode seconds per granule,
+#: **measured** on GOES-18 with ``vhagar archive-plan --measure``. Comparable
+#: across products because both are now full decodes: CMIP costs about 2.4x FDC
+#: (its 14x bytes are only a 2.4x time hit because the fixed per-read and parse
+#: overhead dominate). These are the honest per-granule CPU-plus-single-stream-IO
+#: numbers. They are NOT the planner's per-granule figure: the backfill is
+#: I/O-bound and does not scale linearly with workers, so use
+#: :data:`DEFAULT_SECONDS_PER_GRANULE` for wall-clock planning and these for
+#: understanding where a single read's time goes. CMIP's true multi-worker wall
+#: clock is still unmeasured, pending a real Tier B probe.
+MEASURED_SINGLE_WORKER_DECODE_S = {
+    "FDC": 0.33,
+    "CMIP": 0.78,
+}
 #: Native resolution of the ABI channels, metres at nadir. VHAGAR's thermal
 #: set (C07, C11, C13, C14, C15) is entirely 2 km. Reaching for C02 to get
 #: visible smoke context would cost 16x the pixels per granule.
@@ -354,11 +380,11 @@ def recommend_plan(disk_gb: float) -> str:
         "  tiles actually burn before you spend bandwidth stratifying the",
         "  radiance tiers.",
         "",
-        "  Most of the per-granule cost is parse and navigation, not the network:",
-        "  a bare S3 read is about 0.12 s against 0.75 s for the full path. So the",
-        f"  {clim.workers}-worker figure above matters, but measure it on the real",
-        "  operation (vhagar probe-workers) rather than on a bare read, and expect",
-        "  it to track your CPU as much as your connection.",
+        "  A warm full decode is about 0.33 s (FDC) or 0.78 s (CMIP) single worker,",
+        "  but the real backfill is I/O-bound and does not scale linearly with",
+        f"  workers, so the {clim.workers}-worker wall clock above is a planning estimate.",
+        "  Measure the real operation with vhagar probe-workers rather than dividing",
+        "  a single-worker decode by the worker count.",
         "",
         "  Read granules in the OUTER loop and tiles in the inner loop: the",
         "  granule-read count above is independent of tile count. Iterating",

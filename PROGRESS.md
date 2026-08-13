@@ -149,11 +149,17 @@ it.
       and CMIP figures are finally comparable (the retracted "bytes barely
       matter" mistake came from comparing a decode against a fetch). The CLI
       `archive-plan --measure` note is updated to match.
-      - [ ] **Run the measurement on this machine** (needs real S3):
-            `vhagar archive-plan --measure`. Then set `DEFAULT_GRANULE_MB` and a
-            CMIP `seconds_per_granule` in `plan.py` from the printed numbers. Not
-            done here on purpose: a wall clock measured on another machine must
-            not become the planner default.
+      - [x] **Measured on this machine** with `vhagar archive-plan --measure`,
+            GOES-18, warm cache, full decode: FDC 0.32 MB / 0.33 s, CMIP 4.48 MB
+            / 0.78 s. CMIP is 14x the bytes and 2.4x the decode time of FDC.
+            `DEFAULT_GRANULE_MB` set to 4.48 (confirmed). Added
+            `MEASURED_SINGLE_WORKER_DECODE_S = {"FDC": 0.33, "CMIP": 0.78}`.
+      - Note: `DEFAULT_SECONDS_PER_GRANULE` stays 14.7, NOT 0.33. The 0.33 is
+        single-worker decode; the backfill is I/O/S3-bound and does not scale
+        linearly, so 14.7 (calibrated to reproduce the real 16-worker run) is the
+        planner figure. Dividing 0.33 by workers would predict ~2 h for a 3-year
+        FDC backfill against the ~80 h reality. CMIP's true multi-worker wall
+        clock is still unmeasured, pending a real Tier B probe.
 - [ ] **Step 4: climatology reducer.** Welford mean and variance per pixel and
       per local hour.
 - [ ] **Step 5: Tier B backfill** reusing the manifest and coverage machinery.
