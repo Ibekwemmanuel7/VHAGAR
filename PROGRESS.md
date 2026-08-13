@@ -135,11 +135,13 @@ From section 10.6 and the roadmap, not started:
 - [x] Initialise git and push to GitHub. Done: v0.12 pushed to
       github.com/Ibekwemmanuel7/VHAGAR, main tracking origin/main. The old v0.4
       snapshot and its `_to_delete/` zips were replaced by the clean tree.
-- [ ] `_write_day` partial-day resume risk: it overwrites a day's tile files
-      with only the granules read that run. A full day re-done in one pass is
-      fine, but a resume that reads only some of a day's granules would clobber
-      the rest. Worth hardening before any multi-year run that gets interrupted
-      mid-day. (Noticed while planning the day-215 repair.)
+- [x] `_write_day` partial-day resume risk fixed. It now reads back each day
+      file, drops only the rows of the granules being written this call (so a
+      re-read replaces its own rows and does not duplicate), keeps every other
+      granule's rows, and writes via a temp file plus atomic replace. Three
+      tests: partial-day resume preserves earlier granules, cross-run retry does
+      not duplicate, same-day idempotency still holds. (Noticed while planning
+      the day-215 repair.)
 
 ## Roadmap after the fixes (section 11 of the brief)
 

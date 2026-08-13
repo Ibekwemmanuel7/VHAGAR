@@ -292,6 +292,45 @@ def test_rewriting_the_same_day_is_idempotent(tmp_path):
     assert total == len(table["lat"])
 
 
+def test_resuming_a_partial_day_preserves_earlier_granules(tmp_path):
+    """The clobber this fix exists to prevent. Granule A is written on one call,
+    granule B on a later call for the same day. Both must survive."""
+    pq = pytest.importorskip("pyarrow.parquet")
+    a = detection_table(_granule(), "conus", "granule_A", _cfg(tmp_path))
+    b = detection_table(_granule(), "conus", "granule_B", _cfg(tmp_path))
+    _write_day(tmp_path, T0, [a])
+    _write_day(tmp_path, T0, [b])  # must not clobber A's rows
+
+    files = sorted((tmp_path / "detections").rglob("*.parquet"))
+    keys, total = set(), 0
+    for f in files:
+        t = pq.read_table(f)
+        total += t.num_rows
+        keys |= set(t.column("granule_key").to_pylist())
+    assert keys == {"granule_A", "granule_B"}, "both granules' rows must be present"
+    assert total == len(a["lat"]) + len(b["lat"])
+
+
+def test_a_retried_granule_replaces_its_own_rows_not_duplicates(tmp_path):
+    """Idempotency across runs: re-writing granule A must not double its rows,
+    while granule B written in between is untouched."""
+    pq = pytest.importorskip("pyarrow.parquet")
+    a = detection_table(_granule(), "conus", "granule_A", _cfg(tmp_path))
+    b = detection_table(_granule(), "conus", "granule_B", _cfg(tmp_path))
+    _write_day(tmp_path, T0, [a])
+    _write_day(tmp_path, T0, [b])
+    _write_day(tmp_path, T0, [a])  # a re-read of A, e.g. after an interrupted run
+
+    files = sorted((tmp_path / "detections").rglob("*.parquet"))
+    from collections import Counter
+
+    counts: Counter = Counter()
+    for f in files:
+        counts.update(pq.read_table(f).column("granule_key").to_pylist())
+    assert counts["granule_A"] == len(a["lat"]), "A must not be duplicated"
+    assert counts["granule_B"] == len(b["lat"]), "B must be preserved"
+
+
 # -------------------------------------------------------- the run loop ----
 # The resumability logic is the reason this module exists, so it is tested
 # against a stubbed reader rather than left to the first real overnight run.

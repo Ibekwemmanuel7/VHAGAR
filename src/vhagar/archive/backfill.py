@@ -455,7 +455,22 @@ def _write_day(out_dir: Path, day: datetime, tables: Sequence[dict]) -> int:
     One file per (year, tile, day) rather than one per granule. A five-minute
     cadence would otherwise produce 288 tiny files per tile per day, and
     Parquet metadata would outweigh the data.
+
+    **Merge, do not clobber.** A day file may already hold rows from granules
+    read on an earlier run: the last day of any run is usually partial, and the
+    next run extends it. Overwriting the file with only this run's granules would
+    silently drop the earlier ones. So each affected day file is read back,
+    rows from the granules being written this call are removed (which keeps a
+    re-read idempotent: a retried granule replaces its own rows rather than
+    duplicating them), and the remainder is preserved and concatenated with the
+    new rows. Tiles not touched this call are left alone. The write is via a
+    temporary file and an atomic replace, so a crash mid-write cannot truncate a
+    file that already held good rows.
+
+    Returns the number of new rows contributed this call.
     """
+    import os
+
     import pyarrow as pa
     import pyarrow.parquet as pq
 
@@ -467,22 +482,30 @@ def _write_day(out_dir: Path, day: datetime, tables: Sequence[dict]) -> int:
         col: np.concatenate([t[col] for t in nonempty]) for col in DETECTION_COLUMNS
     }
     table = pa.table({col: pa.array(merged[col]) for col in DETECTION_COLUMNS})
+    # The granules represented in this batch. Their existing rows on disk are
+    # replaced; every other granule's rows are kept.
+    batch_keys = set(merged["granule_key"].tolist())
 
     root = out_dir / DETECTIONS_DIR
-    written = 0
     tile_ids = merged["tile_id"]
     for tile in np.unique(tile_ids):
-        rows = table.filter(pa.array(tile_ids == tile))
+        rows = table.filter(pa.array(tile_ids == tile)).select(list(DETECTION_COLUMNS))
         label = str(tile).replace("/", "_") or "outside_grid"
-        target = root / f"year={day.year}" / f"tile={label}"
-        target.mkdir(parents=True, exist_ok=True)
-        pq.write_table(
-            rows,
-            target / f"part-{day:%Y%m%d}.parquet",
-            compression="zstd",
-        )
-        written += rows.num_rows
-    return written
+        target_dir = root / f"year={day.year}" / f"tile={label}"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / f"part-{day:%Y%m%d}.parquet"
+
+        if target.exists():
+            existing = pq.read_table(target).select(list(DETECTION_COLUMNS))
+            keep = pa.array(
+                [k not in batch_keys for k in existing.column("granule_key").to_pylist()]
+            )
+            rows = pa.concat_tables([existing.filter(keep), rows])
+
+        tmp = target.with_suffix(".parquet.tmp")
+        pq.write_table(rows, tmp, compression="zstd")
+        os.replace(tmp, target)
+    return int(table.num_rows)
 
 
 # ---------------------------------------------------------------------------
