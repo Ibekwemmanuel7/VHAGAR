@@ -120,6 +120,31 @@ In `tests/test_backfill.py`: each day records its own elapsed time,
 gaps, a single dropped granule is not a gap, and `failed_records` lists only
 failures.
 
+## CMIP decoder (Tier B), step 1 done
+
+Plan is in `docs/08_CMIP_DECODER_PLAN.md`. Decision settled: read CMIP CMI
+(brightness temperature in kelvin), derive radiance via planck where FRP needs
+it.
+
+- [x] **Step 1: single-channel decoder.** `src/vhagar/io/cmip_reader.py` mirrors
+      the FDC reader: `decode_cmip`, `open_cmip`, `list_cmip_granules`,
+      `cmip_key_prefix`, and a `CMIPChannel` dataclass. Reuses
+      `_fixed_grid_navigation` unchanged, so geometry is computed once and shared
+      with FDC and across channels. CMI is treated as BT, Ch7 saturation (>=400 K)
+      is censored not passed through, fill and out-of-range DQF become NaN. Ten
+      offline tests in `tests/test_cmip_reader.py`, including proof the nav cache
+      is shared with FDC (one miss, two hits) and that CMIP and FDC co-register
+      (same array objects). Shared fixture `_synthetic_cmip` added.
+- [ ] **Step 2: multi-channel stack.** `open_cmip_stack` to read the N channel
+      files for one timestamp and align them on the shared grid, with a
+      scan-time tolerance for grouping.
+- [ ] **Step 3: measure the wall clock.** Update `plan.measure_granule` to decode
+      CMIP for real, then set the CMIP granule size and seconds-per-granule in
+      `plan.py` from a measurement on this machine.
+- [ ] **Step 4: climatology reducer.** Welford mean and variance per pixel and
+      per local hour.
+- [ ] **Step 5: Tier B backfill** reusing the manifest and coverage machinery.
+
 ## Still open
 
 From section 10.6 and the roadmap, not started:
