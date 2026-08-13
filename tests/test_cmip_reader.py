@@ -123,3 +123,123 @@ def test_cmip_geometry_is_identical_to_fdc_on_the_same_grid():
     c = decode_cmip(_synthetic_cmip(n=40), satellite=18, channel="C07")
     assert c.lat is f.lat
     assert c.true_pixel_area_m2 is f.true_pixel_area_m2
+
+
+# ------------------------------------------------- multi-channel stacks --
+
+from datetime import UTC, datetime, timedelta  # noqa: E402
+
+from vhagar.io.cmip_reader import (  # noqa: E402
+    group_cmip_keys_by_timestamp,
+    open_cmip_stack,
+    stack_channels,
+)
+
+
+def _cmip_key(channel: str, when: datetime) -> str:
+    """Build a realistic CMIP S3 key for a channel at a given scan time."""
+    doy = when.timetuple().tm_yday
+    stamp = f"{when.year:04d}{doy:03d}{when.hour:02d}{when.minute:02d}{when.second:02d}0"
+    name = f"OR_ABI-L2-CMIPC-M6{channel}_G18_s{stamp}_e{stamp}_c{stamp}.nc"
+    return f"ABI-L2-CMIPC/{when.year}/{doy:03d}/{when.hour:02d}/{name}"
+
+
+def test_stack_channels_shares_one_geometry_and_keys_bt_by_band():
+    from vhagar.io.goes_reader import _clear_nav_cache
+
+    _clear_nav_cache()
+    chans = [
+        decode_cmip(_synthetic_cmip(n=40, channel=b), satellite=18, channel=b)
+        for b in ("C07", "C14", "C15")
+    ]
+    stack = stack_channels(chans)
+    assert stack.bands == ("C07", "C14", "C15")
+    assert set(stack.bt_k) == {"C07", "C14", "C15"}
+    # geometry held once, and it is the shared cached array
+    assert stack.lat is chans[0].lat
+    assert stack.shape == (40, 40)
+
+
+def test_stack_bt_difference_is_a_plain_coregistered_subtraction():
+    from vhagar.io.goes_reader import _clear_nav_cache
+
+    _clear_nav_cache()
+    c07 = decode_cmip(_synthetic_cmip(n=40, channel="C07"), satellite=18, channel="C07")
+    c14 = decode_cmip(_synthetic_cmip(n=40, channel="C14"), satellite=18, channel="C14")
+    stack = stack_channels([c07, c14])
+    diff = stack.bt_difference("C07", "C14")
+    # both backgrounds are 300 K, so the difference is 0 where both are valid
+    assert np.nanmax(np.abs(diff)) == pytest.approx(0.0)
+
+
+def test_stack_rejects_channels_on_different_grids():
+    from vhagar.io.goes_reader import _clear_nav_cache
+
+    _clear_nav_cache()
+    a = decode_cmip(_synthetic_cmip(n=40), satellite=18, channel="C07")
+    b = decode_cmip(_synthetic_cmip(n=60), satellite=18, channel="C14")  # different grid
+    with pytest.raises(ValueError, match="different grid|does not match"):
+        stack_channels([a, b])
+
+
+def test_stacking_nothing_raises():
+    with pytest.raises(ValueError, match="no channels"):
+        stack_channels([])
+
+
+def test_grouping_pairs_channels_within_tolerance():
+    """The five channel files of one timestep scan a few seconds apart; they must
+    still group into one stack."""
+    t0 = datetime(2026, 8, 3, 15, 0, 0, tzinfo=UTC)
+    keys = {
+        "C07": [_cmip_key("C07", t0)],
+        "C14": [_cmip_key("C14", t0 + timedelta(seconds=1))],
+        "C15": [_cmip_key("C15", t0 + timedelta(seconds=2))],
+    }
+    groups = group_cmip_keys_by_timestamp(keys, satellite=18)
+    assert len(groups) == 1
+    assert set(groups[0]) == {"C07", "C14", "C15"}
+
+
+def test_grouping_drops_incomplete_timesteps():
+    """A timestep missing a band is dropped, so no stack is ever built with a
+    hole that would bias a band difference."""
+    t0 = datetime(2026, 8, 3, 15, 0, 0, tzinfo=UTC)
+    t1 = t0 + timedelta(minutes=5)
+    keys = {
+        "C07": [_cmip_key("C07", t0), _cmip_key("C07", t1)],
+        "C14": [_cmip_key("C14", t0), _cmip_key("C14", t1)],
+        "C15": [_cmip_key("C15", t0)],  # missing at t1
+    }
+    groups = group_cmip_keys_by_timestamp(keys, satellite=18)
+    assert len(groups) == 1  # only t0 is complete
+    assert set(groups[0]) == {"C07", "C14", "C15"}
+
+
+def test_grouping_does_not_merge_two_distinct_timesteps():
+    t0 = datetime(2026, 8, 3, 15, 0, 0, tzinfo=UTC)
+    t1 = t0 + timedelta(minutes=5)  # well beyond the 2-minute tolerance
+    keys = {
+        "C07": [_cmip_key("C07", t0), _cmip_key("C07", t1)],
+        "C14": [_cmip_key("C14", t0), _cmip_key("C14", t1)],
+    }
+    groups = group_cmip_keys_by_timestamp(keys, satellite=18)
+    assert len(groups) == 2
+    assert all(set(g) == {"C07", "C14"} for g in groups)
+
+
+def test_open_cmip_stack_uses_the_grouping_and_stacker(monkeypatch):
+    """open_cmip_stack opens each band's key and stacks them. Patch the network
+    read so this stays offline."""
+    import vhagar.io.cmip_reader as reader
+
+    def fake_open(key, satellite, channel, bbox=None, anon=True):
+        return decode_cmip(_synthetic_cmip(n=40, channel=channel), satellite=satellite,
+                           channel=channel)
+
+    monkeypatch.setattr(reader, "open_cmip", fake_open)
+    t0 = datetime(2026, 8, 3, 15, 0, 0, tzinfo=UTC)
+    group = {"C07": _cmip_key("C07", t0), "C14": _cmip_key("C14", t0)}
+    stack = open_cmip_stack(group, satellite=18)
+    assert stack.bands == ("C07", "C14")
+    assert stack.shape == (40, 40)

@@ -36,6 +36,7 @@ Design rules carried over from the FDC reader, unchanged
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -54,11 +55,21 @@ log = logging.getLogger(__name__)
 __all__ = [
     "CMIP_CHANNELS",
     "CMIPChannel",
+    "CMIPStack",
     "cmip_key_prefix",
     "decode_cmip",
+    "group_cmip_keys_by_timestamp",
     "list_cmip_granules",
     "open_cmip",
+    "open_cmip_stack",
+    "stack_channels",
 ]
+
+#: How far apart the per-channel files of one nominal timestep may scan. The
+#: five channels of a CONUS frame are written close together but not to the same
+#: second, so grouping needs a small tolerance. Well under the 5-minute cadence,
+#: so it can never merge two distinct timesteps.
+CMIP_STACK_TOLERANCE = timedelta(minutes=2)
 
 #: Emissive ABI channels VHAGAR reads, with their central wavelengths in microns.
 #: C07 is the mid-infrared fire channel; C13/C14/C15 are the split window and
@@ -272,3 +283,165 @@ def decode_cmip(ds, satellite: int, channel: str, bbox=None) -> CMIPChannel:
         true_pixel_area_m2=nav.pixel_area_m2,
         projection=proj,
     )
+
+
+# ---------------------------------------------------------------------------
+# Multi-channel stacks
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class CMIPStack:
+    """Several CMIP channels at one timestep, sharing one grid and its geometry.
+
+    Because every channel rides the same ABI fixed grid, the geometry is held
+    once, not per channel, and the brightness temperatures are a dict keyed by
+    band. The channels co-register exactly, so band arithmetic like the
+    C07 minus C14 contextual fire signal is a plain array subtraction.
+    """
+
+    satellite: int
+    scan_start: datetime
+    bands: tuple[str, ...]
+    bt_k: dict[str, np.ndarray]
+    dqf: dict[str, np.ndarray]
+    saturated: dict[str, np.ndarray]
+    lat: np.ndarray
+    lon: np.ndarray
+    view_zenith_deg: np.ndarray
+    true_pixel_area_m2: np.ndarray
+    projection: ABIProjection
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return self.lat.shape
+
+    def bt(self, band: str) -> np.ndarray:
+        """Brightness temperature for one band."""
+        return self.bt_k[band]
+
+    def bt_difference(self, band_a: str, band_b: str) -> np.ndarray:
+        """``BT(band_a) - BT(band_b)``, NaN-propagating.
+
+        The MIR-minus-window difference (C07 minus C14) is the classic
+        contextual fire signal; the split-window differences carry the
+        atmospheric and cloud context.
+        """
+        return self.bt_k[band_a] - self.bt_k[band_b]
+
+
+def _same_grid(a: np.ndarray, b: np.ndarray) -> bool:
+    """Whether two navigation arrays describe the same grid.
+
+    The navigation cache returns the identical array object for a repeated grid,
+    so an identity check is the fast and normal path. The value fallback exists
+    only for the pathological case where the cache evicted the grid between two
+    decodes; it checks shape and the three corners rather than the whole array.
+    """
+    if a is b:
+        return True
+    if a.shape != b.shape:
+        return False
+    return bool(a[0, 0] == b[0, 0] and a[-1, -1] == b[-1, -1] and a[0, -1] == b[0, -1])
+
+
+def stack_channels(channels: Sequence[CMIPChannel]) -> CMIPStack:
+    """Assemble decoded channels that share a grid into one :class:`CMIPStack`.
+
+    Pure and offline-testable. Raises if the channels are not on the same grid,
+    which is the failure mode that would otherwise silently miscombine bands.
+    """
+    if not channels:
+        raise ValueError("no channels to stack")
+    ref = channels[0]
+    bt_k: dict[str, np.ndarray] = {}
+    dqf: dict[str, np.ndarray] = {}
+    saturated: dict[str, np.ndarray] = {}
+    for c in channels:
+        if c.bt_k.shape != ref.bt_k.shape:
+            raise ValueError(
+                f"channel {c.band} shape {c.bt_k.shape} does not match {ref.band} "
+                f"shape {ref.bt_k.shape}"
+            )
+        if not _same_grid(c.lat, ref.lat):
+            raise ValueError(f"channel {c.band} is on a different grid than {ref.band}")
+        bt_k[c.band] = c.bt_k
+        dqf[c.band] = c.dqf
+        saturated[c.band] = c.saturated
+    return CMIPStack(
+        satellite=ref.satellite,
+        # The nominal timestep: the earliest channel scan start. The spread
+        # across channels is under CMIP_STACK_TOLERANCE by construction.
+        scan_start=min(c.scan_start for c in channels),
+        bands=tuple(c.band for c in channels),
+        bt_k=bt_k,
+        dqf=dqf,
+        saturated=saturated,
+        lat=ref.lat,
+        lon=ref.lon,
+        view_zenith_deg=ref.view_zenith_deg,
+        true_pixel_area_m2=ref.true_pixel_area_m2,
+        projection=ref.projection,
+    )
+
+
+def group_cmip_keys_by_timestamp(
+    keys_by_channel: dict[str, Sequence[str]],
+    satellite: int,
+    tolerance: timedelta = CMIP_STACK_TOLERANCE,
+) -> list[dict[str, str]]:
+    """Group per-channel keys into complete same-timestep sets.
+
+    ``keys_by_channel`` maps each band to its list of keys, as returned by
+    :func:`list_cmip_granules`. The per-channel files of one timestep do not
+    share an exact scan start, so this pairs them by nearest time within
+    ``tolerance``. Only timesteps that have every requested channel are returned,
+    an incomplete timestep is dropped, because a stack with a missing band would
+    quietly bias any band difference computed from it. Pure and offline-testable.
+    """
+    bands = list(keys_by_channel)
+    if not bands:
+        return []
+    parsed: dict[str, list[tuple[datetime, str]]] = {
+        b: sorted((parse_goes_key(k, satellite).start, k) for k in keys)
+        for b, keys in keys_by_channel.items()
+    }
+    ref_band = bands[0]
+    tol = tolerance.total_seconds()
+    groups: list[dict[str, str]] = []
+    for start, key in parsed[ref_band]:
+        group = {ref_band: key}
+        complete = True
+        for b in bands[1:]:
+            best_key, best_dt = None, None
+            for s, k in parsed[b]:
+                dt = abs((s - start).total_seconds())
+                if dt <= tol and (best_dt is None or dt < best_dt):
+                    best_key, best_dt = k, dt
+            if best_key is None:
+                complete = False
+                break
+            group[b] = best_key
+        if complete:
+            groups.append(group)
+    return groups
+
+
+def open_cmip_stack(
+    keys_by_channel: dict[str, str],
+    satellite: int,
+    bbox: tuple[float, float, float, float] | None = None,
+    anon: bool = True,
+) -> CMIPStack:
+    """Open one timestep's channel files and stack them on the shared grid.
+
+    ``keys_by_channel`` maps each band to a single key, one entry from
+    :func:`group_cmip_keys_by_timestamp`. Each channel is opened, then stacked;
+    the grid check in :func:`stack_channels` guards against combining files that
+    do not co-register.
+    """
+    channels = [
+        open_cmip(key, satellite, channel=band, bbox=bbox, anon=anon)
+        for band, key in keys_by_channel.items()
+    ]
+    return stack_channels(channels)

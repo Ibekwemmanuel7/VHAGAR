@@ -135,9 +135,14 @@ it.
       offline tests in `tests/test_cmip_reader.py`, including proof the nav cache
       is shared with FDC (one miss, two hits) and that CMIP and FDC co-register
       (same array objects). Shared fixture `_synthetic_cmip` added.
-- [ ] **Step 2: multi-channel stack.** `open_cmip_stack` to read the N channel
-      files for one timestamp and align them on the shared grid, with a
-      scan-time tolerance for grouping.
+- [x] **Step 2: multi-channel stack.** `CMIPStack` plus `stack_channels`,
+      `group_cmip_keys_by_timestamp`, and `open_cmip_stack`. Grouping pairs the
+      per-channel files of one timestep within a 2-minute tolerance and drops any
+      incomplete timestep so no stack is built with a missing band. `stack_channels`
+      validates all channels share the grid (identity check on the cached nav
+      array, corner-value fallback) and holds geometry once. `bt_difference`
+      gives the co-registered C07 minus C14 contextual signal as a plain
+      subtraction. Eight offline tests, network stubbed for the open path.
 - [ ] **Step 3: measure the wall clock.** Update `plan.measure_granule` to decode
       CMIP for real, then set the CMIP granule size and seconds-per-granule in
       `plan.py` from a measurement on this machine.
