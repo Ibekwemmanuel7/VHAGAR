@@ -160,8 +160,15 @@ it.
         planner figure. Dividing 0.33 by workers would predict ~2 h for a 3-year
         FDC backfill against the ~80 h reality. CMIP's true multi-worker wall
         clock is still unmeasured, pending a real Tier B probe.
-- [ ] **Step 4: climatology reducer.** Welford mean and variance per pixel and
-      per local hour.
+- [x] **Step 4: climatology reducer.** `src/vhagar/archive/climatology.py`,
+      `DiurnalClimatology`: streaming per-pixel, per-hour mean and variance via
+      vectorised NaN-aware Welford, so the cube is never held. Bins by UTC hour,
+      which for geostationary GOES is a per-pixel local-time diurnal cycle
+      (fixed longitude per pixel). `merge` combines shards with parallel Welford
+      for concurrent reduction; `save`/`load` to npz. Ten offline tests: stats
+      match numpy nan-aware, per-pixel counts exclude NaN, merge equals a single
+      pass, round-trip, and the CMIPStack path. Sized per tile (48x48), not full
+      CONUS.
 - [ ] **Step 5: Tier B backfill** reusing the manifest and coverage machinery.
 
 ## Still open
