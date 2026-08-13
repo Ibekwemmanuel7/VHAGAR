@@ -194,11 +194,21 @@ From section 10.6 and the roadmap, not started:
 - [ ] Re-measure `DEFAULT_SECONDS_PER_GRANULE` on this machine after the cache,
       via `vhagar archive-plan --measure`. The 14.7 is a conservative pre-cache
       upper bound.
-- [ ] DEM to replace the 1000 m elevation placeholder in `geo_leo_tolerance_m`
-      (parallax term).
+- [x] DEM parallax term. `geo_leo_tolerance_m` now accepts per-pixel elevation
+      arrays (the `float()` cast that blocked them is gone) and treats NaN as
+      unknown, falling back to the placeholder. New `vhagar/harmonize/dem.py`:
+      a `DEM` bilinear sampler in the region CRS (so detections sample by x/y with
+      no reprojection), `from_rasterio` loader, and `attach_elevation` to fill
+      detections. `Detection` gained an optional `elevation_m` used in
+      `tolerance_m`. Nine offline tests.
 - [ ] CMIP decoder. Without it the radiance tier cannot be built and its wall
       clock is unmeasured.
-- [ ] Parquet small-file compaction step. Will matter after a year of data.
+- [x] Parquet small-file compaction. `vhagar/archive/compaction.py`,
+      `compact_detections`, plus a `vhagar compact` CLI. Merges each tile's
+      per-day files into one file per year. Safe (verify merged row count and the
+      on-disk count before deleting any original, atomic replace) and idempotent
+      and incremental (folds new day files into the compacted one). Six offline
+      tests including row-preservation, idempotency, incremental, and dry-run.
 - [x] Initialise git and push to GitHub. Done: v0.12 pushed to
       github.com/Ibekwemmanuel7/VHAGAR, main tracking origin/main. The old v0.4
       snapshot and its `_to_delete/` zips were replaced by the clean tree.

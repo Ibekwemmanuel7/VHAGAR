@@ -86,6 +86,10 @@ class Detection:
     confidence: float | None = None
     view_zenith_deg: float | None = None
     landcover: str = "other"
+    #: Ground elevation in metres, from a DEM if attached. Drives the terrain
+    #: parallax term of the geostationary matching tolerance. ``None`` falls back
+    #: to the placeholder in :func:`geo_leo_tolerance_m`.
+    elevation_m: float | None = None
     #: True if the detection falls inside the FIRMS static thermal anomaly mask
     #: (persistent industrial/volcanic heat source).
     static_anomaly: bool = False
@@ -105,7 +109,12 @@ class Detection:
             # California, but it is four times too loose at nadir and too
             # tight above 60 degrees. Being loose is not free: it merges
             # neighbouring fires into one event.
-            base = float(geo_leo_tolerance_m(self.view_zenith_deg))
+            base = float(
+                geo_leo_tolerance_m(
+                    self.view_zenith_deg,
+                    elevation_m=1000.0 if self.elevation_m is None else self.elevation_m,
+                )
+            )
         else:
             base = SENSOR_TOLERANCE_M.get(self.sensor.lower(), 2_000.0)
         return max(base, LANDCOVER_BUFFER_M.get(self.landcover, 1_000.0))
@@ -182,9 +191,12 @@ def geo_leo_tolerance_m(
     events, too loose merges neighbouring fires. Fragmentation is the worse
     failure because it also destroys the FRP time series.
 
-    Pass a real per-pixel elevation from a DEM when you have one. The default
-    of 1000 m is a placeholder for mountainous western North America and will
-    be wrong for the Central Valley or the Gulf coast.
+    Pass a real per-pixel elevation from a DEM when you have one, as a scalar or
+    an array broadcastable against ``view_zenith_deg``. See
+    :class:`vhagar.harmonize.dem.DEM` and
+    :func:`vhagar.harmonize.dem.attach_elevation`. The default of 1000 m is a
+    placeholder for mountainous western North America and will be wrong for the
+    Central Valley or the Gulf coast, where it overstates the tolerance.
 
     >>> float(round(geo_leo_tolerance_m(48.1, elevation_m=1500) / 1000, 2))
     4.25
@@ -199,7 +211,12 @@ def geo_leo_tolerance_m(
     vza = np.clip(np.asarray(view_zenith_deg, dtype=np.float64), 0.0, 80.0)
     side = nominal_pixel_m * np.sqrt(pixel_area_growth(vza, orbit_altitude_km=orbit_altitude_km))
     quantisation = side * np.sqrt(2.0) / 2.0
-    parallax = float(elevation_m) * np.tan(np.radians(vza))
+    # Elevation may be an array (per-pixel from a DEM) or a scalar. A NaN
+    # elevation, off the edge of the DEM, falls back to the placeholder rather
+    # than poisoning the tolerance with NaN.
+    elev = np.asarray(elevation_m, dtype=np.float64)
+    elev = np.where(np.isnan(elev), 1000.0, elev)
+    parallax = elev * np.tan(np.radians(vza))
     return np.maximum(quantisation + parallax, floor_m)
 
 

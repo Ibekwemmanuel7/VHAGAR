@@ -592,6 +592,28 @@ def climatology_backfill_cmd(
     )
 
 
+@app.command("compact")
+def compact_cmd(
+    directory: Path = typer.Argument(..., exists=True, help="a backfill output directory"),
+    min_files: int = typer.Option(2, help="smallest file count per tile worth compacting"),
+    dry_run: bool = typer.Option(False, help="report what would happen without touching disk"),
+) -> None:
+    """Merge each tile's per-day Parquet files into one file per year.
+
+    Safe and idempotent: the merged file is written and its row count verified
+    before any original is deleted. Run it periodically once an archive has
+    accumulated many day files.
+    """
+    from vhagar.archive.compaction import compact_detections
+
+    report = compact_detections(directory, min_files=min_files, dry_run=dry_run)
+    if dry_run:
+        console.print("[bold]dry run, nothing written[/bold]")
+    console.print(str(report))
+    if report.tiles_compacted == 0:
+        console.print("[dim]  nothing to compact[/dim]")
+
+
 @app.command("coverage")
 def coverage_cmd(
     directory: Path = typer.Argument(..., exists=True, help="a backfill output directory"),
