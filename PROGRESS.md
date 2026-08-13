@@ -169,7 +169,23 @@ it.
       match numpy nan-aware, per-pixel counts exclude NaN, merge equals a single
       pass, round-trip, and the CMIPStack path. Sized per tile (48x48), not full
       CONUS.
-- [ ] **Step 5: Tier B backfill** reusing the manifest and coverage machinery.
+- [x] **Step 5: Tier B backfill.** `src/vhagar/archive/climatology_backfill.py`,
+      `backfill_climatology`, plus a `vhagar climatology-backfill` CLI command.
+      Reads the thermal channels over a window, groups into complete stacks,
+      thins to the cadence, and folds each into a `DiurnalClimatology` on the
+      native ABI grid (decision from the plan). Resumable without double
+      counting: the checkpoint npz carries the Welford state AND the watermark of
+      processed timestep ids, written with an atomic replace, so a crash never
+      leaves a frame both on disk and out of the watermark. Reads run
+      concurrently, the fold stays single-threaded (no lock). Manifest and
+      coverage reuse the Tier A machinery. Seven offline tests including a
+      resume-equals-one-pass numerical check; network stubbed.
+      - [ ] **Measure CMIP's real multi-worker wall clock** by running
+            `vhagar climatology-backfill` on a real region and reading frames/s.
+            This is the last unmeasured number in the archive plan.
+
+All five CMIP decoder steps are done. The decoder, stacking, measurement,
+climatology reducer and Tier B backfill are in and tested offline.
 
 ## Still open
 

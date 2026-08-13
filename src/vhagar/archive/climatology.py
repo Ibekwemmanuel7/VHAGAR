@@ -32,6 +32,7 @@ backfill can reduce shards concurrently and combine them.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -164,9 +165,21 @@ class DiurnalClimatology:
 
     # -- persistence -----------------------------------------------------
 
-    def save(self, path: Path | str) -> Path:
-        """Write the accumulator to a ``.npz`` file."""
+    def save(self, path: Path | str, meta: Mapping[str, np.ndarray] | None = None) -> Path:
+        """Write the accumulator to a ``.npz`` file, atomically.
+
+        ``meta`` holds extra arrays to store in the same file, for instance a
+        checkpoint's watermark of processed timestep ids. Keeping them in the one
+        file means a single atomic replace commits the statistics and the
+        watermark together, which is what lets a resume avoid folding a frame
+        twice (the Welford update is not idempotent).
+        """
+        import os
+        import tempfile
+
         path = Path(path)
+        if not path.suffix:
+            path = path.with_suffix(".npz")
         payload: dict[str, np.ndarray] = {
             "__channels__": np.array(self.channels),
             "__shape__": np.array(self.shape),
@@ -176,12 +189,32 @@ class DiurnalClimatology:
             payload[f"{c}::count"] = self._count[c]
             payload[f"{c}::mean"] = self._mean[c]
             payload[f"{c}::m2"] = self._m2[c]
-        np.savez(path, **payload)
-        return path if path.suffix else path.with_suffix(".npz")
+        for k, v in (meta or {}).items():
+            payload[f"meta::{k}"] = np.asarray(v)
+        # Write to a temp file in the same directory, then atomically replace.
+        # A file handle is used so numpy does not re-append ".npz" to the name.
+        fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".npz.tmp")
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                np.savez(fh, **payload)
+            os.replace(tmp, path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.remove(tmp)
+            raise
+        return path
 
     @classmethod
     def load(cls, path: Path | str) -> DiurnalClimatology:
         """Read an accumulator written by :meth:`save`."""
+        obj, _ = cls.load_with_meta(path)
+        return obj
+
+    @classmethod
+    def load_with_meta(
+        cls, path: Path | str
+    ) -> tuple[DiurnalClimatology, dict[str, np.ndarray]]:
+        """Read an accumulator and any extra arrays stored alongside it."""
         with np.load(path, allow_pickle=False) as z:
             channels = [str(c) for c in z["__channels__"]]
             shape = tuple(int(v) for v in z["__shape__"])
@@ -191,4 +224,7 @@ class DiurnalClimatology:
                 obj._count[c] = z[f"{c}::count"]
                 obj._mean[c] = z[f"{c}::mean"]
                 obj._m2[c] = z[f"{c}::m2"]
-        return obj
+            meta = {
+                k[len("meta::"):]: z[k] for k in z.files if k.startswith("meta::")
+            }
+        return obj, meta

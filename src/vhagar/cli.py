@@ -520,6 +520,78 @@ def backfill_cmd(
         )
 
 
+@app.command("climatology-backfill")
+def climatology_backfill_cmd(
+    out: Path = typer.Argument(..., help="output directory for the climatology checkpoint"),
+    start: str = typer.Option(..., help="start date, YYYY-MM-DD"),
+    end: str = typer.Option(..., help="end date, YYYY-MM-DD, inclusive"),
+    bbox: str = typer.Option(..., help="west,south,east,north in degrees. Required."),
+    satellite: int = typer.Option(18, help="GOES satellite number"),
+    channels: str = typer.Option("C07,C11,C13,C14,C15", help="thermal channels to reduce"),
+    cadence_min: int = typer.Option(15, help="diurnal sampling in minutes"),
+    n_bins: int = typer.Option(24, help="diurnal bins across the day; must divide 1440"),
+    workers: int = typer.Option(8, help="concurrent stack reads, see probe-workers"),
+) -> None:
+    """Tier B: reduce CMIP stacks into a diurnal climatology. Resumable.
+
+    Reads the thermal channels over the window, folds each timestep into a
+    per-pixel, per-hour running mean and variance on the native ABI grid, and
+    checkpoints atomically so an interrupted run resumes without re-folding.
+    Re-run the same command to resume.
+    """
+    from datetime import datetime as _dt
+
+    from vhagar.archive.climatology_backfill import (
+        ClimatologyBackfillConfig,
+        backfill_climatology,
+        climatology_coverage,
+    )
+
+    try:
+        t0 = _dt.strptime(start, "%Y-%m-%d").replace(tzinfo=UTC)
+        t1 = _dt.strptime(end, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=UTC)
+    except ValueError:
+        console.print("[red]dates must be YYYY-MM-DD[/red]")
+        raise typer.Exit(1) from None
+    parts = [p for p in bbox.split(",") if p.strip()]
+    if len(parts) != 4:
+        console.print("[red]bbox needs four numbers: west,south,east,north[/red]")
+        raise typer.Exit(1)
+    box = tuple(float(p) for p in parts)
+    chans = tuple(c.strip() for c in channels.split(",") if c.strip())
+
+    cfg = ClimatologyBackfillConfig(
+        out_dir=out, start=t0, end=t1, bbox=box, satellite=satellite,
+        channels=chans, cadence_min=cadence_min, n_bins=n_bins, workers=workers,
+    )
+    console.print(
+        f"[bold]Reducing CMIP climatology[/bold] from GOES-{satellite} into {out}\n"
+        f"  channels {', '.join(chans)}, {cadence_min}-min cadence, {n_bins} bins, "
+        f"{workers} workers.\n  Safe to interrupt. Re-run the same command to resume.\n"
+    )
+
+    def on_day(day, day_ok):
+        console.print(f"  {day:%Y-%m-%d}  {day_ok} frames folded")
+
+    try:
+        result = backfill_climatology(cfg, progress=on_day)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from None
+    except KeyboardInterrupt:
+        console.print("\n[yellow]interrupted. Checkpoint is on disk; re-run to resume.[/yellow]")
+        raise typer.Exit(130) from None
+
+    console.print(f"\n[bold]{result}[/bold]")
+    if result.errors:
+        console.print(f"  errors by type: {result.errors}")
+    covered = climatology_coverage(out)
+    total = sum((b - a for a, b in covered), timedelta())
+    console.print(
+        f"  coverage: {len(covered)} interval(s), {total.total_seconds() / 3600:.1f} h observed"
+    )
+
+
 @app.command("coverage")
 def coverage_cmd(
     directory: Path = typer.Argument(..., exists=True, help="a backfill output directory"),
