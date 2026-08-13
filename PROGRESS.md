@@ -143,9 +143,17 @@ it.
       array, corner-value fallback) and holds geometry once. `bt_difference`
       gives the co-registered C07 minus C14 contextual signal as a plain
       subtraction. Eight offline tests, network stubbed for the open path.
-- [ ] **Step 3: measure the wall clock.** Update `plan.measure_granule` to decode
-      CMIP for real, then set the CMIP granule size and seconds-per-granule in
-      `plan.py` from a measurement on this machine.
+- [x] **Step 3: make CMIP measurable (code).** `plan.measure_granule` now times
+      the full CMIP decode via `open_cmip` instead of a bare byte fetch, warms
+      the nav cache first, and defaults both products to full domain, so the FDC
+      and CMIP figures are finally comparable (the retracted "bytes barely
+      matter" mistake came from comparing a decode against a fetch). The CLI
+      `archive-plan --measure` note is updated to match.
+      - [ ] **Run the measurement on this machine** (needs real S3):
+            `vhagar archive-plan --measure`. Then set `DEFAULT_GRANULE_MB` and a
+            CMIP `seconds_per_granule` in `plan.py` from the printed numbers. Not
+            done here on purpose: a wall clock measured on another machine must
+            not become the planner default.
 - [ ] **Step 4: climatology reducer.** Welford mean and variance per pixel and
       per local hour.
 - [ ] **Step 5: Tier B backfill** reusing the manifest and coverage machinery.

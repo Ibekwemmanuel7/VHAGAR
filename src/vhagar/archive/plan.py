@@ -389,19 +389,31 @@ def measure_granule(
     n: int = 3,
     product: str = "FDC",
     channel: str = "C07",
+    bbox: tuple[float, float, float, float] | None = None,
 ) -> dict[str, float]:
-    """Measure real granule size and read time on this connection. Needs network.
+    """Measure real granule size and full-decode time on this connection. Needs network.
 
-    Answers the one thing the arithmetic cannot: whether HDF5 chunked
-    range-reads over S3 let you fetch a small bbox without pulling the whole
-    file. Pass ``product="CMIP"`` to size the radiance tier; the default only
-    tells you about the sparse fire product.
+    Both products now time the **full decode** the backfill actually walks:
+    fetch, HDF5 parse, navigate, tabulate or censor. Before the CMIP decoder
+    existed this function timed a bare byte fetch for CMIP against a full decode
+    for FDC, and the two were not comparable, which is exactly the mistake behind
+    the retracted "bytes barely matter" latency claim. They are comparable now.
+
+    ``bbox`` defaults to ``None``, the whole domain, because that is what a real
+    CONUS backfill reads and what the planner's ``seconds_per_granule`` is meant
+    to describe. The navigation cache is warmed with one read before timing, so
+    each timed granule pays the steady-state decode cost rather than the one-off
+    fixed-grid build. Feed the result into
+    ``ArchivePlan(granule_mb=..., seconds_per_granule=...)`` for a plan
+    calibrated to this machine.
     """
+    import contextlib
     import time
     from datetime import datetime, timedelta
 
     import s3fs
 
+    from vhagar.io.cmip_reader import open_cmip
     from vhagar.io.goes import GOES_BUCKETS, fdc_key_prefix
     from vhagar.io.goes_reader import list_fdc_granules, open_fdc
 
@@ -419,24 +431,28 @@ def measure_granule(
             ABI_PRODUCTS["FDC"], ABI_PRODUCTS["CMIP"]
         )
         listing = fs.ls(f"{bucket}/{prefix}", detail=False)
-        keys = [k.split("/", 1)[1] for k in listing if f"-M6{channel}_" in k]
+        keys = [k.split("/", 1)[1] for k in listing if f"{channel}_G" in k.rsplit("/", 1)[-1]]
     if not keys:
         raise RuntimeError(f"no {product} granules found in the sampling window")
     keys = keys[-n:]
+
+    def decode(key: str) -> None:
+        if product == "FDC":
+            open_fdc(key, satellite, bbox=bbox)
+        else:
+            open_cmip(key, satellite, channel=channel, bbox=bbox)
+
+    # Warm the navigation cache so the timed reads measure steady-state decode
+    # cost, not the one-off grid build. See probe_workers for the same reasoning.
+    with contextlib.suppress(Exception):
+        decode(keys[0])
 
     sizes, times = [], []
     for key in keys:
         info = fs.info(f"{bucket}/{key}")
         sizes.append(float(info["size"]))
         t0 = time.perf_counter()
-        if product == "FDC":
-            open_fdc(key, satellite, bbox=(-124.0, 36.0, -118.0, 42.0))
-        else:
-            # No decoder for CMIP yet, so time the full fetch a decoder would
-            # have to pay. Reading only the first megabyte would report the
-            # round-trip latency and call it the granule cost.
-            with fs.open(f"{bucket}/{key}", "rb") as fh:
-                fh.read()
+        decode(key)
         times.append(time.perf_counter() - t0)
 
     mb = sum(sizes) / len(sizes) / 1e6

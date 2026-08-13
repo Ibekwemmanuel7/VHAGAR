@@ -328,22 +328,23 @@ def archive_plan(
         if len(measured) == 2:
             fdc, cmip = measured["FDC"], measured["CMIP"]
             ratio = cmip["granule_mb"] / max(fdc["granule_mb"], 1e-9)
+            time_ratio = cmip["seconds_per_granule"] / max(fdc["seconds_per_granule"], 1e-9)
             console.print(
                 f"\n  CMIP radiance granules are [bold]{ratio:.0f}x[/bold] the size of FDC. "
                 "Size the detection\n  tier from FDC and the radiance tier from CMIP; one "
                 "figure for both is\n  wrong by that factor."
             )
-            if cmip["mb_per_second"] > 2.0 * fdc["mb_per_second"]:
-                console.print(
-                    "\n  Throughput is higher on the larger granule, so there is a fixed "
-                    "per-read\n  cost. Do not read that as 'bytes do not matter': the FDC "
-                    "time here\n  includes parse and navigation while the CMIP time is a "
-                    "raw fetch, so\n  the two are not comparable. Use [bold]vhagar "
-                    "probe-workers[/bold] to size concurrency."
-                )
+            console.print(
+                f"\n  Both figures are full decodes now, so they are comparable: a CMIP "
+                f"granule\n  takes about [bold]{time_ratio:.1f}x[/bold] as long to decode as "
+                "an FDC one. Remember a CMIP\n  timestep is one file per channel, so a five-band "
+                "read is five of these.\n  Use [bold]vhagar probe-workers[/bold] to size "
+                "concurrency."
+            )
         console.print(
             "[dim]  Feed these into ArchivePlan(granule_mb=..., seconds_per_granule=...) "
-            "for a plan calibrated to your connection.[/dim]"
+            "for a plan calibrated to your connection. Both times are full-domain\n  decodes "
+            "with a warm navigation cache.[/dim]"
         )
 
 
