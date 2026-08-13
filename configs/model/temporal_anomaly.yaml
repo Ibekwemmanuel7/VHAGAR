@@ -1,0 +1,10 @@
+# T1 stage-1 learned component: predicts expected 3.9 um brightness temperature
+# from recent history + geometry. Large positive residuals are candidate fires.
+# Trains on clear-sky history -- no fire labels required.
+_target_: vhagar.models.segmentation.TemporalAnomalyNet
+in_channels: 5      # BT_3.9, BT_11.2, solar zenith, view zenith, doy encoding
+window: 12          # 12 x 5 min = 1 h of GOES history
+hidden: 64
+loss:
+  _target_: torch.nn.HuberLoss    # robust to the fire pixels in the history
+  delta: 2.0

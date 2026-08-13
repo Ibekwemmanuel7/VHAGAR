@@ -1,0 +1,42 @@
+# VHAGAR root Hydra config.
+#
+#   python -m vhagar.train.train task=burned_area model=siamese data=sentinel2
+#
+# Every run writes: the resolved config, the split manifest fingerprint, the
+# GDAL/PROJ versions, and the STAC item IDs consumed. A run without those is
+# not reproducible and will not be promoted.
+
+defaults:
+  - task: burned_area
+  - model: siamese
+  - data: sentinel2
+  - trainer: default
+  - _self_
+
+project: vhagar
+region: conus            # conus | canada | europe
+seed: 1337
+
+paths:
+  analysis_store: ${oc.env:VHAGAR_STORE, ./data/analysis}
+  splits: ./splits
+  outputs: ./outputs
+  mlflow_uri: ${oc.env:MLFLOW_TRACKING_URI, ./mlruns}
+
+# Reproducibility contract -- enforced by vhagar.train.train.
+reproducibility:
+  deterministic: true
+  log_env_versions: true      # gdal, proj, numpy, torch
+  require_split_manifest: true
+  # Normalisation statistics must be computed on training folds only.
+  normalisation_from_train_folds_only: true
+
+# Evaluation contract -- see docs/02_VALIDATION.md. These are release gates,
+# not reporting preferences.
+evaluation:
+  report_per_fold: true
+  mandatory_baselines: true
+  forbid_random_split: true
+  calibration_gate:
+    enabled: true
+    max_expected_calibration_error: 0.05

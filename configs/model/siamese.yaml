@@ -1,0 +1,17 @@
+_target_: vhagar.models.segmentation.SiameseChangeNet
+in_channels: 8
+out_channels: 1
+widths: [32, 64, 128, 256]
+
+# Optional foundation-model encoder. Both Apache-2.0.
+#   ibm-nasa-geospatial/Prithvi-EO-2.0-300M-BurnScars
+#   ibm-esa-geospatial/TerraMind-1.0-base
+encoder:
+  pretrained: null
+  freeze_epochs: 2
+
+loss:
+  _target_: vhagar.train.losses.ComboLoss
+  bce_weight: 0.5
+  dice_weight: 0.5
+  pos_weight: null      # set from the TRAINING folds' base rate

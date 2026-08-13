@@ -1,0 +1,434 @@
+[
+  {
+    "uid": "fire000",
+    "lon": -122.0,
+    "lat": 34.0,
+    "when": "2018-08-01",
+    "group": "fire000",
+    "ecoregion": "eco0",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire001",
+    "lon": -119.0,
+    "lat": 34.0,
+    "when": "2019-08-02",
+    "group": "fire001",
+    "ecoregion": "eco1",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire002",
+    "lon": -116.0,
+    "lat": 34.0,
+    "when": "2020-08-03",
+    "group": "fire002",
+    "ecoregion": "eco2",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire003",
+    "lon": -113.0,
+    "lat": 34.0,
+    "when": "2021-08-04",
+    "group": "fire003",
+    "ecoregion": "eco0",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire004",
+    "lon": -110.0,
+    "lat": 34.0,
+    "when": "2022-08-05",
+    "group": "fire004",
+    "ecoregion": "eco1",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire005",
+    "lon": -107.0,
+    "lat": 34.0,
+    "when": "2018-08-06",
+    "group": "fire005",
+    "ecoregion": "eco2",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire006",
+    "lon": -104.0,
+    "lat": 34.0,
+    "when": "2019-08-07",
+    "group": "fire006",
+    "ecoregion": "eco0",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire007",
+    "lon": -101.0,
+    "lat": 34.0,
+    "when": "2020-08-08",
+    "group": "fire007",
+    "ecoregion": "eco1",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire008",
+    "lon": -122.0,
+    "lat": 36.5,
+    "when": "2021-08-09",
+    "group": "fire008",
+    "ecoregion": "eco2",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire009",
+    "lon": -119.0,
+    "lat": 36.5,
+    "when": "2022-08-10",
+    "group": "fire009",
+    "ecoregion": "eco0",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire010",
+    "lon": -116.0,
+    "lat": 36.5,
+    "when": "2018-08-11",
+    "group": "fire010",
+    "ecoregion": "eco1",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire011",
+    "lon": -113.0,
+    "lat": 36.5,
+    "when": "2019-08-12",
+    "group": "fire011",
+    "ecoregion": "eco2",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire012",
+    "lon": -110.0,
+    "lat": 36.5,
+    "when": "2020-08-13",
+    "group": "fire012",
+    "ecoregion": "eco0",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire013",
+    "lon": -107.0,
+    "lat": 36.5,
+    "when": "2021-08-14",
+    "group": "fire013",
+    "ecoregion": "eco1",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire014",
+    "lon": -104.0,
+    "lat": 36.5,
+    "when": "2022-08-15",
+    "group": "fire014",
+    "ecoregion": "eco2",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire015",
+    "lon": -101.0,
+    "lat": 36.5,
+    "when": "2018-08-16",
+    "group": "fire015",
+    "ecoregion": "eco0",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire016",
+    "lon": -122.0,
+    "lat": 39.0,
+    "when": "2019-08-17",
+    "group": "fire016",
+    "ecoregion": "eco1",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire017",
+    "lon": -119.0,
+    "lat": 39.0,
+    "when": "2020-08-18",
+    "group": "fire017",
+    "ecoregion": "eco2",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire018",
+    "lon": -116.0,
+    "lat": 39.0,
+    "when": "2021-08-19",
+    "group": "fire018",
+    "ecoregion": "eco0",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire019",
+    "lon": -113.0,
+    "lat": 39.0,
+    "when": "2022-08-20",
+    "group": "fire019",
+    "ecoregion": "eco1",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire020",
+    "lon": -110.0,
+    "lat": 39.0,
+    "when": "2018-08-21",
+    "group": "fire020",
+    "ecoregion": "eco2",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire021",
+    "lon": -107.0,
+    "lat": 39.0,
+    "when": "2019-08-22",
+    "group": "fire021",
+    "ecoregion": "eco0",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire022",
+    "lon": -104.0,
+    "lat": 39.0,
+    "when": "2020-08-23",
+    "group": "fire022",
+    "ecoregion": "eco1",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire023",
+    "lon": -101.0,
+    "lat": 39.0,
+    "when": "2021-08-24",
+    "group": "fire023",
+    "ecoregion": "eco2",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire024",
+    "lon": -122.0,
+    "lat": 41.5,
+    "when": "2022-08-25",
+    "group": "fire024",
+    "ecoregion": "eco0",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire025",
+    "lon": -119.0,
+    "lat": 41.5,
+    "when": "2018-08-01",
+    "group": "fire025",
+    "ecoregion": "eco1",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire026",
+    "lon": -116.0,
+    "lat": 41.5,
+    "when": "2019-08-02",
+    "group": "fire026",
+    "ecoregion": "eco2",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire027",
+    "lon": -113.0,
+    "lat": 41.5,
+    "when": "2020-08-03",
+    "group": "fire027",
+    "ecoregion": "eco0",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire028",
+    "lon": -110.0,
+    "lat": 41.5,
+    "when": "2021-08-04",
+    "group": "fire028",
+    "ecoregion": "eco1",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire029",
+    "lon": -107.0,
+    "lat": 41.5,
+    "when": "2022-08-05",
+    "group": "fire029",
+    "ecoregion": "eco2",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire030",
+    "lon": -104.0,
+    "lat": 41.5,
+    "when": "2018-08-06",
+    "group": "fire030",
+    "ecoregion": "eco0",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire031",
+    "lon": -101.0,
+    "lat": 41.5,
+    "when": "2019-08-07",
+    "group": "fire031",
+    "ecoregion": "eco1",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire032",
+    "lon": -122.0,
+    "lat": 44.0,
+    "when": "2020-08-08",
+    "group": "fire032",
+    "ecoregion": "eco2",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire033",
+    "lon": -119.0,
+    "lat": 44.0,
+    "when": "2021-08-09",
+    "group": "fire033",
+    "ecoregion": "eco0",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire034",
+    "lon": -116.0,
+    "lat": 44.0,
+    "when": "2022-08-10",
+    "group": "fire034",
+    "ecoregion": "eco1",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire035",
+    "lon": -113.0,
+    "lat": 44.0,
+    "when": "2018-08-11",
+    "group": "fire035",
+    "ecoregion": "eco2",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire036",
+    "lon": -110.0,
+    "lat": 44.0,
+    "when": "2019-08-12",
+    "group": "fire036",
+    "ecoregion": "eco0",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire037",
+    "lon": -107.0,
+    "lat": 44.0,
+    "when": "2020-08-13",
+    "group": "fire037",
+    "ecoregion": "eco1",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire038",
+    "lon": -104.0,
+    "lat": 44.0,
+    "when": "2021-08-14",
+    "group": "fire038",
+    "ecoregion": "eco2",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire039",
+    "lon": -101.0,
+    "lat": 44.0,
+    "when": "2022-08-15",
+    "group": "fire039",
+    "ecoregion": "eco0",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire040",
+    "lon": -122.0,
+    "lat": 46.5,
+    "when": "2018-08-16",
+    "group": "fire040",
+    "ecoregion": "eco1",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire041",
+    "lon": -119.0,
+    "lat": 46.5,
+    "when": "2019-08-17",
+    "group": "fire041",
+    "ecoregion": "eco2",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire042",
+    "lon": -116.0,
+    "lat": 46.5,
+    "when": "2020-08-18",
+    "group": "fire042",
+    "ecoregion": "eco0",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire043",
+    "lon": -113.0,
+    "lat": 46.5,
+    "when": "2021-08-19",
+    "group": "fire043",
+    "ecoregion": "eco1",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire044",
+    "lon": -110.0,
+    "lat": 46.5,
+    "when": "2022-08-20",
+    "group": "fire044",
+    "ecoregion": "eco2",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire045",
+    "lon": -107.0,
+    "lat": 46.5,
+    "when": "2018-08-21",
+    "group": "fire045",
+    "ecoregion": "eco0",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire046",
+    "lon": -104.0,
+    "lat": 46.5,
+    "when": "2019-08-22",
+    "group": "fire046",
+    "ecoregion": "eco1",
+    "continent": "NA"
+  },
+  {
+    "uid": "fire047",
+    "lon": -101.0,
+    "lat": 46.5,
+    "when": "2020-08-23",
+    "group": "fire047",
+    "ecoregion": "eco2",
+    "continent": "NA"
+  }
+]

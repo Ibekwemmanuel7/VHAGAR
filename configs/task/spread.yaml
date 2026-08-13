@@ -1,0 +1,43 @@
+# T4 -- fire spread. Physics core, ML at the boundaries.
+#
+# Realistic expectation: next-day AP 0.35-0.45 at 375 m. The field has been
+# stuck there since 2023 and doubling training data does not move it --
+# cross-year domain shift dominates. Label ceiling is 0.71-0.93 F1.
+name: spread
+horizon_hours: [12, 24, 48, 72]
+resolution_m: 375
+
+state_estimation:
+  # Highest return on investment. Fuse all sensors into a continuous fire
+  # arrival-time field; anchor to airborne IR where available.
+  method: arrival_time_field
+  observations: [viirs_375m, goes_fdc, mtg_fci, sentinel2, sentinel3]
+  anchors: [nirops_ir, feds_12h]
+
+propagation:
+  simulator: elmfire            # level set, GPU, Monte Carlo, permissive licence
+  fuels: {conus: landfire_fbfm40, canada: cffdrs_fbp_2024, europe: fireurisk_1km}
+  weather: {conus: hrrr, canada: hrdps, europe: ecmwf_cp}
+  wind_downscaling: windninja
+  ensemble_members: 100
+
+assimilation:
+  method: ensemble_score_filter  # stable polygon geometry; EnKF self-intersects
+  assimilate_every_satellite_pass: true
+  per_fire_ros_calibration: true
+
+ml_correction:
+  surrogate: diffusion           # trained on OUR simulator ensemble, for speed
+  residual_corrector: swin_unet  # ImageNet-pretrained is worth ~+0.04 AP
+  pretrained: true
+
+splits:
+  scheme: leave_one_group_out
+  by: group
+  additional:
+    - {scheme: leave_year_out, n_test_years: 1, n_val_years: 1}
+
+metrics: [average_precision, iou, burned_area_ratio, arrival_time_mae]
+report_per_fold: true            # fold sd is +/-0.08-0.10 AP; 0.02 gains are noise
+baselines: [persistence, persistence_with_buffer, elmfire_same_forcing]
+stratify_by: [wind_driven_vs_plume_dominated, fuel_type]

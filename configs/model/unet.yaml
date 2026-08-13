@@ -1,0 +1,10 @@
+# The permanent baseline. If the foundation-model fine-tune does not beat this,
+# that is a result worth reporting, not a bug to hide.
+_target_: vhagar.models.segmentation.UNet
+in_channels: 8
+out_channels: 1
+widths: [32, 64, 128, 256]
+loss:
+  _target_: vhagar.train.losses.ComboLoss
+  bce_weight: 0.5
+  dice_weight: 0.5

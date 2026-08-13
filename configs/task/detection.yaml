@@ -1,0 +1,32 @@
+# T1 -- active fire detection. Two stages; see docs/00_ARCHITECTURE.md section 3.
+name: detection
+
+stage1_candidates:
+  # Operational contextual products are kept as-is. Decades of hand-tuned
+  # false-alarm rejection over deserts, glint, flares and solar farms is not
+  # cheaply beaten on a realistic label budget.
+  sources: [goes19_fdc, goes18_fdc, mtg_fci_fir, viirs_375m, slstr_frp]
+  learned_component: temporal_anomaly      # on the GEO 3.9 um time series
+  temporal_window_steps: 12                # 12 x 5 min = 1 h at GOES cadence
+  history_hours: 72
+
+stage2_events:
+  clustering:
+    max_gap_hours: 12
+    parallax_tolerance_m: 2000             # 3x3 GEO pixel buffer, parallax-aware
+    landcover_buffers_m: {forest: 5000, shrub: 2000, grass: 1500, crop: 1000}
+  classifier: lightgbm
+  # Raw coordinates are excluded by construction -- they supplied ~89% of model
+  # gain in a published study while HARMING out-of-region transfer.
+  forbid_features: [lat, lon, x, y, easting, northing]
+
+splits:
+  scheme: leave_one_group_out
+  by: group
+  additional:
+    - {scheme: spatial_block, block_degrees: 5.0}
+    - {scheme: leave_year_out}
+
+metrics: [pod, far, precision, f1, frp_bias, detection_latency_minutes]
+primary_metric: detection_latency_minutes   # median vs reported ignition
+stratify_by: [daynight, landcover, size_decile, view_zenith]

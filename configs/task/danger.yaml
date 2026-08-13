@@ -1,0 +1,49 @@
+# T3 -- fire danger and ignition probability.
+#
+# Three quantities, never collapsed into one "risk" number:
+#   danger       conditional intensity given ignition (FWI, ERC, BI)
+#   ignition     P(>=1 ignition | cell, day)
+#   expected_ba  P(ignition) * E[burned area | ignition]
+name: danger
+outputs: [danger_index, ignition_probability, expected_burned_area]
+
+indices:
+  fwi1987: true          # continuity baseline; every threshold is calibrated to it
+  fwi2025: true          # from the NRCan reference implementation, pinned by SHA
+  nfdrs2016: conus_only  # ingest gridMET erc/bi/fm100/fm1000, do not reimplement
+  # NRCan (Feb 2026): FWI2025 outputs are NOT yet compatible with FBP1992.
+  feed_fwi2025_to_fbp1992: false
+  serve_percentile_and_anomaly: true
+
+model:
+  kind: lightgbm
+  cause_stratified: true      # human and lightning heads; near-orthogonal covariates
+  resolution_km: 4
+  lead_days: [1, 2, 3, 5, 7, 10]
+
+sampling:
+  # Ignition records are presence-only with strong reporting bias: detection
+  # probability rises with population and road proximity, the very covariates
+  # being modelled. A naive model learns where people REPORT fires.
+  pseudo_absence: target_group_background
+  stratify_negatives_by: landcover
+  negative_ratio: 2
+  # If you downsample, correct the prior -- otherwise probabilities are
+  # calibrated to a fictional base rate.
+  rare_event_prior_correction: true
+
+forcing:
+  days_0_2: [hrrr, ecmwf_hres]
+  days_3_10: [ecmwf_ens, aifs_v2]
+  days_10_45: cems_seasonal
+  bias_correct_before_fuel_codes: true   # DMC/DC integrate precip over 12-52 d
+
+splits:
+  scheme: spatial_block
+  block_degrees: 5.0
+  additional:
+    - {scheme: leave_year_out}
+
+metrics: [auprc, brier_decomposition, log_loss, ece, reliability_curve, bss_vs_climatology]
+tune_on: log_loss          # proper scoring rule only -- never F1 or CSI
+baselines: [fwi_threshold, pixel_doy_climatology]

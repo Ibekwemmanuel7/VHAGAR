@@ -1,0 +1,35 @@
+# T2 -- burned area extent and severity.
+name: burned_area
+target: burned_mask            # burned_mask | severity_rbr | both
+
+labels:
+  us: mtbs                     # continuous dNBR/RBR, NOT the thematic class
+  canada: nbac
+  europe: effis
+  # Copernicus EMS activations are the highest-quality geometries available.
+  # They are worth more as an unseen test set than as extra training data.
+  holdout_test: copernicus_emsr
+
+compositing:
+  pre_fire_window_days: [-90, -15]
+  post_fire_window_days: [15, 75]
+  method: mean                 # per-pixel mean of all valid observations
+  offset_correction: true      # subtract mean dNBR in an unburned buffer ring
+  buffer_km: 3.0
+
+severity:
+  primary_metric: rbr          # Parks et al. 2014
+  also_compute: [dnbr, rdnbr]
+  breakpoints: per_ecoregion_cbi   # never fixed Key & Benson constants
+
+latency_tiers: [r0, r10, ntc45]    # publish the accuracy gap between them
+
+splits:
+  scheme: leave_one_group_out
+  by: group                    # fire event
+  additional:
+    - {scheme: leave_one_group_out, by: ecoregion}
+    - {scheme: leave_one_group_out, by: continent}   # MTBS -> EMSR
+
+metrics: [iou, dice, burned_area_ratio, olofsson_area_ci]
+baselines: [calibrated_rbr_threshold, unet]

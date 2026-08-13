@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push: {branches: [main]}
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install (core + dev only, no GDAL, no torch)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check src tests
+      - name: Test
+        run: pytest -q --cov=vhagar --cov-report=term-missing
+
+  leakage-gate:
+    # The validation contract is a build gate, not a convention.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[dev]"
+      - name: No random splits anywhere in the codebase
+        run: |
+          if grep -rnE "train_test_split|KFold\(|shuffle=True" src/ \
+               --include="*.py" | grep -v "eval/splits.py"; then
+            echo "::error::random splitting primitive found, see docs/02_VALIDATION.md"
+            exit 1
+          fi
+      - name: Split, metric and mass-conservation tests
+        run: pytest -q tests/test_splits.py tests/test_geospatial.py tests/test_metrics.py
+      - name: Verify committed split manifests
+        run: |
+          shopt -s nullglob
+          for m in splits/*.json; do vhagar splits verify "$m"; done
