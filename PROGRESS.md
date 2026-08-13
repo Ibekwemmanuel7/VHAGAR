@@ -180,9 +180,22 @@ it.
       concurrently, the fold stays single-threaded (no lock). Manifest and
       coverage reuse the Tier A machinery. Seven offline tests including a
       resume-equals-one-pass numerical check; network stubbed.
-      - [ ] **Measure CMIP's real multi-worker wall clock** by running
-            `vhagar climatology-backfill` on a real region and reading frames/s.
-            This is the last unmeasured number in the archive plan.
+      - [x] **First live Tier B run**, GOES-18, California bbox
+            (-124,36,-118,42), 2026-08-03, 8 workers: 96 frames (24 h at 15-min),
+            0 failed, 2.9 min. Throughput 0.54 five-channel frames/s = 2.76 CMIP
+            granule-reads/s at 8 workers, single-worker-equivalent about 2.9 s per
+            granule. At this rate a year of 15-min climatology over a
+            California-sized region is roughly 18 h at 8 workers. Scope: full
+            granule bytes fetched, cropped decode, so representative for regional
+            Tier B sizing but not the full-CONUS single-granule figure.
+      - **Validation:** the output is physically correct, not just non-empty. The
+        C07 centre-pixel diurnal cycle bottoms at 289.7 K in UTC bin 13 (pre-dawn
+        local) and peaks at 317.6 K in bin 21 (early afternoon local), confirming
+        the UTC-hour binning recovers a real per-pixel diurnal cycle. All 24 bins
+        hold 4 samples each; BTs are in sensible ranges with C07 hottest.
+      - Storage note: the checkpoint is 206 MB for this one bbox (237x302), which
+        extrapolates to about 11 GB for full CONUS. Chunk the climatology per
+        region rather than holding CONUS in one accumulator.
 
 All five CMIP decoder steps are done. The decoder, stacking, measurement,
 climatology reducer and Tier B backfill are in and tested offline.
