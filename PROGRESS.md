@@ -299,8 +299,15 @@ wired them.
             pixel-area bug: area now derived from `--res-m` (was hardcoded 0.09).
             Four offline geometry tests. Needs the user to download a few EMS
             delineation shapefiles and run.
-      - [ ] Still open: run continent-out on real EMS fires; more US fires across
-            sizes/ecoregions; per-ecoregion thresholds; a plain U-Net companion.
+      - [x] **RAN leave-one-continent-out on real EMS fires. The headline.**
+            Train threshold on US MTBS, test on EMSR527 Evia + Attika (Greece,
+            Aug 2021). **Within-CONUS F1 0.87 -> cross-continent F1 0.58**
+            (IoU 0.41), a ~0.28 generalisation gap: a US-calibrated RBR cutoff
+            transfers poorly to Greek Mediterranean fuels. Olofsson adjusted
+            33,452 +/- 8,449 ha. Clean diagnostics, not degenerate. In
+            `docs/11_T2_STAGE0_RESULTS.md`.
+      - [ ] Still open: more EU fires to tighten it; per-ecoregion thresholds (the
+            obvious fix for the transfer gap); a plain U-Net companion.
 - [ ] Plain U-Net companion baseline (Dice/Combo loss), same eval.
 - [ ] Swap predictor to independent S2/Landsat composites for the report number.
 - [ ] Leave-one-continent-out (MTBS train, EMSR test) once EFFIS/EMSR ingested.

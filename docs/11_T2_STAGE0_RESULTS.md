@@ -65,6 +65,30 @@ multiply by 1/0.09 for the corrected values (Dixie mapped ~164,000 ha, not
 derives pixel area from `--res-m`, so a fresh run (instant, cached) prints
 correct areas.
 
+## Leave-one-continent-out (the headline generalisation number)
+
+Train the RBR threshold on the US MTBS fires, test on European Copernicus EMS
+fires (EMSR527, Evia and Attika, Greece, August 2021). The threshold never sees
+Europe. Run: `vhagar t2-continent-out --emsr-manifest emsr.csv`.
+
+| test | US fires | EU fires | threshold | F1 | IoU | adjusted ha | 95% CI |
+|---|---|---|---|---|---|---|---|
+| EU EMS | 5 | 2 | 25.2 | **0.582** | **0.411** | 33,452 | ±8,449 |
+
+**Within-CONUS F1 0.87 drops to 0.58 across continents.** That ~0.28 gap is the
+result: a burn-severity threshold calibrated on Californian conifer and chaparral
+fuels is mis-set for Greek Mediterranean pine and scrub, so it transfers poorly.
+The predictor still carries signal (RBR separates burned from unburned in Greece);
+it is the fixed cutoff that does not transfer. This is exactly the fuel-and-regime
+dependence the architecture warns about, measured honestly rather than hidden by a
+pooled split. A result near 0.87 here would have signalled leakage; the drop is
+the credible outcome.
+
+Diagnostics were clean: both delineations rasterised sensibly (Evia 74,524 valid
+px at 33% burned in-window, Attika 23,728 at 29%), and the Olofsson estimate has a
+real CI. Caveat: only two European fires; more EMS activations would tighten it,
+and per-ecoregion thresholds are the obvious next improvement.
+
 ## Reproduce
 
 Samples are cached under `data/t2_cache/`, so a re-run is instant:
