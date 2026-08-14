@@ -277,14 +277,30 @@ wired them.
       existing driver and reports F1/IoU + Olofsson adjusted area with 95% CI and
       per-fold std. 16 offline tests (masking, compositing, RBR separation, window
       geometry, stubbed assembly); network/rasterio only at the edge.
-      - [ ] **Run it** (open network + pystac-client + rasterio, on this machine):
-            `vhagar t2-stage0 --registry data\labels\registry.parquet
-            --mosaic mtbs_extract\mtbs_CONUS_2021.tif --min-area-ha 5000
-            --max-fires 12`. Produces the first independent, leakage-proof,
-            CI-bearing T2 accuracy number.
-      - Note: the sandbox proxy blocks STAC and the imagery S3 buckets, so the
-        Sentinel-2 pull was built and unit-tested but must run on the open network
-        here. Everything up to the network edge is verified.
+      - [x] **RAN on real Sentinel-2 + MTBS. First accuracy number.**
+            **F1 0.865 ± 0.056, IoU 0.765 ± 0.084** over 5 leave-one-fire-out
+            folds on the largest 2021 CONUS fires (Dixie, Bootleg, Caldor, ...),
+            independent RBR vs MTBS, with per-fire Olofsson adjusted areas and 95%
+            CIs. Full table and reading in `docs/11_T2_STAGE0_RESULTS.md`. One
+            fully-clouded fire dropped, disclosed. Samples cached in
+            `data/t2_cache/` so widening does not re-pull.
+      - Robustness added during the run: per-fire sample caching, degenerate-fire
+        filtering (all-cloud or single-class), folds skip rather than crash, and
+        a coarse-res + scene-cap + streaming compositor so large fires do not blow
+        memory.
+      - [x] **Leave-one-continent-out capability built (MTBS -> EMSR headline).**
+            EMS ingest (`build_emsr_record`/`read_emsr`, europe/EPSG:3035,
+            evaluation-only), a rasterised burnt-area reference
+            (`rasterize_burned_on_grid`/`read_emsr_reference_on_grid`, reprojects
+            then burns polygons onto the fire window), the sample builder
+            generalised to any reference source, and a `vhagar t2-continent-out`
+            CLI that trains the threshold on the cached US fires and tests on
+            European EMS fires (single honest cross-continent fold). Also fixed a
+            pixel-area bug: area now derived from `--res-m` (was hardcoded 0.09).
+            Four offline geometry tests. Needs the user to download a few EMS
+            delineation shapefiles and run.
+      - [ ] Still open: run continent-out on real EMS fires; more US fires across
+            sizes/ecoregions; per-ecoregion thresholds; a plain U-Net companion.
 - [ ] Plain U-Net companion baseline (Dice/Combo loss), same eval.
 - [ ] Swap predictor to independent S2/Landsat composites for the report number.
 - [ ] Leave-one-continent-out (MTBS train, EMSR test) once EFFIS/EMSR ingested.

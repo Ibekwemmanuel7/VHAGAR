@@ -1,0 +1,76 @@
+# T2 Stage-0 results: independent RBR vs MTBS, CONUS 2021
+
+First defensible accuracy number for the project. An independent Sentinel-2 RBR
+predictor, calibrated leave-one-fire-out and evaluated against the MTBS thematic
+severity, on the largest 2021 CONUS wildfires.
+
+## Headline
+
+**F1 0.865 ± 0.056, IoU 0.765 ± 0.084** across 5 leave-one-fire-out folds.
+
+This is an accuracy claim, not a self-comparison: the predictor (Sentinel-2 RBR)
+and the reference (MTBS) share no lineage. It sits squarely in the burned-area
+literature's honest range (~0.7 to 0.85), and it is not a suspicious ~0.99, which
+would signal leakage.
+
+## Per-fold table
+
+Run: `vhagar t2-stage0 --min-area-ha 10000 --max-fires 6 --max-scenes 4 --res-m 100`,
+analysis at 100 m, up to 4 least-cloudy Sentinel-2 scenes per pre/post window.
+
+| held-out fire | threshold | F1 | IoU | mapped ha | adjusted ha | 95% CI |
+|---|---|---|---|---|---|---|
+| AZ33212… | 25.2  | 0.779 | 0.638 |  1,801 |  1,085 | ±201  |
+| CA38586… | 25.2  | 0.924 | 0.858 |    115 |     98 | ±10   |
+| CA39876… (Dixie) | 111.3 | 0.891 | 0.803 | 14,761 | 17,112 | ±687  |
+| CA41142… | 25.2  | 0.885 | 0.794 |  2,198 |  2,138 | ±164  |
+| OR42616… (Bootleg) | -10.9 | 0.845 | 0.731 | 12,286 |  9,694 | ±1,147 |
+
+## What the numbers say
+
+- **Threshold transfer is the real limitation, and it is exposed honestly.** The
+  calibrated RBR cutoff ranges from -10.9 to +111 across fires. A single global
+  threshold does not transfer across fuel types and fire regimes; leave-one-fire-out
+  makes that visible rather than hiding it behind a pooled split. This is the
+  motivation for the architecture's per-ecoregion breakpoints.
+- **The Olofsson adjustment is working, bidirectionally.** Bootleg: mapped 12,286
+  ha adjusted down to 9,694 ± 1,147 (the threshold over-predicted). Dixie: mapped
+  14,761 adjusted up to 17,112 ± 687 (under-caught). An estimator that only ever
+  moved one direction would be suspect; this one corrects both ways with sensible
+  intervals.
+- **Coverage is disclosed.** One of the six fires (CA40752…) returned zero valid
+  pixels, a fully cloud-covered post window, and was dropped rather than faked.
+  Cloud-thinned windows also explain the small valid-pixel counts and wider CIs on
+  a couple of fires.
+
+## Honest caveats
+
+- Five fires, all large (>10,000 ha), western CONUS, one year. Not a
+  distribution-representative sample; it is a first number, not the final one.
+- 100 m analysis resolution and 4 scenes per window were chosen for speed. Both
+  can be tightened (finer resolution, more scenes) for a sharper number at more
+  compute; the samples are cached, so widening does not re-pull existing fires.
+- A single global RBR threshold is the Stage-0 baseline by design. Per-ecoregion
+  calibration and a plain U-Net companion are the next comparisons the protocol
+  asks for.
+- MTBS thematic is the reference; the independent, cross-continent number is the
+  leave-one-continent-out test against Copernicus EMS, still to come.
+
+## Correction: pixel area
+
+The area columns above were computed with a hardcoded 0.09 ha/pixel (30 m), but
+the run was at 100 m (1 ha/pixel), so **the ha figures are understated by ~11x**;
+multiply by 1/0.09 for the corrected values (Dixie mapped ~164,000 ha, not
+14,761). F1 and IoU are per-pixel ratios and are **unaffected**. The CLI now
+derives pixel area from `--res-m`, so a fresh run (instant, cached) prints
+correct areas.
+
+## Reproduce
+
+Samples are cached under `data/t2_cache/`, so a re-run is instant:
+
+```
+vhagar t2-stage0 --registry data/labels/registry.parquet \
+  --mosaic mtbs_extract/mtbs_CONUS_2021.tif \
+  --min-area-ha 10000 --max-fires 6 --max-scenes 4 --res-m 100
+```

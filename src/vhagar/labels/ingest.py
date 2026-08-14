@@ -26,7 +26,7 @@ from datetime import date
 
 from vhagar.labels.registry import FireEventRecord, LabelSource
 
-__all__ = ["normalize_mtbs", "read_mtbs"]
+__all__ = ["build_emsr_record", "normalize_mtbs", "read_emsr", "read_mtbs"]
 
 
 def _parse_date(value) -> date | None:
@@ -148,3 +148,68 @@ def read_mtbs(
     return normalize_mtbs(
         rows, region=region, geometry_dir=geometry_dir, severity_dir=severity_dir
     )
+
+
+def build_emsr_record(
+    activation_id: str,
+    event_date,
+    geometries,
+    src_crs,
+    delineation_path: str,
+) -> FireEventRecord:
+    """Build one European fire record from a Copernicus EMS burnt-area delineation.
+
+    Area and representative point are derived from the union of the burnt-area
+    polygons in an equal-area CRS (EPSG:3035), so hectares are unbiased. The
+    delineation path is kept in ``attributes`` for the reference reader that
+    rasterises it. Marked ``COPERNICUS_EMS``, which the registry reserves as
+    evaluation-only, exactly right for the held-out continent. Pure: needs
+    shapely and pyproj, no file IO.
+    """
+    from pyproj import Transformer
+    from shapely.ops import transform as shp_transform
+    from shapely.ops import unary_union
+
+    to_ea = Transformer.from_crs(src_crs, "EPSG:3035", always_xy=True)
+    to_wgs = Transformer.from_crs("EPSG:3035", "EPSG:4326", always_xy=True)
+
+    def _to_ea(x, y, z=None):
+        return to_ea.transform(x, y)
+
+    ea = [shp_transform(_to_ea, g) for g in geometries if g is not None]
+    if not ea:
+        raise ValueError(f"{activation_id}: no burnt-area geometries")
+    union = unary_union(ea)
+    lon, lat = to_wgs.transform(union.centroid.x, union.centroid.y)
+
+    if isinstance(event_date, str):
+        event_date = _parse_date(event_date)
+
+    return FireEventRecord(
+        event_id=f"emsr:{activation_id}",
+        source=LabelSource.COPERNICUS_EMS,
+        region="europe",
+        ignition_date=event_date,
+        containment_date=None,
+        area_ha=union.area / 1e4,
+        lon=float(lon),
+        lat=float(lat),
+        geometry_path=str(delineation_path),
+        continent="europe",
+        attributes={"delineation_path": str(delineation_path)},
+    )
+
+
+def read_emsr(delineation_path, event_date, activation_id: str | None = None) -> FireEventRecord:
+    """Read an EMS delineation shapefile into a fire record. Needs pyogrio, shapely."""
+    from pyogrio.raw import read as _raw_read
+    from shapely import wkb
+
+    result = _raw_read(delineation_path, read_geometry=True)
+    meta, geom_wkb = result[0], result[2]
+    geoms = [wkb.loads(bytes(g)) for g in geom_wkb if g is not None]
+    if activation_id is None:
+        from pathlib import Path
+
+        activation_id = Path(delineation_path).stem
+    return build_emsr_record(activation_id, event_date, geoms, meta["crs"], delineation_path)

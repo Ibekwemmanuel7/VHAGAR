@@ -734,7 +734,10 @@ def t2_stage0_cmd(
 
     units = [u for u in reg.to_split_units() if u.uid in samples]
     manifest = leave_one_group_out(units, by="group")
-    results = run_stage0(samples, manifest, pixel_area_ha=0.09, n_reference=n_reference, seed=seed)
+    pixel_area_ha = (res_m ** 2) / 1e4  # 100 m pixel = 1 ha; 30 m = 0.09 ha
+    results = run_stage0(
+        samples, manifest, pixel_area_ha=pixel_area_ha, n_reference=n_reference, seed=seed
+    )
 
     t = Table(title=f"T2 Stage-0, independent RBR vs MTBS ({region} {year}, leave-one-fire-out)")
     for col in ("held out", "thresh", "F1", "IoU", "mapped ha", "adjusted ha", "95% CI"):
@@ -757,6 +760,112 @@ def t2_stage0_cmd(
         "[dim]  Independent predictor (Sentinel-2), MTBS reference: this is an accuracy\n"
         "  claim, not a self-comparison. Per-fold std reported because it rivals model "
         "spread.[/dim]"
+    )
+
+
+@app.command("t2-continent-out")
+def t2_continent_out_cmd(
+    registry: Path = typer.Option(..., exists=True, help="registry Parquet (MTBS training)"),
+    mosaic: Path = typer.Option(..., exists=True, help="MTBS thematic mosaic (US reference)"),
+    emsr_manifest: Path = typer.Option(
+        ..., exists=True, help="CSV: activation_id,delineation_path,event_date"
+    ),
+    min_area_ha: float = typer.Option(10000.0, help="US training fires at least this large"),
+    max_fires: int = typer.Option(6, help="cap US training fires"),
+    max_scenes: int = typer.Option(4),
+    res_m: float = typer.Option(100.0),
+    cache_dir: Path = typer.Option(Path("data/t2_cache")),
+    n_reference: int = typer.Option(500),
+    seed: int = typer.Option(0),
+) -> None:
+    """Leave-one-continent-out: train the RBR threshold on US MTBS fires, test on
+    European Copernicus EMS fires. The architecture's headline generalisation
+    number. The US samples are reused from the t2-stage0 cache; the European
+    ones are pulled fresh (Sentinel-2 over Europe) and cached too.
+    """
+    import csv as _csv
+    import time as _time
+
+    from vhagar.datasets.t2_optical import (
+        build_optical_sample,
+        build_optical_samples,
+        read_emsr_reference_on_grid,
+    )
+    from vhagar.eval.t2_stage0 import evaluate_fold
+    from vhagar.labels.ingest import read_emsr
+    from vhagar.labels.registry import EventRegistry
+
+    pixel_area_ha = (res_m ** 2) / 1e4
+
+    # --- US training side (cached from t2-stage0) ---
+    reg = EventRegistry.from_parquet(registry)
+    us = [
+        r for r in reg
+        if r.region == "conus" and r.ignition_date and r.ignition_date.year == 2021
+        and (r.area_ha or 0) >= min_area_ha and r.tile_ids
+    ]
+    us.sort(key=lambda r: r.area_ha or 0, reverse=True)
+    us = us[:max_fires]
+    console.print(f"[bold]US training: {len(us)} MTBS fires[/bold] (reusing cache where present).")
+    train = build_optical_samples(
+        us, mosaic, cache_dir=cache_dir, max_scenes=max_scenes, res_m=res_m,
+        on_error=lambda r, e: console.print(f"  [yellow]skip US[/yellow] {r.event_id}"),
+    )
+    train = {k: s for k, s in train.items() if s.is_usable}
+    if len(train) < 3:
+        console.print(f"[red]only {len(train)} usable US fires[/red]")
+        raise typer.Exit(1)
+
+    # --- European test side (EMS delineations) ---
+    console.print("\n[bold]European test: Copernicus EMS fires[/bold] (pulling Sentinel-2).")
+    test = {}
+    with emsr_manifest.open() as fh:
+        rows = list(_csv.DictReader(fh))
+    for row in rows:
+        path = row["delineation_path"]
+        aid = row.get("activation_id") or Path(path).stem
+        console.print(f"  {aid}...", end=" ")
+        t0 = _time.perf_counter()
+        try:
+            rec = read_emsr(path, row["event_date"], activation_id=aid)
+            ref = lambda grid, p=path: read_emsr_reference_on_grid(p, grid)  # noqa: E731
+            s = build_optical_sample(
+                rec, ref, cache_dir=cache_dir, max_scenes=max_scenes, res_m=res_m,
+            )
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[yellow]skip[/yellow] ({type(exc).__name__})")
+            continue
+        if s.is_usable:
+            test[rec.event_id] = s
+            console.print(
+                f"[green]ok[/green] ({_time.perf_counter() - t0:.0f}s, "
+                f"{s.n_valid:,} px, {100 * s.burned_fraction:.0f}% burned)"
+            )
+        else:
+            console.print("[yellow]drop[/yellow] (not calibratable)")
+    if len(test) < 1:
+        console.print("[red]no usable European fires[/red]")
+        raise typer.Exit(1)
+
+    # --- one fold: train US, test Europe ---
+    r = evaluate_fold(
+        list(train.values()), list(test.values()), held_out="EMSR (Europe)",
+        pixel_area_ha=pixel_area_ha, n_reference=n_reference, seed=seed,
+    )
+    t = Table(title="T2 leave-one-continent-out: train US MTBS, test EU EMS")
+    for col in ("test", "US fires", "EU fires", "thresh", "F1", "IoU", "adjusted ha", "95% CI"):
+        t.add_column(col, justify="right")
+    t.add_row(
+        "EU EMS", str(len(train)), str(len(test)), f"{r.threshold:.3f}",
+        f"{r.f1:.3f}", f"{r.iou:.3f}",
+        f"{r.adjusted_burned_ha:,.0f}" if r.adjusted_burned_ha is not None else "-",
+        f"±{r.ci95_ha:,.0f}" if r.ci95_ha is not None else "-",
+    )
+    console.print(t)
+    console.print(
+        "[dim]  The threshold is calibrated only on US fires and never sees Europe.\n"
+        "  This is the honest cross-continent transfer number; expect it below the\n"
+        "  within-CONUS leave-one-fire-out F1.[/dim]"
     )
 
 

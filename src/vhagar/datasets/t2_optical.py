@@ -80,7 +80,6 @@ def read_mtbs_reference_on_grid(mosaic_path, grid: TargetGrid):
     Nearest resampling, because the thematic classes are categorical. Needs
     rasterio.
     """
-    import numpy as np  # noqa: F401  (kept explicit; masks are numpy)
     import rasterio
     from rasterio.enums import Resampling
     from rasterio.transform import Affine
@@ -96,6 +95,54 @@ def read_mtbs_reference_on_grid(mosaic_path, grid: TargetGrid):
     ) as vrt:
         severity = vrt.read(1)
     return mtbs_burned_mask(severity)
+
+
+def rasterize_burned_on_grid(geometries, src_crs, grid: TargetGrid):
+    """Rasterise burned polygons (in ``src_crs``) onto a window. Needs rasterio, shapely.
+
+    ``geometries`` is an iterable of shapely geometries. Each is reprojected to
+    the grid CRS and burned in. Returns ``(burned, valid)`` with valid all-True:
+    a delineation labels every window pixel as inside-or-outside the perimeter.
+    Pure geometry-to-raster, so it is testable without any file.
+    """
+    import numpy as np
+    from pyproj import Transformer
+    from rasterio.features import rasterize
+    from rasterio.transform import Affine
+    from shapely.ops import transform as shp_transform
+
+    tf = Transformer.from_crs(src_crs, grid.crs, always_xy=True)
+
+    def _project(x, y, z=None):
+        return tf.transform(x, y)
+
+    shapes = [shp_transform(_project, g) for g in geometries if g is not None]
+    if shapes:
+        burned = rasterize(
+            [(s, 1) for s in shapes],
+            out_shape=grid.shape,
+            transform=Affine(*grid.transform),
+            fill=0,
+            dtype="uint8",
+        ).astype(bool)
+    else:
+        burned = np.zeros(grid.shape, dtype=bool)
+    return burned, np.ones(grid.shape, dtype=bool)
+
+
+def read_emsr_reference_on_grid(delineation_path, grid: TargetGrid):
+    """Read a Copernicus EMS burnt-area delineation shapefile and rasterise it.
+
+    The pyogrio read is the IO edge; the rasterising is
+    :func:`rasterize_burned_on_grid`. Needs pyogrio and shapely.
+    """
+    from pyogrio.raw import read as _raw_read
+    from shapely import wkb
+
+    result = _raw_read(delineation_path, read_geometry=True)
+    meta, geom_wkb = result[0], result[2]
+    geoms = [wkb.loads(bytes(g)) for g in geom_wkb if g is not None]
+    return rasterize_burned_on_grid(geoms, meta["crs"], grid)
 
 
 def build_optical_sample(
@@ -141,7 +188,14 @@ def build_optical_sample(
         bbox, record.ignition_date.isoformat(), grid,
         max_cloud=max_cloud, max_scenes=max_scenes,
     )
-    burned, valid = read_mtbs_reference_on_grid(mosaic_path, grid)
+    # ``mosaic_path`` is either an MTBS thematic mosaic (path) or a callable
+    # reference reader, e.g. an EMS delineation. This is what lets the same
+    # optical predictor pipeline serve both the CONUS and the European side of
+    # the leave-one-continent-out test.
+    if callable(mosaic_path):
+        burned, valid = mosaic_path(grid)
+    else:
+        burned, valid = read_mtbs_reference_on_grid(mosaic_path, grid)
     sample = make_sample(
         record.event_id, predictor, burned, reference_valid=valid,
         tile_id=record.tile_ids[0] if record.tile_ids else None,
