@@ -190,6 +190,45 @@ objective is a cheap partial fix already in hand. Do not compare any of these to
 the earlier 0.582 (a different, 6-fire pool with no Csa fire, so per-stratum there
 was inert); only the within-pool numbers here walk the same code path.
 
+## The objective x window interaction, decomposed
+
+The window fix and the objective fix are two separate levers, so measure them
+separately. Holding the current narrow window fixed and varying only the objective
+(same code path, same cache) shows the objective's effect is **opposite on the two
+axes**, which is itself the clearest evidence that the window, not the objective, is
+the root problem:
+
+| axis (narrow window, global threshold) | F1 objective | Youden objective |
+|---|---|---|
+| within-CONUS leave-one-fire-out (34 fires) | 0.900 (std 0.083) | 0.588 (std 0.333) |
+| continent-out (US to EU) | 0.488 | 0.573 |
+
+Within CONUS the test windows are themselves ~90% burned, so an F1 threshold that
+predicts everything burned matches them and scores 0.900; the balanced threshold is
+more selective, under-predicts on those mostly-burned windows, and falls to 0.588.
+Across continents the EU windows are 32% burned, so the same predict-all-burned
+threshold is catastrophic (0.488) while the balanced one transfers (0.573). Neither
+objective is "correct" on narrow windows; the F1 number in particular is inflated by
+the shared ~90%-burned balance of train and test windows.
+
+Two distinct effects, not one. The high within-CONUS F1 (0.900) is a window artefact
+and should deflate once test windows carry unburned context. But the balanced
+objective's large fold-to-fold spread (std 0.33) is a **different** effect: it does
+not track window balance (correlation between a fold's burned fraction and its Youden
+F1 is only +0.06, and the single most-balanced fold scores among the lowest). That
+spread comes from per-fire RBR scale heterogeneity: one pooled Youden cut (~205)
+fits some fires' burn severity and misses others, which is the genuine fuel-and-regime
+variation the architecture's per-ecoregion breakpoints are meant to absorb.
+
+Prediction to test after the wide-window re-pull (`w15` cache): the F1-objective
+within-CONUS number should drop toward the balanced one as test windows stop being
+~90% burned, so the two objectives converge mainly by the inflated F1 number coming
+down. The balanced objective's per-fire spread may **not** shrink, because its driver
+is RBR-scale heterogeneity rather than window balance; if it persists, that is
+evidence for per-stratum thresholds done properly (enough fires per stratum), not
+against them. Distinguishing "window artefact" from "real per-fire scale" is the
+point of the measurement.
+
 ## Reproduce
 
 Samples are cached under `data/t2_cache/`, so a re-run is instant:
