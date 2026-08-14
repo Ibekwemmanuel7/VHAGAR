@@ -98,10 +98,15 @@ the permanent-baselines rule.
 
 | method | CONUS leave-one-fire-out F1 | continent-out F1 |
 |---|---|---|
-| **global (calibrated)** | **0.865 ± 0.056** | **0.582** |
+| **global (calibrated)** | 0.865 ± 0.056 | **0.582** |
+| global + per-fire robust standardization | **0.876 ± 0.055** | 0.535 |
 | otsu (adaptive, per fire) | 0.713 ± 0.075 | 0.552 |
 
-The calibrated threshold wins at both scales. Otsu (even outlier-robust, with a
+The calibrated raw-RBR threshold wins for **transfer** (continent-out), which is
+what matters. Per-fire robust standardization (recenter by median, scale by MAD)
+nudges the within-CONUS number up but *hurts* cross-continent transfer: aligning
+each fire's RBR scale does not fix the US-to-EU domain shift, so the difference is
+genuine (fuel and regime), not a scaling offset. Otsu is worst. Otsu (even outlier-robust, with a
 percentile-clipped histogram) picks a per-fire cut around RBR 245 for the Greek
 fires, well above the transferable global cut of 25, and under-detects. RBR's
 heavy tails and the window-scale class balance make its per-fire distribution

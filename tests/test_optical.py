@@ -145,6 +145,26 @@ def test_build_optical_sample_wires_predictor_and_reference(monkeypatch):
     assert s.n_valid > 0
 
 
+def test_select_fires_largest_vs_size_stratified():
+    from vhagar.datasets.t2_optical import select_fires
+
+    fires = [_fire(area_ha=a) for a in (100, 500, 1000, 5000, 20000, 100000)]
+    largest = select_fires(fires, 3, "largest")
+    assert sorted(r.area_ha for r in largest) == [5000, 20000, 100000]
+    spread = select_fires(fires, 3, "size")
+    areas = sorted(r.area_ha for r in spread)
+    # spans small to large, not just the top
+    assert areas[0] <= 500 and areas[-1] == 100000
+    assert len(select_fires(fires, 99, "size")) == 6   # n >= len returns all
+
+
+def test_select_fires_rejects_unknown_strategy():
+    from vhagar.datasets.t2_optical import select_fires
+
+    with pytest.raises(ValueError, match="strategy must be"):
+        select_fires([_fire(area_ha=1), _fire(area_ha=2)], 1, "random")
+
+
 def test_batch_builder_skips_fires_that_error(monkeypatch):
     import vhagar.datasets.t2_optical as t2o
 

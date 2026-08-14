@@ -24,9 +24,39 @@ from vhagar.io.optical import TargetGrid
 __all__ = [
     "build_optical_sample",
     "build_optical_samples",
+    "rasterize_burned_on_grid",
+    "read_emsr_reference_on_grid",
     "read_mtbs_reference_on_grid",
+    "select_fires",
     "target_grid_for_fire",
 ]
+
+
+def select_fires(records, n: int, strategy: str = "largest"):
+    """Pick ``n`` fires from ``records`` by a strategy.
+
+    ``"largest"`` takes the ``n`` biggest fires (fast to image, but biases every
+    downstream number toward megafires). ``"size"`` instead samples ``n`` fires
+    spread evenly across the area-sorted list, from small to large, so the
+    evaluation is representative of the fire-size distribution rather than its
+    tail.
+    """
+    ranked = sorted(records, key=lambda r: r.area_ha or 0.0)
+    if n >= len(ranked):
+        return list(ranked)
+    if strategy == "largest":
+        return ranked[-n:]
+    if strategy == "size":
+        import numpy as np
+
+        idx = np.linspace(0, len(ranked) - 1, n).round().astype(int)
+        seen, out = set(), []
+        for i in idx:
+            if int(i) not in seen:
+                seen.add(int(i))
+                out.append(ranked[int(i)])
+        return out
+    raise ValueError(f"strategy must be 'largest' or 'size', got {strategy!r}")
 
 
 def target_grid_for_fire(

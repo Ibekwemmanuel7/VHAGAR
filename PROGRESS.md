@@ -315,8 +315,19 @@ wired them.
             `--method global|otsu` on both CLIs, computed directly from the cache.
             Reporting the negative result is the permanent-baselines rule in
             action.
-      - [ ] Still open: more EU fires; per-ecoregion thresholds; a plain U-Net
-            companion (the learned-model comparison).
+      - [x] **Per-fire standardization tested (another negative for transfer).**
+            Recenter/scale each fire's RBR then apply a global threshold: helps
+            CONUS slightly (0.865 -> 0.876) but hurts continent-out (0.582 ->
+            0.535). Three methods now mapped; calibrated raw-RBR global is best
+            for transfer. The US->EU gap is genuine domain shift, not scaling.
+      - [x] **Size-stratified fire selection** (`select_fires`, `--select size`):
+            sample fires across the area distribution instead of only the
+            largest, so a scaled evaluation is distribution-representative rather
+            than megafire-biased.
+      - [ ] The real lever now is DATA: run a scaled, size-stratified US pull
+            (`--max-fires 30 --select size`) and add more EU fires, then per-fold
+            stats tighten and per-ecoregion / learned-model methods have enough
+            data to matter.
 - [ ] Plain U-Net companion baseline (Dice/Combo loss), same eval.
 - [ ] Swap predictor to independent S2/Landsat composites for the report number.
 - [ ] Leave-one-continent-out (MTBS train, EMSR test) once EFFIS/EMSR ingested.

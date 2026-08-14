@@ -660,6 +660,7 @@ def t2_stage0_cmd(
     year: int = typer.Option(2021, help="fire year to evaluate"),
     min_area_ha: float = typer.Option(2000.0, help="only fires at least this large"),
     max_fires: int = typer.Option(15, help="cap the number of fires (imagery is the cost)"),
+    select: str = typer.Option("largest", help="fire selection: largest | size (size-stratified)"),
     max_cloud: float = typer.Option(60.0, help="max scene cloud cover percent"),
     max_scenes: int = typer.Option(6, help="least-cloudy scenes per window (fewer = faster)"),
     res_m: float = typer.Option(100.0, help="analysis resolution in metres (coarser = faster)"),
@@ -680,13 +681,14 @@ def t2_stage0_cmd(
     from vhagar.labels.registry import EventRegistry
 
     reg = EventRegistry.from_parquet(registry)
-    fires = [
+    from vhagar.datasets.t2_optical import select_fires
+
+    candidates = [
         r for r in reg
         if r.region == region and r.ignition_date and r.ignition_date.year == year
         and (r.area_ha or 0) >= min_area_ha and r.tile_ids
     ]
-    fires.sort(key=lambda r: r.area_ha or 0, reverse=True)
-    fires = fires[:max_fires]
+    fires = select_fires(candidates, max_fires, strategy=select)
     if len(fires) < 3:
         console.print(f"[red]only {len(fires)} fires match; need at least 3[/red]")
         raise typer.Exit(1)
