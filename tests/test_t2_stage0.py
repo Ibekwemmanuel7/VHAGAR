@@ -139,6 +139,38 @@ def test_run_stage0_reports_every_fold_and_is_deterministic():
     assert "f1_std" in s
 
 
+def test_otsu_finds_the_valley_between_two_modes():
+    from vhagar.eval.baselines import otsu_threshold
+
+    rng = np.random.default_rng(0)
+    x = np.concatenate([rng.normal(0.0, 1.0, 2000), rng.normal(10.0, 1.0, 2000)])
+    assert 3.0 < otsu_threshold(x) < 7.0
+
+
+def test_otsu_is_robust_to_heavy_tail_outliers():
+    from vhagar.eval.baselines import otsu_threshold
+
+    rng = np.random.default_rng(0)
+    x = np.concatenate([rng.normal(0.0, 1.0, 2000), rng.normal(10.0, 1.0, 2000), [1e6, -1e6]])
+    # a naive fixed-range histogram would dump everything in one bin; the
+    # percentile-clipped range keeps the threshold in the valley.
+    assert 3.0 < otsu_threshold(x) < 7.0
+
+
+def test_evaluate_fold_otsu_is_calibration_free():
+    """Otsu thresholds each test fire from its own distribution, so it needs no
+    training fires at all."""
+    test = [_fire("te", seed=1)]
+    r = evaluate_fold([], test, method="otsu", seed=0)
+    assert r.f1 > 0.8            # separable fire, Otsu recovers it
+    assert r.n_test_valid > 0
+
+
+def test_unknown_method_is_rejected():
+    with pytest.raises(ValueError, match="method must be"):
+        evaluate_fold([_fire("a")], [_fire("b")], method="kmeans")
+
+
 def test_all_unburned_map_reports_no_adjustment_without_crashing():
     # predictor far below any burned dNBR, so nothing is mapped burned
     flat = make_sample("te", np.full((50, 50), 10.0), np.zeros((50, 50), dtype=bool))

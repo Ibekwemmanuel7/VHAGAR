@@ -18,11 +18,54 @@ import numpy as np
 __all__ = [
     "climatology_baseline",
     "isotropic_buffer",
+    "otsu_threshold",
     "persistence",
     "persistence_with_buffer",
     "threshold_baseline",
     "tune_threshold",
 ]
+
+
+def otsu_threshold(index: np.ndarray, nbins: int = 256, clip_percentile: float = 1.0) -> float:
+    """Otsu's threshold: the cut that maximises between-class variance.
+
+    An **adaptive, calibration-free** alternative to a globally tuned threshold.
+    Each fire's own burn-severity distribution is roughly bimodal (unburned low,
+    burned high), and Otsu finds the split between the two modes from that
+    distribution alone, so it can transfer across fuel types where a single fixed
+    cutoff does not.
+
+    ``clip_percentile`` trims the histogram range to the ``[p, 100-p]`` percentiles
+    before binning. This matters for RBR, whose heavy tails would otherwise dump
+    almost every pixel into one bin and place the threshold on an outlier.
+    Non-finite values are ignored.
+
+    >>> import numpy as np
+    >>> x = np.concatenate([np.full(100, 0.0), np.full(100, 1.0)])
+    >>> 0.0 < otsu_threshold(x) < 1.0
+    True
+    """
+    a = np.asarray(index, dtype=np.float64)
+    a = a[np.isfinite(a)]
+    if a.size == 0:
+        raise ValueError("index contains no finite values")
+    lo = float(np.percentile(a, clip_percentile))
+    hi = float(np.percentile(a, 100.0 - clip_percentile))
+    if lo == hi:
+        lo, hi = float(a.min()), float(a.max())
+    if lo == hi:
+        return lo
+
+    hist, edges = np.histogram(a, bins=nbins, range=(lo, hi))
+    centers = (edges[:-1] + edges[1:]) / 2.0
+    w = hist.astype(np.float64) / hist.sum()
+    cum_w = np.cumsum(w)
+    cum_mean = np.cumsum(w * centers)
+    global_mean = cum_mean[-1]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        between = (global_mean * cum_w - cum_mean) ** 2 / (cum_w * (1.0 - cum_w))
+    between[~np.isfinite(between)] = 0.0
+    return float(centers[int(np.argmax(between))])
 
 
 def persistence(previous_mask: np.ndarray) -> np.ndarray:

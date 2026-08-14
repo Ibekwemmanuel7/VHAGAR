@@ -89,6 +89,27 @@ px at 33% burned in-window, Attika 23,728 at 29%), and the Olofsson estimate has
 real CI. Caveat: only two European fires; more EMS activations would tighten it,
 and per-ecoregion thresholds are the obvious next improvement.
 
+## Baseline comparison: calibrated global vs adaptive Otsu
+
+The continent-out gap suggested an adaptive, per-fire threshold (Otsu) might
+transfer better than a single calibrated cutoff. Measured on the cached samples,
+it does not. This is a real negative result, and reporting it is the point of
+the permanent-baselines rule.
+
+| method | CONUS leave-one-fire-out F1 | continent-out F1 |
+|---|---|---|
+| **global (calibrated)** | **0.865 ± 0.056** | **0.582** |
+| otsu (adaptive, per fire) | 0.713 ± 0.075 | 0.552 |
+
+The calibrated threshold wins at both scales. Otsu (even outlier-robust, with a
+percentile-clipped histogram) picks a per-fire cut around RBR 245 for the Greek
+fires, well above the transferable global cut of 25, and under-detects. RBR's
+heavy tails and the window-scale class balance make its per-fire distribution
+only weakly bimodal, so the mode-splitting assumption underperforms. The
+takeaway: for RBR burned area, a calibrated global threshold is the stronger
+Stage-0 baseline, and adaptive thresholding is not a free transfer win. Run
+either with `--method global|otsu`.
+
 ## Reproduce
 
 Samples are cached under `data/t2_cache/`, so a re-run is instant:

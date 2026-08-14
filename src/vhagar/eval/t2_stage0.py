@@ -24,7 +24,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from vhagar.eval.area_estimation import allocate_samples, estimate_areas
-from vhagar.eval.baselines import threshold_baseline, tune_threshold
+from vhagar.eval.baselines import otsu_threshold, threshold_baseline, tune_threshold
 from vhagar.eval.metrics import confusion_counts
 
 __all__ = ["FoldResult", "run_stage0", "summarise_stage0"]
@@ -100,20 +100,47 @@ def evaluate_fold(
     min_per_rare: int = 75,
     max_tune_pixels: int = 2_000_000,
     objective: str = "f1",
+    method: str = "global",
     seed: int = 0,
 ) -> FoldResult:
-    """Calibrate on train, evaluate on test, return the fold's Stage-0 result."""
-    rng = np.random.default_rng(seed)
-    tr_pred, tr_truth = _pool(train_samples, max_tune_pixels, rng)
-    if tr_pred.size == 0:
-        raise ValueError("no training pixels")
-    threshold, _ = tune_threshold(tr_pred, tr_truth.astype(np.uint8), objective=objective)
+    """Evaluate a fold. ``method`` selects the thresholding strategy.
 
-    te_pred, te_truth = _pool(test_samples, None, rng)
-    if te_pred.size == 0:
-        raise ValueError("no test pixels")
-    pred_mask = threshold_baseline(te_pred, threshold)
-    truth_u8 = te_truth.astype(np.uint8)
+    ``"global"``: one threshold tuned on the training fires and applied to every
+    test pixel. ``"otsu"``: an adaptive threshold computed per test fire from its
+    own burn-severity distribution, calibration-free, so the training fires are
+    not used. Otsu is the transferable companion baseline that a fixed global
+    threshold is measured against.
+    """
+    rng = np.random.default_rng(seed)
+
+    if method == "otsu":
+        preds, truths, thrs = [], [], []
+        for s in test_samples:
+            v = s.valid
+            x = s.predictor[v]
+            if x.size == 0:
+                continue
+            thr = otsu_threshold(x)
+            preds.append((x > thr).astype(np.uint8))
+            truths.append(s.reference[v].astype(np.uint8))
+            thrs.append(thr)
+        if not preds:
+            raise ValueError("no test pixels")
+        pred_mask = np.concatenate(preds)
+        truth_u8 = np.concatenate(truths)
+        threshold = float(np.mean(thrs))
+    elif method == "global":
+        tr_pred, tr_truth = _pool(train_samples, max_tune_pixels, rng)
+        if tr_pred.size == 0:
+            raise ValueError("no training pixels")
+        threshold, _ = tune_threshold(tr_pred, tr_truth.astype(np.uint8), objective=objective)
+        te_pred, te_truth = _pool(test_samples, None, rng)
+        if te_pred.size == 0:
+            raise ValueError("no test pixels")
+        pred_mask = threshold_baseline(te_pred, threshold)
+        truth_u8 = te_truth.astype(np.uint8)
+    else:
+        raise ValueError(f"method must be 'global' or 'otsu', got {method!r}")
 
     cc = confusion_counts(truth_u8, pred_mask)
     n_map = np.array([int(np.count_nonzero(pred_mask == 0)), int(np.count_nonzero(pred_mask == 1))])
@@ -137,7 +164,7 @@ def evaluate_fold(
     return FoldResult(
         held_out=held_out or "",
         threshold=float(threshold),
-        n_test_valid=int(te_pred.size),
+        n_test_valid=int(pred_mask.size),
         f1=float(cc.f1),
         iou=float(cc.iou),
         mapped_burned_ha=mapped_burned_ha,
@@ -153,6 +180,7 @@ def run_stage0(
     pixel_area_ha: float = MTBS_PIXEL_AREA_HA,
     n_reference: int = 500,
     seed: int = 0,
+    method: str = "global",
     **kw,
 ) -> list[FoldResult]:
     """Run Stage 0 across every fold of a split manifest.
@@ -171,19 +199,23 @@ def run_stage0(
             samples_by_id[u] for u in fold.get("test", [])
             if u in samples_by_id and samples_by_id[u].n_valid > 0
         ]
-        # A fold needs training pixels of both classes and any test pixels; a
-        # degenerate fire (all cloud, or entirely burned/unburned) is skipped
-        # rather than crashing the run.
-        if not train or not test:
+        # Global calibration needs training pixels of both classes; Otsu is
+        # calibration-free and only needs a usable test fire. A degenerate test
+        # fire (all cloud or single-class) is skipped rather than crashing.
+        if not test:
             continue
-        if not any(0.0 < s.burned_fraction < 1.0 for s in train):
+        if method == "global" and (
+            not train or not any(0.0 < s.burned_fraction < 1.0 for s in train)
+        ):
+            continue
+        if not any(0.0 < s.burned_fraction < 1.0 for s in test):
             continue
         results.append(
             evaluate_fold(
                 train, test,
                 held_out=str(fold.get("held_out", i)),
                 pixel_area_ha=pixel_area_ha, n_reference=n_reference,
-                seed=seed + i, **kw,
+                method=method, seed=seed + i, **kw,
             )
         )
     return results

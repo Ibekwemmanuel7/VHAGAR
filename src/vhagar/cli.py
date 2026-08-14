@@ -664,6 +664,7 @@ def t2_stage0_cmd(
     max_scenes: int = typer.Option(6, help="least-cloudy scenes per window (fewer = faster)"),
     res_m: float = typer.Option(100.0, help="analysis resolution in metres (coarser = faster)"),
     cache_dir: Path = typer.Option(Path("data/t2_cache"), help="cache built samples here"),
+    method: str = typer.Option("global", help="threshold: global (calibrated) | otsu (adaptive)"),
     n_reference: int = typer.Option(500, help="Olofsson reference-sample size per fold"),
     seed: int = typer.Option(0),
 ) -> None:
@@ -736,7 +737,8 @@ def t2_stage0_cmd(
     manifest = leave_one_group_out(units, by="group")
     pixel_area_ha = (res_m ** 2) / 1e4  # 100 m pixel = 1 ha; 30 m = 0.09 ha
     results = run_stage0(
-        samples, manifest, pixel_area_ha=pixel_area_ha, n_reference=n_reference, seed=seed
+        samples, manifest, pixel_area_ha=pixel_area_ha, n_reference=n_reference,
+        method=method, seed=seed,
     )
 
     t = Table(title=f"T2 Stage-0, independent RBR vs MTBS ({region} {year}, leave-one-fire-out)")
@@ -775,6 +777,7 @@ def t2_continent_out_cmd(
     max_scenes: int = typer.Option(4),
     res_m: float = typer.Option(100.0),
     cache_dir: Path = typer.Option(Path("data/t2_cache")),
+    method: str = typer.Option("global", help="threshold: global (calibrated) | otsu (adaptive)"),
     n_reference: int = typer.Option(500),
     seed: int = typer.Option(0),
 ) -> None:
@@ -850,7 +853,7 @@ def t2_continent_out_cmd(
     # --- one fold: train US, test Europe ---
     r = evaluate_fold(
         list(train.values()), list(test.values()), held_out="EMSR (Europe)",
-        pixel_area_ha=pixel_area_ha, n_reference=n_reference, seed=seed,
+        pixel_area_ha=pixel_area_ha, n_reference=n_reference, method=method, seed=seed,
     )
     t = Table(title="T2 leave-one-continent-out: train US MTBS, test EU EMS")
     for col in ("test", "US fires", "EU fires", "thresh", "F1", "IoU", "adjusted ha", "95% CI"):

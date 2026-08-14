@@ -306,8 +306,17 @@ wired them.
             transfers poorly to Greek Mediterranean fuels. Olofsson adjusted
             33,452 +/- 8,449 ha. Clean diagnostics, not degenerate. In
             `docs/11_T2_STAGE0_RESULTS.md`.
-      - [ ] Still open: more EU fires to tighten it; per-ecoregion thresholds (the
-            obvious fix for the transfer gap); a plain U-Net companion.
+      - [x] **Adaptive Otsu companion baseline added and measured (negative
+            result).** Hypothesised a per-fire adaptive threshold would transfer
+            better than a global one; it does not. Calibrated global beats Otsu
+            at both scales: CONUS 0.865 vs 0.713, continent-out 0.582 vs 0.552.
+            RBR's heavy tails and weak window-scale bimodality make Otsu
+            under-detect. `otsu_threshold` (outlier-robust) in `eval/baselines.py`,
+            `--method global|otsu` on both CLIs, computed directly from the cache.
+            Reporting the negative result is the permanent-baselines rule in
+            action.
+      - [ ] Still open: more EU fires; per-ecoregion thresholds; a plain U-Net
+            companion (the learned-model comparison).
 - [ ] Plain U-Net companion baseline (Dice/Combo loss), same eval.
 - [ ] Swap predictor to independent S2/Landsat composites for the report number.
 - [ ] Leave-one-continent-out (MTBS train, EMSR test) once EFFIS/EMSR ingested.
