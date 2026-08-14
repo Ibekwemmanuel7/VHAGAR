@@ -652,6 +652,83 @@ def climatology_backfill_cmd(
     )
 
 
+@app.command("t2-stage0")
+def t2_stage0_cmd(
+    registry: Path = typer.Option(..., exists=True, help="registry Parquet from 'labels build'"),
+    mosaic: Path = typer.Option(..., exists=True, help="MTBS thematic severity GeoTIFF (reference)"),
+    region: str = typer.Option("conus"),
+    year: int = typer.Option(2021, help="fire year to evaluate"),
+    min_area_ha: float = typer.Option(2000.0, help="only fires at least this large"),
+    max_fires: int = typer.Option(15, help="cap the number of fires (imagery is the cost)"),
+    max_cloud: float = typer.Option(60.0, help="max scene cloud cover percent"),
+    n_reference: int = typer.Option(500, help="Olofsson reference-sample size per fold"),
+    seed: int = typer.Option(0),
+) -> None:
+    """T2 Stage-0 with an INDEPENDENT Sentinel-2 RBR predictor vs MTBS severity.
+
+    Calibrates a burn-severity threshold per leave-one-fire-out fold and reports
+    F1/IoU and the Olofsson error-adjusted burned area with a 95% CI. The
+    Sentinel-2 pull needs an open network; run this where that is available.
+    """
+    from vhagar.datasets.t2_optical import build_optical_samples
+    from vhagar.eval.splits import leave_one_group_out
+    from vhagar.eval.t2_stage0 import run_stage0, summarise_stage0
+    from vhagar.labels.registry import EventRegistry
+
+    reg = EventRegistry.from_parquet(registry)
+    fires = [
+        r for r in reg
+        if r.region == region and r.ignition_date and r.ignition_date.year == year
+        and (r.area_ha or 0) >= min_area_ha and r.tile_ids
+    ]
+    fires.sort(key=lambda r: r.area_ha or 0, reverse=True)
+    fires = fires[:max_fires]
+    if len(fires) < 3:
+        console.print(f"[red]only {len(fires)} fires match; need at least 3[/red]")
+        raise typer.Exit(1)
+
+    console.print(
+        f"[bold]Building Sentinel-2 RBR for {len(fires)} {region} {year} fires[/bold] "
+        f"(>= {min_area_ha:g} ha). This pulls imagery and takes a while.\n"
+    )
+
+    def on_error(rec, exc):
+        console.print(f"  [yellow]skip[/yellow] {rec.event_id}: {type(exc).__name__}: {exc}")
+
+    samples = build_optical_samples(fires, mosaic, on_error=on_error, max_cloud=max_cloud)
+    if len(samples) < 3:
+        console.print(f"[red]only {len(samples)} fires got usable imagery; need 3[/red]")
+        raise typer.Exit(1)
+    console.print(f"\n[green]{len(samples)} fires with imagery[/green]. Calibrating per fold...\n")
+
+    units = [u for u in reg.to_split_units() if u.uid in samples]
+    manifest = leave_one_group_out(units, by="group")
+    results = run_stage0(samples, manifest, pixel_area_ha=0.09, n_reference=n_reference, seed=seed)
+
+    t = Table(title=f"T2 Stage-0, independent RBR vs MTBS ({region} {year}, leave-one-fire-out)")
+    for col in ("held out", "thresh", "F1", "IoU", "mapped ha", "adjusted ha", "95% CI"):
+        t.add_column(col, justify="right")
+    for r in results:
+        t.add_row(
+            r.held_out[:22], f"{r.threshold:.3f}", f"{r.f1:.3f}", f"{r.iou:.3f}",
+            f"{r.mapped_burned_ha:,.0f}",
+            f"{r.adjusted_burned_ha:,.0f}" if r.adjusted_burned_ha is not None else "-",
+            f"±{r.ci95_ha:,.0f}" if r.ci95_ha is not None else "-",
+        )
+    console.print(t)
+    s = summarise_stage0(results)
+    if s.get("folds"):
+        console.print(
+            f"\n  [bold]{s['folds']} folds[/bold]: F1 {s['f1_mean']:.3f} ± {s['f1_std']:.3f}, "
+            f"IoU {s['iou_mean']:.3f} ± {s['iou_std']:.3f}"
+        )
+    console.print(
+        "[dim]  Independent predictor (Sentinel-2), MTBS reference: this is an accuracy\n"
+        "  claim, not a self-comparison. Per-fold std reported because it rivals model "
+        "spread.[/dim]"
+    )
+
+
 @app.command("t2-perimeter")
 def t2_perimeter_cmd(
     mosaic: Path = typer.Argument(..., exists=True, help="MTBS thematic burn-severity GeoTIFF"),

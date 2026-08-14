@@ -265,9 +265,26 @@ wired them.
       class-1 "unburned to low", which is the honest, load-bearing caveat. This
       is a census, exact w.r.t. the MTBS severity product and lineage-shared with
       the perimeter. Four offline tests on synthetic histograms.
-- [ ] **Calibrated dNBR threshold** still needs per-fire dNBR bundles (the annual
-      mosaic has none). The Stage-0 driver (`eval/t2_stage0.py`) is built and
-      tested, waiting on that predictor.
+- [x] **Independent optical Stage-0 pipeline (SOTA path), built and tested.**
+      Rather than the lineage-shared MTBS dNBR, the predictor is now Sentinel-2
+      RBR computed independently, so calibrating on it and testing against MTBS is
+      a real accuracy claim. New `io/optical.py` (SCL cloud mask, masked temporal
+      mean composite, NBR, and a STAC + WarpedVRT edge that reads each scene
+      straight onto the fire's MTBS 30 m Albers window, folding reprojection and
+      windowing into one step) and `datasets/t2_optical.py` (per-fire window
+      geometry from area, MTBS reference warped to the same grid, sample
+      assembly). CLI `vhagar t2-stage0` runs it leave-one-fire-out through the
+      existing driver and reports F1/IoU + Olofsson adjusted area with 95% CI and
+      per-fold std. 16 offline tests (masking, compositing, RBR separation, window
+      geometry, stubbed assembly); network/rasterio only at the edge.
+      - [ ] **Run it** (open network + pystac-client + rasterio, on this machine):
+            `vhagar t2-stage0 --registry data\labels\registry.parquet
+            --mosaic mtbs_extract\mtbs_CONUS_2021.tif --min-area-ha 5000
+            --max-fires 12`. Produces the first independent, leakage-proof,
+            CI-bearing T2 accuracy number.
+      - Note: the sandbox proxy blocks STAC and the imagery S3 buckets, so the
+        Sentinel-2 pull was built and unit-tested but must run on the open network
+        here. Everything up to the network edge is verified.
 - [ ] Plain U-Net companion baseline (Dice/Combo loss), same eval.
 - [ ] Swap predictor to independent S2/Landsat composites for the report number.
 - [ ] Leave-one-continent-out (MTBS train, EMSR test) once EFFIS/EMSR ingested.
