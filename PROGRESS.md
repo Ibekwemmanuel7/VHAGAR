@@ -250,10 +250,24 @@ wired them.
       results plus mean/std. Eight offline tests on separable synthetic fires:
       the adjusted area lands within ~2% of mapped with a realistic ~7% CI, and a
       perfectly separable map correctly yields a zero CI.
-- [ ] **Run on real MTBS rasters** (needs the dNBR + thematic severity mosaic
-      download and rasterio): build samples via `read_mtbs_sample` over a
-      region-year, run `run_stage0` against a split from `data/labels/`, and
-      report the first per-fold Olofsson number. Flag it lineage-shared.
+- [x] **First real T2 number, perimeter-vs-severity, CONUS 2021.** The annual
+      MTBS mosaic turned out to be thematic-severity only (uint8 classes, no
+      continuous dNBR), so instead of the calibrated-threshold baseline (which
+      needs per-fire dNBR) we did the perimeter-vs-severity commission analysis
+      the architecture explicitly asks for. New `vhagar/eval/t2_perimeter.py`
+      (`perimeter_vs_severity`, `class_histogram`) and a `vhagar t2-perimeter`
+      CLI. Streamed the whole 14.8 GB CONUS 2021 mosaic in 23 s.
+      **Result (burned = classes 2,3,4):** rasterised-perimeter area 3,205,462 ha,
+      severity-classified burned 2,622,517 ha, so a rasterised MTBS perimeter
+      overstates burned area by **18.2%** (582,944 ha of unburned-to-low and
+      increased-greenness islands inside the perimeters). With the lenient
+      definition (burned = 1,2,3,4) it drops to 0.4%: the whole commission is
+      class-1 "unburned to low", which is the honest, load-bearing caveat. This
+      is a census, exact w.r.t. the MTBS severity product and lineage-shared with
+      the perimeter. Four offline tests on synthetic histograms.
+- [ ] **Calibrated dNBR threshold** still needs per-fire dNBR bundles (the annual
+      mosaic has none). The Stage-0 driver (`eval/t2_stage0.py`) is built and
+      tested, waiting on that predictor.
 - [ ] Plain U-Net companion baseline (Dice/Combo loss), same eval.
 - [ ] Swap predictor to independent S2/Landsat composites for the report number.
 - [ ] Leave-one-continent-out (MTBS train, EMSR test) once EFFIS/EMSR ingested.

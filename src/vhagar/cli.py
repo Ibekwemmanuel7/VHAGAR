@@ -652,6 +652,41 @@ def climatology_backfill_cmd(
     )
 
 
+@app.command("t2-perimeter")
+def t2_perimeter_cmd(
+    mosaic: Path = typer.Argument(..., exists=True, help="MTBS thematic burn-severity GeoTIFF"),
+    burned_classes: str = typer.Option("2,3,4", help="severity classes counted as burned"),
+    pixel_area_ha: float = typer.Option(0.09, help="pixel area in hectares (30 m = 0.09)"),
+) -> None:
+    """T2 first number: how much a rasterised perimeter overstates burned area.
+
+    Streams the MTBS thematic mosaic, then compares the mapped perimeter interior
+    (the 'all burned' claim) against the per-pixel severity classes. The gap is
+    the unburned-islands commission the architecture warns about.
+    """
+    from vhagar.eval.t2_perimeter import class_histogram, perimeter_vs_severity
+
+    burned = tuple(int(c) for c in burned_classes.split(",") if c.strip())
+    console.print(f"[bold]Streaming {mosaic.name}...[/bold]")
+    hist = class_histogram(mosaic)
+    res = perimeter_vs_severity(hist, pixel_area_ha=pixel_area_ha, burned_classes=burned)
+
+    t = Table(title="Perimeter vs per-pixel severity (census)")
+    t.add_column("quantity")
+    t.add_column("value", justify="right")
+    t.add_row("rasterised-perimeter burned", f"{res.perimeter_ha:,.0f} ha")
+    t.add_row("severity-classified burned", f"{res.severity_burned_ha:,.0f} ha")
+    t.add_row("unburned within perimeter", f"{res.unburned_within_ha:,.0f} ha")
+    t.add_row("[bold]commission (overstatement)[/bold]", f"[bold]{100 * res.commission_fraction:.1f}%[/bold]")
+    console.print(t)
+    console.print(
+        f"[dim]  burned classes {burned}; class histogram 0-6: "
+        f"{[int(hist[i]) for i in range(7)]}\n"
+        "  Census over MTBS severity, exact w.r.t. that product and lineage-shared "
+        "with the perimeter.[/dim]"
+    )
+
+
 @app.command("compact")
 def compact_cmd(
     directory: Path = typer.Argument(..., exists=True, help="a backfill output directory"),
