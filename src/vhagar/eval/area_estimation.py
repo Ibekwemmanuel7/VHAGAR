@@ -196,8 +196,9 @@ def allocate_samples(
             f"({len(rare_classes)} x {min_per_rare}); increase n_total"
         )
     common = [i for i in range(len(w)) if i not in set(rare_classes)]
-    if common:
-        w_common = w[common] / w[common].sum()
+    total_common = float(w[common].sum()) if common else 0.0
+    if common and total_common > 0.0:
+        w_common = w[common] / total_common
         alloc = np.floor(w_common * remaining).astype(int)
         alloc[int(np.argmax(w_common))] += remaining - int(alloc.sum())
         for i, c in enumerate(common):

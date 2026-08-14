@@ -138,6 +138,13 @@ def tune_threshold(
 ) -> tuple[float, float]:
     """Grid-search the index threshold that maximises an objective on *training* folds.
 
+    ``objective`` is ``"f1"``, ``"iou"``, ``"youden"`` (equivalently
+    ``"balanced"``), or a callable ``(truth, pred) -> score``. Use ``"youden"``
+    when the training pool is class-imbalanced (for example burn-heavy analysis
+    windows): F1 and IoU reward predicting the majority class, so on such a pool
+    they drive the threshold to a degenerate extreme that does not transfer to a
+    balanced test window; Youden's J does not.
+
     Returns ``(threshold, score)``. Tuning on the test fold is leakage; this
     function does not know which fold you passed it, so discipline is yours.
     """
@@ -151,12 +158,25 @@ def tune_threshold(
     if lo == hi:
         return lo, 0.0
 
+    def _youden(t, p):
+        # Youden's J = TPR - FPR = sensitivity + specificity - 1. Unlike F1 and
+        # IoU it does not reward predicting the majority class, so on a burn-heavy
+        # window pool it does not collapse the threshold to "everything burned".
+        # That makes the cut transfer to a class-balanced test window instead of
+        # to only-mostly-burned ones. See docs/11 for the measured difference.
+        c = confusion_counts(t, p)
+        tpr = c.tp / (c.tp + c.fn) if (c.tp + c.fn) else 0.0
+        fpr = c.fp / (c.fp + c.tn) if (c.fp + c.tn) else 0.0
+        return tpr - fpr
+
     if callable(objective):
         score_fn = objective
     elif objective == "f1":
         score_fn = lambda t, p: confusion_counts(t, p).f1  # noqa: E731
     elif objective == "iou":
         score_fn = lambda t, p: confusion_counts(t, p).iou  # noqa: E731
+    elif objective in ("youden", "balanced"):
+        score_fn = _youden
     else:
         raise ValueError(f"unknown objective {objective!r}")
 

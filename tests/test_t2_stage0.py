@@ -157,6 +157,35 @@ def test_otsu_is_robust_to_heavy_tail_outliers():
     assert 3.0 < otsu_threshold(x) < 7.0
 
 
+def test_youden_objective_survives_class_imbalance_where_f1_collapses():
+    """On a burn-heavy pool with overlapping classes (95% positive) F1-tuning
+    rewards predicting the majority class and drives the threshold down toward
+    "everything burned"; Youden's J stays near the class crossing. This is the
+    continent-out confound from docs/11 in miniature: a threshold that scores well
+    on the imbalanced training pool but does not transfer to a balanced window."""
+    from vhagar.eval.baselines import threshold_baseline, tune_threshold
+    from vhagar.eval.metrics import confusion_counts
+
+    rng = np.random.default_rng(0)
+    pos = rng.normal(1.0, 1.0, 9500)       # burned, the overwhelming majority
+    neg = rng.normal(0.0, 1.0, 500)        # unburned, the rare class, overlapping
+    x = np.concatenate([pos, neg])
+    truth = np.concatenate([np.ones(9500, np.uint8), np.zeros(500, np.uint8)])
+
+    t_f1, _ = tune_threshold(x, truth, objective="f1")
+    t_j, _ = tune_threshold(x, truth, objective="youden")
+    # F1 picks a far less selective cut than Youden, predicting almost everything
+    # burned; Youden sits up near the crossing and actually distinguishes classes.
+    assert t_f1 < t_j
+    assert threshold_baseline(x, t_f1).mean() > 0.97      # F1: predict ~all burned
+    # Youden separates the rare class better: higher specificity on the negatives.
+    neg_pred_j = threshold_baseline(neg, t_j)
+    neg_pred_f1 = threshold_baseline(neg, t_f1)
+    assert (neg_pred_j == 0).mean() > (neg_pred_f1 == 0).mean()
+    assert confusion_counts(truth, threshold_baseline(x, t_j)).recall < 1.0
+    assert tune_threshold(x, truth, objective="balanced")[0] == t_j
+
+
 def test_evaluate_fold_otsu_is_calibration_free():
     """Otsu thresholds each test fire from its own distribution, so it needs no
     training fires at all."""
@@ -171,6 +200,44 @@ def test_unknown_method_is_rejected():
         evaluate_fold([_fire("a")], [_fire("b")], method="kmeans")
 
 
+def _fire_at(event_id, burned_dnbr, seed):
+    """A fire whose burned pixels sit at a given dNBR level (its stratum's scale)."""
+    rng = np.random.default_rng(seed)
+    truth = rng.random((80, 80)) < 0.3
+    dnbr = np.where(truth, rng.normal(burned_dnbr, 20, (80, 80)), rng.normal(50, 20, (80, 80)))
+    return make_sample(event_id, dnbr, truth)
+
+
+def test_perstratum_beats_global_when_strata_have_different_scales():
+    """Two climate strata with very different burned-severity levels. A global
+    threshold is a bad compromise; per-stratum calibration fits each."""
+    # stratum A burns at dNBR ~300, stratum B at ~700
+    train = [
+        _fire_at("A1", 300, 1), _fire_at("A2", 300, 2),
+        _fire_at("B1", 700, 3), _fire_at("B2", 700, 4),
+    ]
+    strata = {"A1": "A", "A2": "A", "B1": "B", "B2": "B", "Btest": "B"}
+    test = [_fire_at("Btest", 700, 5)]
+
+    g = evaluate_fold(train, test, method="global", seed=0)
+    p = evaluate_fold(train, test, method="perstratum", strata=strata, seed=0)
+    assert p.f1 >= g.f1                     # matching the stratum helps, never hurts here
+    assert p.f1 > 0.85                      # per-stratum recovers the B fire well
+
+
+def test_single_class_window_skips_area_without_crashing():
+    """A small fire whose window is ~all burned yields a single-class map; the
+    area adjustment must be skipped, not crash the allocator (regression)."""
+    rng = np.random.default_rng(0)
+    truth = np.ones((60, 60), dtype=bool)          # window entirely burned
+    dnbr = rng.normal(400, 20, (60, 60))           # all well above any threshold
+    test = [make_sample("burnt", dnbr, truth)]
+    r = evaluate_fold([_fire("tr", seed=1)], test, seed=0)
+    assert r.f1 > 0.9                     # per-pixel metrics still computed
+    assert r.adjusted_burned_ha is None   # area skipped, cleanly
+    assert "single-class" in r.note
+
+
 def test_all_unburned_map_reports_no_adjustment_without_crashing():
     # predictor far below any burned dNBR, so nothing is mapped burned
     flat = make_sample("te", np.full((50, 50), 10.0), np.zeros((50, 50), dtype=bool))
@@ -178,4 +245,4 @@ def test_all_unburned_map_reports_no_adjustment_without_crashing():
     r = evaluate_fold(train, [flat], seed=0)
     assert r.mapped_burned_ha == 0.0
     assert r.adjusted_burned_ha is None
-    assert "burned" in r.note
+    assert r.note  # a reason is recorded (single-class / no burned pixels)

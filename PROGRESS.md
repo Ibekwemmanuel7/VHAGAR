@@ -1,7 +1,35 @@
 # VHAGAR progress tracker
 
-Last updated: 2026-08-13. Keep this file current. It is the single place to look
+Last updated: 2026-08-14. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
+
+## Latest: Koppen climate stratification, a mostly-negative result (2026-08-14)
+
+Downloaded the 1 km Koppen-Geiger present-day raster (Beck et al., 1991-2020) and
+tested whether matching US-to-EU climate zones lifts continent-out transfer. First
+pass looked like a win (per-stratum Koppen F1 0.609 vs global 0.488 on the fixed
+34-fire pool), but three follow-up checks show the gain is mostly an artifact:
+
+1. Within-CONUS leave-one-fire-out, per-stratum HURTS: 0.827 vs 0.909 global, with
+   catastrophic folds. If stratification were real it would help here too.
+2. The global -1706 threshold is a degenerate-window artifact: 26/34 US windows are
+   >80% burned, so F1-tuning rewards "predict all burned" (-1706), which is
+   catastrophic on the 32%-burned Greek windows. The Csa per-stratum threshold (99)
+   helps only because its one fire (AZ32635) has a balanced window.
+3. Re-tuning the global threshold with a balanced objective (Youden's J) recovers
+   EU F1 to 0.573 with NO climate matching. Koppen (0.609) sits only 0.036 above a
+   properly-tuned global, and that residual rests on a single fire.
+
+Conclusion: the tight per-fire window is the dominant confound, not climate. The
+real fix is wider analysis windows (needs an imagery re-pull); the balanced
+objective is a cheap partial fix already in hand. Full writeup in
+`docs/11_T2_STAGE0_RESULTS.md`. Data: `koppen_geiger_tif.zip` at repo root,
+extracted to `koppen_extract/` (both gitignored). Do not compare any of this to
+the earlier 0.582 (different 6-fire pool, no Csa, per-stratum inert).
+
+Two follow-ups worth doing: (a) add `objective="youden"` as a named option in
+`tune_threshold` and expose it on the CLI, so the balanced baseline is reproducible
+without a script; (b) wider windows on a re-pull to remove the all-burned confound.
 
 ## Where things stand right now
 
@@ -324,10 +352,24 @@ wired them.
             sample fires across the area distribution instead of only the
             largest, so a scaled evaluation is distribution-representative rather
             than megafire-biased.
-      - [ ] The real lever now is DATA: run a scaled, size-stratified US pull
-            (`--max-fires 30 --select size`) and add more EU fires, then per-fold
-            stats tighten and per-ecoregion / learned-model methods have enough
-            data to matter.
+      - [x] **Per-stratum (Köppen climate) thresholds built.** The transfer fix
+            is a GLOBAL stratum both continents share, not US-only ecoregions:
+            California and Greece are both Köppen Csa (Mediterranean), so a
+            threshold learned on US Mediterranean fires can apply to Greek ones.
+            `datasets/strata.py` samples any global class raster at each fire;
+            `evaluate_fold(method="perstratum")` calibrates per stratum with a
+            global fallback; both CLIs take `--stratify-raster koppen.tif`. Tested:
+            per-stratum beats global when strata have different severity scales.
+      - [x] **Scaled to 34 size-stratified CONUS fires: global F1 0.900 ± 0.083.**
+            Higher than 5-fire 0.865 but partly an artifact: small fires' windows
+            are 80-96% burned (easy per-pixel F1), and the Olofsson area is only
+            estimable on 2 of 34 folds (rest single-class). Honest caveat in the
+            results doc. Also fixed a real crash: a single-class map broke the
+            Olofsson allocator (OverflowError); now the area is skipped cleanly and
+            regression-tested.
+      - [ ] Next: perstratum continent-out with a Köppen raster (the climate-match
+            hypothesis, no imagery re-pull); OR widen the window to add unburned
+            context so small fires are informative and areas measurable (re-pull).
 - [ ] Plain U-Net companion baseline (Dice/Combo loss), same eval.
 - [ ] Swap predictor to independent S2/Landsat composites for the report number.
 - [ ] Leave-one-continent-out (MTBS train, EMSR test) once EFFIS/EMSR ingested.

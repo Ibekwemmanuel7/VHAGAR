@@ -56,6 +56,20 @@ analysis at 100 m, up to 4 least-cloudy Sentinel-2 scenes per pre/post window.
 - MTBS thematic is the reference; the independent, cross-continent number is the
   leave-one-continent-out test against Copernicus EMS, still to come.
 
+## Scaled to 34 size-stratified fires (a caution, not a triumph)
+
+Running 34 CONUS 2021 fires sampled across the size distribution gives global
+F1 **0.900 ± 0.083** (IoU 0.827 ± 0.122), higher than the 5-fire 0.865. But this
+is partly an artifact: the size-stratified set is mostly small fires whose
+analysis windows are 80-96% burned, and a nearly-all-burned window is *easy* on
+per-pixel F1. The tell is that the Olofsson adjusted area is computable on only
+**2 of 34 folds**, the rest are single-class (no unburned pixels in-window to
+stratify against). Lesson about the evaluation design: tight per-fire windows
+make small fires trivially easy and their area unmeasurable. The comparable, hard
+numbers are the large-fire and continent-out results, not the inflated scaled
+mean. A wider window (more unburned context) would make small fires informative
+and restore the area estimate; that is the next refinement.
+
 ## Correction: pixel area
 
 The area columns above were computed with a hardcoded 0.09 ha/pixel (30 m), but
@@ -114,6 +128,67 @@ only weakly bimodal, so the mode-splitting assumption underperforms. The
 takeaway: for RBR burned area, a calibrated global threshold is the stronger
 Stage-0 baseline, and adaptive thresholding is not a free transfer win. Run
 either with `--method global|otsu`.
+
+## Climate stratification: does matching Koppen zones help transfer?
+
+The architecture's thesis is that thresholds should be calibrated per climate or
+fuel regime, not globally. The two Greek fires are Koppen class 8 (Csa, hot-summer
+Mediterranean), sampled from a 1 km Koppen-Geiger raster (Beck et al., 1991-2020
+present-day climatology) at each fire centroid. The clean test: on a **fixed
+training pool** of all 34 usable US MTBS fires, calibrate the Greek fires only on
+US fires that share their Csa stratum, and compare against one global threshold.
+At first glance stratifying looks like a win:
+
+| method (34-fire US pool, test 2 EU fires) | threshold | continent-out F1 | IoU |
+|---|---|---|---|
+| global, F1-tuned (all 34 pooled) | -1706 | 0.488 | 0.323 |
+| per-stratum, raw Koppen class | 99.1 | 0.609 | 0.438 |
+| per-stratum, Mediterranean group (Cs*) | -1.05 | 0.559 | 0.388 |
+
+But two follow-up checks show the +0.12 is **mostly an artifact of a broken
+objective, not evidence that climate matching works.** Reporting that honestly is
+the point of the permanent-baselines rule.
+
+**Check 1: within-CONUS, stratifying hurts.** Run the same per-stratum idea as a
+leave-one-fire-out over the 34 US fires (each fire's threshold calibrated on its
+same-Koppen training fires vs one global threshold). Per-stratum is worse, not
+better: mean F1 **0.827 vs 0.909** global, with several catastrophic folds (an
+Idaho BSk fire drops 0.982 to 0.116). Shrinking the calibration set to one
+stratum overfits that stratum's idiosyncratic RBR scale. If stratification were a
+real mechanism it would help here too; it does not.
+
+**Check 2: the global -1706 is a degenerate-window artifact.** 26 of the 34
+in-window US fires are >80% burned, so the pooled distribution is 82% burned.
+Maximising **F1** on that pool rewards predicting everything burned: the tuned
+threshold runs off to -1706 (predicts 99% of pixels burned) and still scores
+F1 0.901 on the burn-heavy US pool. That same "predict all burned" threshold is
+catastrophic on the balanced Greek windows (truly 32% burned), hence 0.488. The
+Csa per-stratum threshold of 99 helps only because the one Csa fire (AZ32635,
+55% burned) has a balanced window, so its threshold is not collapsed. It is a
+non-degenerate threshold by luck of window balance, not by climate content.
+
+**Check 3: fixing the objective recovers the gain without any climate matching.**
+Re-tune the single global threshold with a balanced objective (Youden's J,
+TPR - FPR) instead of F1. It picks 205.8 (predicts 62% burned) and lifts EU
+transfer to **F1 0.573** with zero stratification. Koppen per-stratum (0.609) then
+sits only 0.036 above a properly-tuned global baseline, and that residual still
+rests on a single fire.
+
+| global threshold objective | threshold | EU transfer F1 |
+|---|---|---|
+| F1 (rewards predict-all-burned on 82%-burned pool) | -1706 | 0.488 |
+| Youden's J (balanced) | 205.8 | 0.573 |
+| Koppen per-stratum (for reference) | 99.1 | 0.609 |
+
+Conclusion: the dominant confound is the tight per-fire window, which makes small
+fires ~90% burned and lets an F1-tuned threshold collapse to "everything burned."
+That inflates within-CONUS F1 (US test windows are also mostly burned) and destroys
+EU transfer. Climate stratification did not beat a properly-tuned global baseline;
+it mostly rediscovered a non-degenerate threshold. The real fix is wider analysis
+windows with genuine unburned context, which needs an imagery re-pull; the balanced
+objective is a cheap partial fix already in hand. Do not compare any of these to
+the earlier 0.582 (a different, 6-fire pool with no Csa fire, so per-stratum there
+was inert); only the within-pool numbers here walk the same code path.
 
 ## Reproduce
 

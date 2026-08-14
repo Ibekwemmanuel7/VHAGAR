@@ -665,7 +665,13 @@ def t2_stage0_cmd(
     max_scenes: int = typer.Option(6, help="least-cloudy scenes per window (fewer = faster)"),
     res_m: float = typer.Option(100.0, help="analysis resolution in metres (coarser = faster)"),
     cache_dir: Path = typer.Option(Path("data/t2_cache"), help="cache built samples here"),
-    method: str = typer.Option("global", help="threshold: global (calibrated) | otsu (adaptive)"),
+    method: str = typer.Option("global", help="threshold: global | otsu | perstratum"),
+    objective: str = typer.Option(
+        "f1", help="threshold objective: f1 | iou | youden (balanced, robust to burn-heavy windows)"
+    ),
+    stratify_raster: Path = typer.Option(
+        None, help="global class raster (e.g. Koppen); enables per-stratum thresholds"
+    ),
     n_reference: int = typer.Option(500, help="Olofsson reference-sample size per fold"),
     seed: int = typer.Option(0),
 ) -> None:
@@ -738,9 +744,18 @@ def t2_stage0_cmd(
     units = [u for u in reg.to_split_units() if u.uid in samples]
     manifest = leave_one_group_out(units, by="group")
     pixel_area_ha = (res_m ** 2) / 1e4  # 100 m pixel = 1 ha; 30 m = 0.09 ha
+
+    strata = None
+    if stratify_raster is not None:
+        from vhagar.datasets.strata import assign_strata
+
+        strata = assign_strata([r for r in fires if r.event_id in samples], stratify_raster)
+        method = "perstratum"
+        console.print(f"[dim]  strata: {len(set(strata.values()))} classes over {len(strata)} fires[/dim]")
+
     results = run_stage0(
         samples, manifest, pixel_area_ha=pixel_area_ha, n_reference=n_reference,
-        method=method, seed=seed,
+        method=method, strata=strata, objective=objective, seed=seed,
     )
 
     t = Table(title=f"T2 Stage-0, independent RBR vs MTBS ({region} {year}, leave-one-fire-out)")
@@ -779,7 +794,13 @@ def t2_continent_out_cmd(
     max_scenes: int = typer.Option(4),
     res_m: float = typer.Option(100.0),
     cache_dir: Path = typer.Option(Path("data/t2_cache")),
-    method: str = typer.Option("global", help="threshold: global (calibrated) | otsu (adaptive)"),
+    method: str = typer.Option("global", help="threshold: global | otsu | perstratum"),
+    objective: str = typer.Option(
+        "f1", help="threshold objective: f1 | iou | youden (balanced, robust to burn-heavy windows)"
+    ),
+    stratify_raster: Path = typer.Option(
+        None, help="global class raster (e.g. Koppen); matches US to EU climate strata"
+    ),
     n_reference: int = typer.Option(500),
     seed: int = typer.Option(0),
 ) -> None:
@@ -824,6 +845,7 @@ def t2_continent_out_cmd(
     # --- European test side (EMS delineations) ---
     console.print("\n[bold]European test: Copernicus EMS fires[/bold] (pulling Sentinel-2).")
     test = {}
+    eu_records = []
     with emsr_manifest.open() as fh:
         rows = list(_csv.DictReader(fh))
     for row in rows:
@@ -842,6 +864,7 @@ def t2_continent_out_cmd(
             continue
         if s.is_usable:
             test[rec.event_id] = s
+            eu_records.append(rec)
             console.print(
                 f"[green]ok[/green] ({_time.perf_counter() - t0:.0f}s, "
                 f"{s.n_valid:,} px, {100 * s.burned_fraction:.0f}% burned)"
@@ -853,9 +876,21 @@ def t2_continent_out_cmd(
         raise typer.Exit(1)
 
     # --- one fold: train US, test Europe ---
+    strata = None
+    if stratify_raster is not None:
+        from vhagar.datasets.strata import assign_strata
+
+        recs = [r for r in us if r.event_id in train] + eu_records
+        strata = assign_strata(recs, stratify_raster)
+        method = "perstratum"
+        eu_classes = {strata.get(r.event_id) for r in eu_records}
+        console.print(
+            f"[dim]  strata: {len(set(strata.values()))} classes; EU fires in {eu_classes}[/dim]"
+        )
     r = evaluate_fold(
         list(train.values()), list(test.values()), held_out="EMSR (Europe)",
-        pixel_area_ha=pixel_area_ha, n_reference=n_reference, method=method, seed=seed,
+        pixel_area_ha=pixel_area_ha, n_reference=n_reference,
+        method=method, strata=strata, objective=objective, seed=seed,
     )
     t = Table(title="T2 leave-one-continent-out: train US MTBS, test EU EMS")
     for col in ("test", "US fires", "EU fires", "thresh", "F1", "IoU", "adjusted ha", "95% CI"):

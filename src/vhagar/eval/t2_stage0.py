@@ -101,19 +101,45 @@ def evaluate_fold(
     max_tune_pixels: int = 2_000_000,
     objective: str = "f1",
     method: str = "global",
+    strata: Mapping[str, object] | None = None,
     seed: int = 0,
 ) -> FoldResult:
     """Evaluate a fold. ``method`` selects the thresholding strategy.
 
-    ``"global"``: one threshold tuned on the training fires and applied to every
-    test pixel. ``"otsu"``: an adaptive threshold computed per test fire from its
-    own burn-severity distribution, calibration-free, so the training fires are
-    not used. Otsu is the transferable companion baseline that a fixed global
-    threshold is measured against.
+    ``"global"``: one threshold tuned on the training fires, applied to every test
+    pixel. ``"otsu"``: an adaptive threshold per test fire from its own
+    distribution (calibration-free). ``"perstratum"``: for each test fire, tune a
+    threshold on the training fires that share its stratum (e.g. its Köppen
+    climate zone), falling back to all training fires when the stratum is unseen.
+    Per-stratum is the like-for-like transfer method: a threshold learned on US
+    Mediterranean fires applied to Greek Mediterranean fires. ``strata`` maps
+    event id to a stratum label.
     """
     rng = np.random.default_rng(seed)
+    strata = strata or {}
 
-    if method == "otsu":
+    if method == "perstratum":
+        preds, truths, thrs = [], [], []
+        for s in test_samples:
+            v = s.valid
+            x = s.predictor[v]
+            if x.size == 0:
+                continue
+            strat = strata.get(s.event_id)
+            same = [t for t in train_samples if strata.get(t.event_id) == strat]
+            xtr, ttr = _pool(same or train_samples, max_tune_pixels, rng)
+            if xtr.size == 0:
+                continue
+            thr, _ = tune_threshold(xtr, ttr.astype(np.uint8), objective=objective)
+            preds.append((x > thr).astype(np.uint8))
+            truths.append(s.reference[v].astype(np.uint8))
+            thrs.append(thr)
+        if not preds:
+            raise ValueError("no test pixels")
+        pred_mask = np.concatenate(preds)
+        truth_u8 = np.concatenate(truths)
+        threshold = float(np.mean(thrs))
+    elif method == "otsu":
         preds, truths, thrs = [], [], []
         for s in test_samples:
             v = s.valid
@@ -147,8 +173,12 @@ def evaluate_fold(
     mapped_burned_ha = float(n_map[1] * pixel_area_ha)
 
     adjusted, ci, note = None, None, ""
-    if n_map[1] == 0:
-        note = "no pixels mapped as burned; nothing to adjust"
+    if int(n_map.min()) == 0:
+        # A single-class map (all burned or all unburned in-window) cannot be
+        # stratified into two strata, so the error-adjusted area is undefined.
+        # The per-pixel F1/IoU above still stand; only the area estimate is
+        # skipped. Common for a small fire whose window is almost entirely burned.
+        note = "single-class map in window; area not adjusted"
     else:
         weights = n_map / n_map.sum()
         try:
@@ -158,7 +188,7 @@ def evaluate_fold(
             burned = est[1]
             adjusted = float(burned.adjusted_area)
             ci = float(burned.margin_of_error)
-        except (ValueError, ZeroDivisionError) as exc:
+        except Exception as exc:  # noqa: BLE001  (never let one fold crash the run)
             note = f"Olofsson skipped: {exc}"
 
     return FoldResult(
@@ -199,12 +229,12 @@ def run_stage0(
             samples_by_id[u] for u in fold.get("test", [])
             if u in samples_by_id and samples_by_id[u].n_valid > 0
         ]
-        # Global calibration needs training pixels of both classes; Otsu is
-        # calibration-free and only needs a usable test fire. A degenerate test
-        # fire (all cloud or single-class) is skipped rather than crashing.
+        # Calibration (global, perstratum) needs training pixels of both classes;
+        # Otsu is calibration-free and only needs a usable test fire. A degenerate
+        # test fire (all cloud or single-class) is skipped rather than crashing.
         if not test:
             continue
-        if method == "global" and (
+        if method in ("global", "perstratum") and (
             not train or not any(0.0 < s.burned_fraction < 1.0 for s in train)
         ):
             continue

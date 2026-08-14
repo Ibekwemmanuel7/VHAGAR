@@ -24,3 +24,5 @@ bsp_*.zip
 emsr_extract/
 EMSR*_vector.zip
 emsr.csv
+koppen_extract/
+koppen_geiger_tif.zip
