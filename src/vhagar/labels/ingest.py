@@ -131,17 +131,20 @@ def read_mtbs(
 ) -> list[FireEventRecord]:
     """Read an MTBS shapefile or GeoParquet and normalise it. Needs pyogrio.
 
-    The heavy IO edge: pyogrio reads the attribute table (and geometry, dropped
-    here since only the representative point is kept), then the rows go through
-    :func:`normalize_mtbs`.
+    The heavy IO edge: pyogrio's raw reader returns the attribute table as arrays
+    (geometry dropped, since only the representative point is kept), which are
+    zipped into row mappings and passed to :func:`normalize_mtbs`. The raw reader
+    is used deliberately so no geopandas dependency is pulled in.
     """
     try:
-        import pyogrio
+        from pyogrio.raw import read as _raw_read
     except ImportError as exc:  # pragma: no cover
         raise ImportError("read_mtbs requires pyogrio: pip install pyogrio") from exc
 
-    table = pyogrio.read_dataframe(path, read_geometry=False)
-    rows = table.to_dict(orient="records")
+    result = _raw_read(path, read_geometry=False)
+    meta, field_data = result[0], result[-1]
+    field_names = list(meta["fields"])
+    rows = (dict(zip(field_names, values, strict=True)) for values in zip(*field_data, strict=True))
     return normalize_mtbs(
         rows, region=region, geometry_dir=geometry_dir, severity_dir=severity_dir
     )

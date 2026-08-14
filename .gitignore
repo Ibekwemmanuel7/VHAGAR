@@ -19,3 +19,5 @@ data/
 .env
 .hypothesis/
 *.tmp
+mtbs_extract/
+bsp_*.zip
