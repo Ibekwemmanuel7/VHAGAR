@@ -98,19 +98,30 @@ def read_mtbs_reference_on_grid(mosaic_path, grid: TargetGrid):
     return mtbs_burned_mask(severity)
 
 
-def build_optical_sample(record, mosaic_path, max_cloud: float = 60.0, **grid_kw):
+def build_optical_sample(
+    record,
+    mosaic_path,
+    max_cloud: float = 60.0,
+    max_scenes: int = 6,
+    res_m: float = 100.0,
+    **grid_kw,
+):
     """Build one fire's T2 sample: Sentinel-2 RBR predictor, MTBS reference.
 
-    Needs network (Sentinel-2) and rasterio (MTBS warp). Raises on missing
-    imagery, which the batch builder catches and skips.
+    ``res_m`` is the analysis resolution. Coarser than native (default 100 m) is
+    deliberate for a Stage-0 burned/unburned threshold: it shrinks the arrays and,
+    crucially, lets GDAL read the Sentinel-2 COGs from their overviews rather than
+    full resolution, which is the difference between seconds and minutes per fire.
+    Needs network (Sentinel-2) and rasterio (MTBS warp).
     """
     from vhagar.io.optical import sentinel2_rbr
 
     if record.ignition_date is None:
         raise ValueError(f"{record.event_id} has no ignition date")
-    grid, bbox = target_grid_for_fire(record, **grid_kw)
+    grid, bbox = target_grid_for_fire(record, res_m=res_m, **grid_kw)
     predictor = sentinel2_rbr(
-        bbox, record.ignition_date.isoformat(), grid, max_cloud=max_cloud
+        bbox, record.ignition_date.isoformat(), grid,
+        max_cloud=max_cloud, max_scenes=max_scenes,
     )
     burned, valid = read_mtbs_reference_on_grid(mosaic_path, grid)
     return make_sample(
@@ -119,17 +130,27 @@ def build_optical_sample(record, mosaic_path, max_cloud: float = 60.0, **grid_kw
     )
 
 
-def build_optical_samples(records, mosaic_path, on_error=None, **kw):
+def build_optical_samples(
+    records, mosaic_path, on_error=None, on_start=None, on_done=None, **kw
+):
     """Build samples for many fires, skipping those without usable imagery.
 
-    Returns ``{event_id: T2Sample}``. ``on_error(record, exc)`` is called for each
-    skipped fire, so a run can report coverage rather than fail on one cloudy fire.
+    Returns ``{event_id: T2Sample}``. ``on_start(record)`` fires before each fire,
+    ``on_done(record, sample)`` after a success, and ``on_error(record, exc)`` on a
+    skip, so a long run shows progress and reports coverage rather than looking
+    frozen or dying on one cloudy fire.
     """
     samples = {}
     for r in records:
+        if on_start is not None:
+            on_start(r)
         try:
-            samples[r.event_id] = build_optical_sample(r, mosaic_path, **kw)
+            sample = build_optical_sample(r, mosaic_path, **kw)
         except Exception as exc:  # noqa: BLE001
             if on_error is not None:
                 on_error(r, exc)
+            continue
+        samples[r.event_id] = sample
+        if on_done is not None:
+            on_done(r, sample)
     return samples

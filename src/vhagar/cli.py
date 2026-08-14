@@ -661,6 +661,8 @@ def t2_stage0_cmd(
     min_area_ha: float = typer.Option(2000.0, help="only fires at least this large"),
     max_fires: int = typer.Option(15, help="cap the number of fires (imagery is the cost)"),
     max_cloud: float = typer.Option(60.0, help="max scene cloud cover percent"),
+    max_scenes: int = typer.Option(6, help="least-cloudy scenes per window (fewer = faster)"),
+    res_m: float = typer.Option(100.0, help="analysis resolution in metres (coarser = faster)"),
     n_reference: int = typer.Option(500, help="Olofsson reference-sample size per fold"),
     seed: int = typer.Option(0),
 ) -> None:
@@ -689,13 +691,30 @@ def t2_stage0_cmd(
 
     console.print(
         f"[bold]Building Sentinel-2 RBR for {len(fires)} {region} {year} fires[/bold] "
-        f"(>= {min_area_ha:g} ha). This pulls imagery and takes a while.\n"
+        f"(>= {min_area_ha:g} ha), {res_m:g} m, up to {max_scenes} scenes/window.\n"
     )
 
-    def on_error(rec, exc):
-        console.print(f"  [yellow]skip[/yellow] {rec.event_id}: {type(exc).__name__}: {exc}")
+    import time as _time
+    clock = {"t": 0.0, "i": 0}
 
-    samples = build_optical_samples(fires, mosaic, on_error=on_error, max_cloud=max_cloud)
+    def on_start(rec):
+        clock["t"] = _time.perf_counter()
+        clock["i"] += 1
+        console.print(
+            f"  [{clock['i']}/{len(fires)}] {rec.event_id} "
+            f"({(rec.area_ha or 0):,.0f} ha)...", end=" "
+        )
+
+    def on_done(rec, sample):
+        console.print(f"[green]ok[/green] ({_time.perf_counter() - clock['t']:.0f}s)")
+
+    def on_error(rec, exc):
+        console.print(f"[yellow]skip[/yellow] ({type(exc).__name__})")
+
+    samples = build_optical_samples(
+        fires, mosaic, on_start=on_start, on_done=on_done, on_error=on_error,
+        max_cloud=max_cloud, max_scenes=max_scenes, res_m=res_m,
+    )
     if len(samples) < 3:
         console.print(f"[red]only {len(samples)} fires got usable imagery; need 3[/red]")
         raise typer.Exit(1)
