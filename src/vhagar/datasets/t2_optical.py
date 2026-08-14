@@ -104,6 +104,7 @@ def build_optical_sample(
     max_cloud: float = 60.0,
     max_scenes: int = 6,
     res_m: float = 100.0,
+    cache_dir=None,
     **grid_kw,
 ):
     """Build one fire's T2 sample: Sentinel-2 RBR predictor, MTBS reference.
@@ -112,22 +113,42 @@ def build_optical_sample(
     deliberate for a Stage-0 burned/unburned threshold: it shrinks the arrays and,
     crucially, lets GDAL read the Sentinel-2 COGs from their overviews rather than
     full resolution, which is the difference between seconds and minutes per fire.
-    Needs network (Sentinel-2) and rasterio (MTBS warp).
+
+    ``cache_dir`` persists each sample to ``.npz`` keyed by event and resolution,
+    so a re-run (after a code fix, or to widen the fire set) reuses the expensive
+    imagery pull instead of fetching it again. Needs network + rasterio only on a
+    cache miss.
     """
+    from pathlib import Path
+
+    from vhagar.datasets.burned_area import T2Sample
     from vhagar.io.optical import sentinel2_rbr
 
     if record.ignition_date is None:
         raise ValueError(f"{record.event_id} has no ignition date")
+
+    cache_path = None
+    if cache_dir is not None:
+        cache_dir = Path(cache_dir)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        safe = record.event_id.replace(":", "_").replace("/", "_")
+        cache_path = cache_dir / f"{safe}_r{int(res_m)}.npz"
+        if cache_path.exists():
+            return T2Sample.load(cache_path)
+
     grid, bbox = target_grid_for_fire(record, res_m=res_m, **grid_kw)
     predictor = sentinel2_rbr(
         bbox, record.ignition_date.isoformat(), grid,
         max_cloud=max_cloud, max_scenes=max_scenes,
     )
     burned, valid = read_mtbs_reference_on_grid(mosaic_path, grid)
-    return make_sample(
+    sample = make_sample(
         record.event_id, predictor, burned, reference_valid=valid,
         tile_id=record.tile_ids[0] if record.tile_ids else None,
     )
+    if cache_path is not None:
+        sample.save(cache_path)
+    return sample
 
 
 def build_optical_samples(

@@ -163,9 +163,20 @@ def run_stage0(
     """
     results: list[FoldResult] = []
     for i, fold in enumerate(manifest.folds):
-        train = [samples_by_id[u] for u in fold.get("train", []) if u in samples_by_id]
-        test = [samples_by_id[u] for u in fold.get("test", []) if u in samples_by_id]
+        train = [
+            samples_by_id[u] for u in fold.get("train", [])
+            if u in samples_by_id and samples_by_id[u].n_valid > 0
+        ]
+        test = [
+            samples_by_id[u] for u in fold.get("test", [])
+            if u in samples_by_id and samples_by_id[u].n_valid > 0
+        ]
+        # A fold needs training pixels of both classes and any test pixels; a
+        # degenerate fire (all cloud, or entirely burned/unburned) is skipped
+        # rather than crashing the run.
         if not train or not test:
+            continue
+        if not any(0.0 < s.burned_fraction < 1.0 for s in train):
             continue
         results.append(
             evaluate_fold(

@@ -23,6 +23,7 @@ the predictor source, not this module's shape.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -67,6 +68,39 @@ class T2Sample:
         if n == 0:
             return float("nan")
         return float(np.count_nonzero(self.reference & self.valid) / n)
+
+    @property
+    def is_usable(self) -> bool:
+        """Whether a threshold can be fit and tested on this sample.
+
+        Needs some valid pixels of both classes; a window that is all-cloud
+        (no valid predictor) or entirely inside or outside the burn is useless
+        for calibration and would otherwise crash a fold.
+        """
+        f = self.burned_fraction
+        return self.n_valid > 0 and np.isfinite(f) and 0.0 < f < 1.0
+
+    def save(self, path) -> Path:
+        """Persist to a compressed ``.npz`` so an expensive imagery pull is reused."""
+        path = Path(path)
+        np.savez_compressed(
+            path,
+            predictor=self.predictor, reference=self.reference, valid=self.valid,
+            event_id=np.array(self.event_id), tile_id=np.array(self.tile_id or ""),
+        )
+        return path if path.suffix else path.with_suffix(".npz")
+
+    @classmethod
+    def load(cls, path) -> T2Sample:
+        with np.load(path, allow_pickle=False) as z:
+            tile = str(z["tile_id"])
+            return cls(
+                event_id=str(z["event_id"]),
+                tile_id=tile or None,
+                predictor=z["predictor"],
+                reference=z["reference"].astype(bool),
+                valid=z["valid"].astype(bool),
+            )
 
 
 def mtbs_burned_mask(

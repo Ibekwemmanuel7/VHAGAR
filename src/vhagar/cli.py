@@ -663,6 +663,7 @@ def t2_stage0_cmd(
     max_cloud: float = typer.Option(60.0, help="max scene cloud cover percent"),
     max_scenes: int = typer.Option(6, help="least-cloudy scenes per window (fewer = faster)"),
     res_m: float = typer.Option(100.0, help="analysis resolution in metres (coarser = faster)"),
+    cache_dir: Path = typer.Option(Path("data/t2_cache"), help="cache built samples here"),
     n_reference: int = typer.Option(500, help="Olofsson reference-sample size per fold"),
     seed: int = typer.Option(0),
 ) -> None:
@@ -706,19 +707,30 @@ def t2_stage0_cmd(
         )
 
     def on_done(rec, sample):
-        console.print(f"[green]ok[/green] ({_time.perf_counter() - clock['t']:.0f}s)")
+        bf_s = f"{100 * sample.burned_fraction:.0f}% burned" if sample.n_valid else "no valid px"
+        console.print(
+            f"[green]ok[/green] ({_time.perf_counter() - clock['t']:.0f}s, "
+            f"{sample.n_valid:,} valid px, {bf_s})"
+        )
 
     def on_error(rec, exc):
         console.print(f"[yellow]skip[/yellow] ({type(exc).__name__})")
 
     samples = build_optical_samples(
         fires, mosaic, on_start=on_start, on_done=on_done, on_error=on_error,
-        max_cloud=max_cloud, max_scenes=max_scenes, res_m=res_m,
+        max_cloud=max_cloud, max_scenes=max_scenes, res_m=res_m, cache_dir=cache_dir,
     )
-    if len(samples) < 3:
-        console.print(f"[red]only {len(samples)} fires got usable imagery; need 3[/red]")
+    # Drop fires that cannot calibrate a threshold: all-cloud windows (no valid
+    # predictor) or windows entirely inside or outside the burn.
+    usable = {k: s for k, s in samples.items() if s.is_usable}
+    dropped = set(samples) - set(usable)
+    for d in dropped:
+        console.print(f"  [yellow]drop[/yellow] {d}: not calibratable (empty or single-class)")
+    if len(usable) < 3:
+        console.print(f"[red]only {len(usable)} usable fires; need 3[/red]")
         raise typer.Exit(1)
-    console.print(f"\n[green]{len(samples)} fires with imagery[/green]. Calibrating per fold...\n")
+    samples = usable
+    console.print(f"\n[green]{len(samples)} usable fires[/green]. Calibrating per fold...\n")
 
     units = [u for u in reg.to_split_units() if u.uid in samples]
     manifest = leave_one_group_out(units, by="group")

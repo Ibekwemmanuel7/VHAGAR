@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from vhagar.datasets.burned_area import make_sample, mtbs_burned_mask
+from vhagar.datasets.burned_area import T2Sample, make_sample, mtbs_burned_mask
 from vhagar.eval.splits import SplitManifest
 from vhagar.eval.t2_stage0 import evaluate_fold, run_stage0, summarise_stage0
 
@@ -50,6 +50,29 @@ def test_burned_fraction_is_over_valid_only():
 def test_shape_mismatch_raises():
     with pytest.raises(ValueError, match="does not match"):
         make_sample("f", np.zeros((2, 2)), np.zeros((2, 3), dtype=bool))
+
+
+def test_is_usable_flags_degenerate_samples():
+    good = make_sample("g", np.array([[1.0, 2.0]]), np.array([[True, False]]))
+    all_burned = make_sample("b", np.array([[1.0, 2.0]]), np.array([[True, True]]))
+    all_cloud = make_sample("c", np.array([[np.nan, np.nan]]), np.array([[True, False]]))
+    assert good.is_usable
+    assert not all_burned.is_usable      # single class, no threshold to fit
+    assert not all_cloud.is_usable       # no valid predictor pixels
+
+
+def test_sample_save_load_round_trip(tmp_path):
+    s = make_sample(
+        "mtbs:CA1", np.array([[1.0, np.nan], [3.0, 4.0]]),
+        np.array([[True, False], [True, False]]), tile_id="conus/x0001_y0002",
+    )
+    path = s.save(tmp_path / "s.npz")
+    back = T2Sample.load(path)
+    assert back.event_id == "mtbs:CA1"
+    assert back.tile_id == "conus/x0001_y0002"
+    assert np.array_equal(back.valid, s.valid)
+    assert np.array_equal(back.reference, s.reference)
+    assert back.n_valid == s.n_valid
 
 
 # ----------------------------------------------------------- driver -------
