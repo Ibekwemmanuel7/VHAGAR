@@ -23,8 +23,10 @@ from vhagar import __version__
 app = typer.Typer(add_completion=False, help="VHAGAR, multi-sensor wildfire intelligence")
 grid_app = typer.Typer(help="Analysis grid utilities")
 splits_app = typer.Typer(help="Leakage-proof cross-validation splits")
+labels_app = typer.Typer(help="Fire event label registry")
 app.add_typer(grid_app, name="grid")
 app.add_typer(splits_app, name="splits")
+app.add_typer(labels_app, name="labels")
 
 console = Console()
 
@@ -86,16 +88,25 @@ def grid_tile(
 
 @splits_app.command("build")
 def splits_build(
-    records: Path = typer.Option(..., exists=True, help="JSON list of split-unit records"),
+    records: Path = typer.Option(None, help="JSON list of split-unit records"),
+    registry: Path = typer.Option(None, help="registry Parquet from 'vhagar labels build'"),
     scheme: str = typer.Option("leave_year_out", help="spatial_block | leave_year_out | leave_one_<key>_out"),
     out: Path = typer.Option(Path("splits"), help="Output directory"),
     n_folds: int = typer.Option(5),
     block_degrees: float = typer.Option(5.0),
 ) -> None:
-    """Build and persist a split manifest."""
+    """Build and persist a split manifest from a records JSON or the registry."""
     from vhagar.eval import splits as S
 
-    units = S.units_from_records(json.loads(records.read_text()))
+    if (records is None) == (registry is None):
+        console.print("[red]pass exactly one of --records or --registry[/red]")
+        raise typer.Exit(1)
+    if registry is not None:
+        from vhagar.labels.registry import EventRegistry
+
+        units = EventRegistry.from_parquet(registry).to_split_units()
+    else:
+        units = S.units_from_records(json.loads(records.read_text()))
 
     if scheme == "spatial_block":
         manifest = S.spatial_block_split(units, n_folds=n_folds, block_degrees=block_degrees)
@@ -111,6 +122,55 @@ def splits_build(
     path = manifest.to_json(out / f"{manifest.scheme}.json")
     console.print(S.summarise(manifest))
     console.print(f"\n[green]wrote[/green] {path}")
+
+
+@labels_app.command("build")
+def labels_build(
+    source: str = typer.Option("mtbs", help="label source (currently: mtbs)"),
+    path: Path = typer.Option(..., exists=True, help="source file, e.g. an MTBS shapefile"),
+    out: Path = typer.Option(Path("registry.parquet"), help="output registry Parquet"),
+    region: str = typer.Option("conus"),
+    geometry_dir: str = typer.Option("", help="prefix for per-fire geometry files"),
+    severity_dir: str = typer.Option("", help="prefix for per-fire dNBR severity rasters"),
+) -> None:
+    """Ingest a label source into the fire event registry.
+
+    Normalises records, assigns analysis-grid tiles, writes the versioned
+    registry Parquet, and prints counts by region and source. MTBS carries the
+    dNBR severity raster, so with ``--severity-dir`` its records are trainable.
+    """
+    from vhagar.grid import AnalysisGrid
+    from vhagar.labels.registry import EventRegistry
+    from vhagar.labels.tiles import assign_tiles
+
+    if source != "mtbs":
+        console.print(f"[red]unknown source {source!r}; currently only 'mtbs'[/red]")
+        raise typer.Exit(1)
+
+    from vhagar.labels.ingest import read_mtbs
+
+    try:
+        records = read_mtbs(
+            path, region=region,
+            geometry_dir=geometry_dir or None, severity_dir=severity_dir or None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[red]failed to read {source}[/red] {type(exc).__name__}: {exc}")
+        raise typer.Exit(1) from None
+
+    grid = AnalysisGrid(region)
+    for r in records:
+        r.tile_ids = assign_tiles(r, grid)
+    reg = EventRegistry(records)
+    reg.to_parquet(out)
+
+    t = Table(title=f"Registry, {len(reg)} events")
+    t.add_column("region/source")
+    t.add_column("count", justify="right")
+    for k, v in reg.summary().items():
+        t.add_row(k, str(v))
+    console.print(t)
+    console.print(f"[green]wrote[/green] {out}")
 
 
 @splits_app.command("verify")

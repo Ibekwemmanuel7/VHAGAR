@@ -21,11 +21,22 @@ Two rules encoded here:
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import date
 from enum import Enum
+from pathlib import Path
 
 __all__ = ["FireEventRecord", "LabelQuality", "LabelSource", "SOURCE_QUALITY", "EventRegistry"]
+
+#: Columns written to the registry Parquet, in order. Scalars only; ``tile_ids``
+#: is a list column and ``attributes`` is a JSON string.
+_REGISTRY_COLUMNS = (
+    "event_id", "source", "region", "ignition_date", "containment_date",
+    "area_ha", "lon", "lat", "geometry_path", "interior_mask_path",
+    "severity_path", "ecoregion", "continent", "cause", "fire_type",
+    "tile_ids", "attributes",
+)
 
 
 class LabelQuality(str, Enum):
@@ -197,3 +208,78 @@ class EventRegistry:
             key = f"{r.region}/{r.source.value}"
             counts[key] = counts.get(key, 0) + 1
         return dict(sorted(counts.items()))
+
+    # -- persistence -----------------------------------------------------
+    # Stored as Parquet, the versioned label artifact. The representative point
+    # is kept as lon/lat columns rather than a geometry column, so no geopandas
+    # dependency is required to read or write the registry; upgrading to a true
+    # GeoParquet geometry column later is additive.
+
+    def to_parquet(self, path: Path | str) -> Path:
+        """Write the registry to a Parquet file. This is the versioned artifact."""
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        def iso(d: date | None) -> str | None:
+            return d.isoformat() if d else None
+
+        rows = list(self._records.values())
+        columns = {
+            "event_id": [r.event_id for r in rows],
+            "source": [r.source.value for r in rows],
+            "region": [r.region for r in rows],
+            "ignition_date": [iso(r.ignition_date) for r in rows],
+            "containment_date": [iso(r.containment_date) for r in rows],
+            "area_ha": [r.area_ha for r in rows],
+            "lon": [r.lon for r in rows],
+            "lat": [r.lat for r in rows],
+            "geometry_path": [r.geometry_path for r in rows],
+            "interior_mask_path": [r.interior_mask_path for r in rows],
+            "severity_path": [r.severity_path for r in rows],
+            "ecoregion": [r.ecoregion for r in rows],
+            "continent": [r.continent for r in rows],
+            "cause": [r.cause for r in rows],
+            "fire_type": [r.fire_type for r in rows],
+            "tile_ids": [list(r.tile_ids) for r in rows],
+            "attributes": [json.dumps(r.attributes) for r in rows],
+        }
+        table = pa.table({c: pa.array(columns[c]) for c in _REGISTRY_COLUMNS})
+        path = Path(path)
+        pq.write_table(table, path, compression="zstd")
+        return path
+
+    @classmethod
+    def from_parquet(cls, path: Path | str) -> EventRegistry:
+        """Read a registry written by :meth:`to_parquet`."""
+        import pyarrow.parquet as pq
+
+        table = pq.read_table(path)
+        data = table.to_pydict()
+
+        def as_date(s):
+            return date.fromisoformat(s) if s else None
+
+        records = []
+        for i in range(table.num_rows):
+            records.append(
+                FireEventRecord(
+                    event_id=data["event_id"][i],
+                    source=LabelSource(data["source"][i]),
+                    region=data["region"][i],
+                    ignition_date=as_date(data["ignition_date"][i]),
+                    containment_date=as_date(data["containment_date"][i]),
+                    area_ha=data["area_ha"][i],
+                    lon=data["lon"][i],
+                    lat=data["lat"][i],
+                    geometry_path=data["geometry_path"][i],
+                    interior_mask_path=data["interior_mask_path"][i],
+                    severity_path=data["severity_path"][i],
+                    ecoregion=data["ecoregion"][i],
+                    continent=data["continent"][i],
+                    cause=data["cause"][i],
+                    fire_type=data["fire_type"][i],
+                    tile_ids=list(data["tile_ids"][i]) if data["tile_ids"][i] else [],
+                    attributes=json.loads(data["attributes"][i]) if data["attributes"][i] else {},
+                )
+            )
+        return cls(records)

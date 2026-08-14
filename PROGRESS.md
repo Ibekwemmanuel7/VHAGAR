@@ -200,6 +200,35 @@ it.
 All five CMIP decoder steps are done. The decoder, stacking, measurement,
 climatology reducer and Tier B backfill are in and tested offline.
 
+## Label spine (Step 3), MTBS first
+
+Plan in `docs/09_LABEL_SPINE_PLAN.md`. Decision settled: ingest MTBS first (US
+severity, the T2 training source). The registry vocabulary and the splitting
+machinery already existed; this built the middle layer that connects them.
+
+- [x] **Registry persistence + tile assignment.** `EventRegistry.to_parquet` /
+      `from_parquet` (the versioned label artifact; lon/lat columns, no geopandas
+      dependency, GeoParquet geometry column is an additive upgrade later).
+      `vhagar/labels/tiles.py` `assign_tiles` projects an event to the region CRS
+      and reads off analysis-grid tile ids, point or bbox, reusing `vhagar.grid`.
+- [x] **MTBS adapter.** `vhagar/labels/ingest.py`: pure `normalize_mtbs` (field
+      mapping, date-format variants, acres->hectares, Incid_Type to
+      wildland/prescribed, dNBR severity path so records are trainable) plus a
+      thin `read_mtbs` pyogrio wrapper at the IO edge.
+- [x] **Pipeline + CLI.** `vhagar labels build` (ingest -> assign tiles -> write
+      registry -> summary) and `vhagar splits build --registry` to materialise
+      leakage-proof manifests from the registry. Ten offline tests including the
+      full registry -> split-units -> spatial-block/leave-year-out -> no-overlap
+      path.
+- [ ] **Run on real MTBS** (needs the download + pyogrio): point
+      `vhagar labels build --source mtbs --path <mtbs.shp> --severity-dir <...>`
+      at a real extract, then `vhagar splits build --registry registry.parquet
+      --scheme leave_one_ecoregion_out`.
+- [ ] Further adapters (step 4): NIFC/WFIGS perimeters (extent, flagged), EFFIS
+      (Europe), Copernicus EMS (held-out European test), FPA-FOD (points, T3).
+
+This unblocks Step 4, the first honest T2 burned-area Stage-0 number.
+
 ## Still open
 
 From section 10.6 and the roadmap, not started:
