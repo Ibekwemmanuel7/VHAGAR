@@ -133,16 +133,14 @@ def rasterize_burned_on_grid(geometries, src_crs, grid: TargetGrid):
 def read_emsr_reference_on_grid(delineation_path, grid: TargetGrid):
     """Read a Copernicus EMS burnt-area delineation shapefile and rasterise it.
 
-    The pyogrio read is the IO edge; the rasterising is
-    :func:`rasterize_burned_on_grid`. Needs pyogrio and shapely.
+    Uses the same burnt-area filter as the record builder, so the "Not
+    applicable" and other non-burnt polygons in an observed-event layer do not
+    leak into the reference. Needs pyogrio and shapely.
     """
-    from pyogrio.raw import read as _raw_read
-    from shapely import wkb
+    from vhagar.labels.ingest import read_emsr_burned_geometries
 
-    result = _raw_read(delineation_path, read_geometry=True)
-    meta, geom_wkb = result[0], result[2]
-    geoms = [wkb.loads(bytes(g)) for g in geom_wkb if g is not None]
-    return rasterize_burned_on_grid(geoms, meta["crs"], grid)
+    geoms, crs = read_emsr_burned_geometries(delineation_path)
+    return rasterize_burned_on_grid(geoms, crs, grid)
 
 
 def build_optical_sample(

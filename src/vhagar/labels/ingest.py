@@ -26,7 +26,13 @@ from datetime import date
 
 from vhagar.labels.registry import FireEventRecord, LabelSource
 
-__all__ = ["build_emsr_record", "normalize_mtbs", "read_emsr", "read_mtbs"]
+__all__ = [
+    "build_emsr_record",
+    "normalize_mtbs",
+    "read_emsr",
+    "read_emsr_burned_geometries",
+    "read_mtbs",
+]
 
 
 def _parse_date(value) -> date | None:
@@ -200,16 +206,41 @@ def build_emsr_record(
     )
 
 
-def read_emsr(delineation_path, event_date, activation_id: str | None = None) -> FireEventRecord:
-    """Read an EMS delineation shapefile into a fire record. Needs pyogrio, shapely."""
+def read_emsr_burned_geometries(delineation_path):
+    """Read an EMS observed-event shapefile, keeping only burnt-area polygons.
+
+    An EMS ``observedEventA`` layer can carry a "Burnt area" polygon alongside
+    other classifications (e.g. "Not applicable"), so this filters on the
+    ``notation``/``event_type`` fields to the burnt class. If no such field is
+    present, all polygons are returned. Returns ``(geometries, crs)``. Needs
+    pyogrio and shapely.
+    """
     from pyogrio.raw import read as _raw_read
     from shapely import wkb
 
     result = _raw_read(delineation_path, read_geometry=True)
-    meta, geom_wkb = result[0], result[2]
-    geoms = [wkb.loads(bytes(g)) for g in geom_wkb if g is not None]
+    meta, geom_wkb, field_data = result[0], result[2], result[-1]
+    fields = list(meta["fields"])
+
+    # Find a classification column, preferring the precise EMS notation field.
+    lower = [f.lower() for f in fields]
+    class_col = next((lower.index(c) for c in ("notation", "class", "obj_desc") if c in lower), None)
+    keep = range(len(geom_wkb))
+    if class_col is not None:
+        labels = [str(v).lower() for v in field_data[class_col]]
+        burnt = [i for i, s in enumerate(labels) if "burnt" in s or "burned" in s]
+        if burnt:  # only filter if we actually matched; otherwise keep all
+            keep = burnt
+
+    geoms = [wkb.loads(bytes(geom_wkb[i])) for i in keep if geom_wkb[i] is not None]
+    return geoms, meta["crs"]
+
+
+def read_emsr(delineation_path, event_date, activation_id: str | None = None) -> FireEventRecord:
+    """Read an EMS delineation shapefile into a fire record. Needs pyogrio, shapely."""
+    geoms, crs = read_emsr_burned_geometries(delineation_path)
     if activation_id is None:
         from pathlib import Path
 
         activation_id = Path(delineation_path).stem
-    return build_emsr_record(activation_id, event_date, geoms, meta["crs"], delineation_path)
+    return build_emsr_record(activation_id, event_date, geoms, crs, delineation_path)

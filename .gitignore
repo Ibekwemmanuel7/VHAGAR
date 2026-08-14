@@ -21,3 +21,6 @@ data/
 *.tmp
 mtbs_extract/
 bsp_*.zip
+emsr_extract/
+EMSR*_vector.zip
+emsr.csv
