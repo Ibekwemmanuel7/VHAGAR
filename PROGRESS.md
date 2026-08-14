@@ -229,6 +229,35 @@ machinery already existed; this built the middle layer that connects them.
 
 This unblocks Step 4, the first honest T2 burned-area Stage-0 number.
 
+## T2 burned-area Stage-0 (Step 4), the first honest number
+
+Plan in `docs/10_T2_STAGE0_PLAN.md`. Decision settled: MTBS dNBR predictor first
+(lineage-shared, flagged), swap to independent composites later. The algorithms
+already existed (`rbr`/`dnbr`, `tune_threshold`/`threshold_baseline`, Olofsson
+`estimate_areas` + `allocate_samples`, siamese U-Net, Dice/Combo losses); this
+wired them.
+
+- [x] **Dataset builder.** `vhagar/datasets/burned_area.py`: `T2Sample`
+      (predictor, reference, valid), `mtbs_burned_mask` (thematic classes ->
+      burned/valid), `make_sample` with nodata propagation into the valid mask
+      (the classic silent-EO bug, tested), and a `read_mtbs_sample` rasterio
+      edge. MTBS dNBR and thematic share a grid, so no regridding for the first
+      number.
+- [x] **Stage-0 driver.** `vhagar/eval/t2_stage0.py`: per fold, calibrate the
+      dNBR threshold on train fires, apply to test, report F1/IoU and an
+      **Olofsson error-adjusted burned area with a 95% CI** (stratified reference
+      sample, burned class floored, seeded so the CI is reproducible). Per-fold
+      results plus mean/std. Eight offline tests on separable synthetic fires:
+      the adjusted area lands within ~2% of mapped with a realistic ~7% CI, and a
+      perfectly separable map correctly yields a zero CI.
+- [ ] **Run on real MTBS rasters** (needs the dNBR + thematic severity mosaic
+      download and rasterio): build samples via `read_mtbs_sample` over a
+      region-year, run `run_stage0` against a split from `data/labels/`, and
+      report the first per-fold Olofsson number. Flag it lineage-shared.
+- [ ] Plain U-Net companion baseline (Dice/Combo loss), same eval.
+- [ ] Swap predictor to independent S2/Landsat composites for the report number.
+- [ ] Leave-one-continent-out (MTBS train, EMSR test) once EFFIS/EMSR ingested.
+
 ## Still open
 
 From section 10.6 and the roadmap, not started:
