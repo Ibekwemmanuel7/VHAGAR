@@ -31,6 +31,38 @@ Two follow-ups worth doing: (a) add `objective="youden"` as a named option in
 `tune_threshold` and expose it on the CLI, so the balanced baseline is reproducible
 without a script; (b) wider windows on a re-pull to remove the all-burned confound.
 
+Both are now done in code (committed 2afe461 for (a)). For (b): `target_grid_for_fire`
+now sizes the half-window as `max(radius * 2.5, 15 km)` capped at 30 km (was
+`radius * 1.6`, 5 km floor), so small fires get a wide unburned ring instead of a
+~90%-burned window. The sample cache key now encodes the window floor
+(`{event}_r{res}_w{km}.npz`, e.g. `_r100_w15`), so the new wide-window samples do
+not collide with or get pooled against the old narrow ones. Suite still 324 passed,
+2 skipped, ruff clean.
+
+### Re-pull the wide-window cache (needs network, run on your Windows machine)
+
+The sandbox cannot reach Sentinel-2 (STAC/S3 blocked by the proxy), so build the
+new samples where the network is open. This creates new `_w15` npz files and leaves
+the old `_r100` ones untouched.
+
+```powershell
+cd C:\Users\taylo\VHAGAR
+# US CONUS 2021, size-stratified, wide windows, balanced objective:
+vhagar t2-stage0 --registry data/labels/registry.parquet `
+  --mosaic mtbs_extract/mtbs_CONUS_2021.tif `
+  --min-area-ha 2000 --max-fires 34 --select size --res-m 100 --objective youden
+# Leave-one-continent-out, wide windows, balanced objective:
+vhagar t2-continent-out --registry data/labels/registry.parquet `
+  --mosaic mtbs_extract/mtbs_CONUS_2021.tif --emsr-manifest emsr.csv `
+  --min-area-ha 2000 --max-fires 34 --res-m 100 --objective youden
+```
+
+Then compare the new wide-window numbers against the narrow-window ones in docs/11.
+Expect the small-fire burned fractions to drop from ~90% toward 30-60%, the
+Olofsson area to become computable on more than 2 of 34 folds, and the F1 gap
+between within-CONUS and continent-out to be more meaningful (less inflated by
+all-burned windows). Paste the tables back and I will write up the comparison.
+
 ## Where things stand right now
 
 - Package `vhagar`, CLI `vhagar`. Base was v0.11 (240 tests). After this

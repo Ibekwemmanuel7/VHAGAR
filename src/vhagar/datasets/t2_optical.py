@@ -62,17 +62,27 @@ def select_fires(records, n: int, strategy: str = "largest"):
 def target_grid_for_fire(
     record,
     res_m: float = 30.0,
-    buffer_factor: float = 1.6,
-    min_half_m: float = 5_000.0,
+    buffer_factor: float = 2.5,
+    min_half_m: float = 15_000.0,
     max_half_m: float = 30_000.0,
 ):
     """A fire's analysis window on the region's equal-area grid, plus a lon/lat bbox.
 
     The window is centred on the fire's representative point and sized from its
-    area (a circle-equivalent radius, buffered), floored to ``min_half_m`` so
-    small fires still get a usable window. Returns ``(TargetGrid, bbox_4326)``:
+    area (a circle-equivalent radius, buffered by ``buffer_factor``), floored to
+    ``min_half_m`` and capped at ``max_half_m``. Returns ``(TargetGrid, bbox_4326)``:
     the grid for warping rasters, and the lon/lat bbox for the Sentinel-2 search.
     Pure: needs only pyproj and arithmetic.
+
+    Window sizing note (docs/11). The half-width scales with the fire radius
+    (``radius * 2.5``) with a 15 km floor, so a small fire still sees a wide ring
+    of unburned land around it. Earlier defaults (1.6x, 5 km floor) filled a small
+    fire's window ~90% burned, which let an F1-tuned threshold collapse to
+    "predict everything burned" and destroyed cross-continent transfer. A wider
+    window restores a realistic burned/unburned class balance so the threshold
+    calibration and the Olofsson area estimate are both meaningful. Widening the
+    window changes what each sample measures, so samples built under the old and
+    new sizing must not be pooled or compared; re-pull the cache after changing it.
     """
     from pyproj import Transformer
 
@@ -207,7 +217,12 @@ def build_optical_sample(
         cache_dir = Path(cache_dir)
         cache_dir.mkdir(parents=True, exist_ok=True)
         safe = record.event_id.replace(":", "_").replace("/", "_")
-        cache_path = cache_dir / f"{safe}_r{int(res_m)}.npz"
+        # The window floor is part of what the sample measures, so it is part of
+        # the cache key: widening the window (docs/11) writes new files instead of
+        # silently reusing narrow-window samples, which the "never compare across
+        # code paths" rule forbids. Default floor 15 km -> ``w15``.
+        win_km = int(grid_kw.get("min_half_m", 15_000.0) / 1000)
+        cache_path = cache_dir / f"{safe}_r{int(res_m)}_w{win_km}.npz"
         if cache_path.exists():
             return T2Sample.load(cache_path)
 

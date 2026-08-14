@@ -95,21 +95,27 @@ def _fire(area_ha=10_000.0, lon=-121.5, lat=39.8):
 def test_target_grid_covers_the_fire_and_is_on_the_region_crs():
     from vhagar.datasets.t2_optical import target_grid_for_fire
 
+    # A 10,000 ha fire has a ~5.6 km radius; at 2.5x buffer that is ~14 km, below
+    # the 15 km floor, so the half-window is the 15 km floor. At 30 m that is
+    # ~1000 cells a side.
     grid, bbox = target_grid_for_fire(_fire(area_ha=10_000.0))
     assert grid.crs == "EPSG:5070"
-    # ~9 km half-window at 30 m is ~600 cells a side
-    assert 400 < grid.width < 900 and 400 < grid.height < 900
+    assert 900 < grid.width < 1100 and 900 < grid.height < 1100
     # lon/lat bbox brackets the fire point
     w, s, e, n = bbox
     assert w < -121.5 < e and s < 39.8 < n
 
 
-def test_small_fire_still_gets_the_minimum_window():
+def test_small_fire_gets_the_widened_default_floor():
     from vhagar.datasets.t2_optical import target_grid_for_fire
 
-    grid, _ = target_grid_for_fire(_fire(area_ha=1.0), min_half_m=5_000.0)
-    # 5 km half-window at 30 m is ~333 cells
-    assert 300 < grid.width < 380
+    # A tiny fire is floored to the default 15 km half-window (docs/11: small
+    # fires need a wide unburned ring, or the window is ~all burned).
+    grid, _ = target_grid_for_fire(_fire(area_ha=1.0))
+    assert 900 < grid.width < 1100
+    # the floor is overridable for callers that want a tighter window
+    tight, _ = target_grid_for_fire(_fire(area_ha=1.0), min_half_m=5_000.0)
+    assert 300 < tight.width < 380
 
 
 # ---------------------------------------------- sample assembly (stubbed) -
