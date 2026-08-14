@@ -16,6 +16,7 @@ from vhagar.io.optical import (
     mean_composite,
     rbr_from_windows,
     scl_valid_mask,
+    stream_nbr,
 )
 from vhagar.labels.registry import FireEventRecord, LabelSource
 
@@ -45,6 +46,26 @@ def test_composite_nbr_uses_masked_means():
     got = composite_nbr(nir, swir, scl)
     expected = (0.4 - 0.1) / (0.4 + 0.1)      # NBR of the clear scene only
     assert got[0, 0] == pytest.approx(expected)
+
+
+def test_stream_nbr_matches_stack_composite_but_bounds_memory():
+    """Streaming one scene at a time must give the same composite NBR as stacking
+    them all, which is the whole point of the memory-safe path."""
+    rng = np.random.default_rng(0)
+    nir = rng.uniform(0.2, 0.6, (4, 8, 8))
+    swir = rng.uniform(0.05, 0.4, (4, 8, 8))
+    scl = rng.integers(0, 12, (4, 8, 8))
+    streamed = stream_nbr(zip(nir, swir, scl, strict=True), shape=(8, 8))
+    stacked = composite_nbr(nir, swir, scl)
+    assert np.allclose(streamed, stacked, equal_nan=True)
+
+
+def test_stream_nbr_is_nan_where_every_scene_is_cloudy():
+    nir = np.array([[[0.4]], [[0.5]]])
+    swir = np.array([[[0.1]], [[0.2]]])
+    scl = np.array([[[9]], [[8]]])   # cloud in both scenes
+    out = stream_nbr(zip(nir, swir, scl, strict=True), shape=(1, 1))
+    assert np.isnan(out[0, 0])
 
 
 def test_rbr_separates_burned_from_unburned():

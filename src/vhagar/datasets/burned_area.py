@@ -100,7 +100,9 @@ def make_sample(
     is valid only where the predictor is finite (and not ``predictor_nodata`` if
     given) and the reference is valid (``reference_valid``, defaulting to all).
     """
-    predictor = np.asarray(predictor, dtype=np.float64)
+    # float32 predictor: RBR/dNBR precision is ample at 32-bit and it halves the
+    # memory of a large fire window.
+    predictor = np.asarray(predictor, dtype=np.float32)
     reference = np.asarray(reference).astype(bool)
     if predictor.shape != reference.shape:
         raise ValueError(

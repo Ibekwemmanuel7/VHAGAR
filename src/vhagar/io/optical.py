@@ -37,6 +37,7 @@ __all__ = [
     "mean_composite",
     "scl_valid_mask",
     "sentinel2_rbr",
+    "stream_nbr",
 ]
 
 #: Sen2Cor Scene Classification values to KEEP. Dropped are 0 nodata, 1 saturated,
@@ -94,6 +95,29 @@ def composite_nbr(
     return nbr(nir_c, swir_c)
 
 
+def stream_nbr(scenes, shape: tuple[int, int], keep: tuple[int, ...] = SCL_KEEP) -> np.ndarray:
+    """Cloud-masked mean-composite NBR, accumulated one scene at a time.
+
+    ``scenes`` is an iterable of ``(nir, swir, scl)`` arrays already on the target
+    grid. Only a running sum and count are held, never the whole stack, so a
+    large window with dozens of scenes uses flat memory. A pixel valid in no
+    scene ends up NaN. Pure and testable by passing synthetic scene tuples.
+    """
+    sum_nir = np.zeros(shape, dtype=np.float64)
+    sum_swir = np.zeros(shape, dtype=np.float64)
+    count = np.zeros(shape, dtype=np.int32)
+    for nir, swir, scl in scenes:
+        v = scl_valid_mask(scl, keep)
+        sum_nir += np.where(v, np.asarray(nir, dtype=np.float64), 0.0)
+        sum_swir += np.where(v, np.asarray(swir, dtype=np.float64), 0.0)
+        count += v
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        nir_m = np.where(count > 0, sum_nir / count, np.nan)
+        swir_m = np.where(count > 0, sum_swir / count, np.nan)
+    return nbr(nir_m, swir_m)
+
+
 def rbr_from_windows(
     pre_nir, pre_swir, pre_scl, post_nir, post_swir, post_scl, keep: tuple[int, ...] = SCL_KEEP
 ) -> np.ndarray:
@@ -106,8 +130,14 @@ def rbr_from_windows(
 # ---------------------------------------------------------- network -------
 
 
-def _search_sentinel2(bbox_4326, start: str, end: str, max_cloud: float = 60.0):
-    """STAC items for a bbox and date window. Needs pystac-client."""
+def _search_sentinel2(
+    bbox_4326, start: str, end: str, max_cloud: float = 60.0, max_scenes: int = 12
+):
+    """STAC items for a bbox and date window, least cloudy first. Needs pystac-client.
+
+    Capped at ``max_scenes`` so a wide window over a long window does not warp
+    dozens of scenes; the least-cloudy ones carry the composite.
+    """
     from pystac_client import Client
 
     client = Client.open("https://earth-search.aws.element84.com/v1")
@@ -117,7 +147,9 @@ def _search_sentinel2(bbox_4326, start: str, end: str, max_cloud: float = 60.0):
         datetime=f"{start}/{end}",
         query={"eo:cloud_cover": {"lt": max_cloud}},
     )
-    return list(search.items())
+    items = list(search.items())
+    items.sort(key=lambda it: it.properties.get("eo:cloud_cover", 100.0))
+    return items[:max_scenes]
 
 
 def _warp_asset_to_grid(href: str, grid: TargetGrid, resampling: str = "bilinear") -> np.ndarray:
@@ -146,42 +178,37 @@ def sentinel2_rbr(
     pre_days: tuple[int, int] = (90, 15),
     post_days: tuple[int, int] = (15, 75),
     max_cloud: float = 60.0,
+    max_scenes: int = 12,
     keep: tuple[int, ...] = SCL_KEEP,
 ) -> np.ndarray:
     """Independent RBR for a fire on its MTBS grid. Needs network, pystac + rasterio.
 
     Searches Sentinel-2 in the pre and post windows around ``ignition_date``,
-    warps B8A/B12/SCL onto ``grid``, cloud-masks, composites, and differences NBR
-    to RBR. This is the one step that must run where the network is open.
+    warps B8A/B12/SCL onto ``grid`` one scene at a time, cloud-masks, composites,
+    and differences NBR to RBR. Scenes are streamed, never all held at once, so a
+    large fire window stays within memory. This is the one step that must run
+    where the network is open.
     """
     from datetime import date, timedelta
 
     ig = date.fromisoformat(ignition_date)
 
-    def window(days: tuple[int, int]) -> tuple[str, str]:
-        return (
-            (ig - timedelta(days=days[0])).isoformat(),
-            (ig - timedelta(days=days[1])).isoformat(),
-        )
-
-    def post_window(days: tuple[int, int]) -> tuple[str, str]:
-        return (
-            (ig + timedelta(days=days[0])).isoformat(),
-            (ig + timedelta(days=days[1])).isoformat(),
-        )
-
-    def stacks(start: str, end: str):
-        items = _search_sentinel2(bbox_4326, start, end, max_cloud)
+    def _scene_arrays(start: str, end: str):
+        items = _search_sentinel2(bbox_4326, start, end, max_cloud, max_scenes)
         if not items:
             raise RuntimeError(f"no Sentinel-2 scenes for {start}/{end}")
-        nir, swir, scl = [], [], []
         for it in items:
             a = it.assets
-            nir.append(_warp_asset_to_grid(a["nir08"].href, grid))
-            swir.append(_warp_asset_to_grid(a["swir22"].href, grid))
-            scl.append(_warp_asset_to_grid(a["scl"].href, grid, resampling="nearest"))
-        return np.stack(nir), np.stack(swir), np.stack(scl)
+            nir = _warp_asset_to_grid(a["nir08"].href, grid)
+            swir = _warp_asset_to_grid(a["swir22"].href, grid)
+            scl = _warp_asset_to_grid(a["scl"].href, grid, resampling="nearest")
+            yield nir, swir, scl
 
-    pre = stacks(*window(pre_days))
-    post = stacks(*post_window(post_days))
-    return rbr_from_windows(*pre, *post, keep=keep)
+    pre_start = (ig - timedelta(days=pre_days[0])).isoformat()
+    pre_end = (ig - timedelta(days=pre_days[1])).isoformat()
+    post_start = (ig + timedelta(days=post_days[0])).isoformat()
+    post_end = (ig + timedelta(days=post_days[1])).isoformat()
+
+    nbr_pre = stream_nbr(_scene_arrays(pre_start, pre_end), grid.shape, keep)
+    nbr_post = stream_nbr(_scene_arrays(post_start, post_end), grid.shape, keep)
+    return rbr(nbr_pre, nbr_post)

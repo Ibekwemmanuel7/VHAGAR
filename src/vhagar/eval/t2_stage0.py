@@ -49,20 +49,27 @@ class FoldResult:
 
 
 def _pool(samples: Sequence, cap: int | None, rng) -> tuple[np.ndarray, np.ndarray]:
-    """Concatenate valid predictor and reference pixels, optionally subsampled."""
+    """Concatenate valid predictor and reference pixels, optionally subsampled.
+
+    When a cap is given the subsampling happens **per sample**, before
+    concatenation, so the pool never materialises every training fire's pixels at
+    once. That keeps memory flat across a leave-one-fire-out fold with a dozen
+    large fires, which otherwise concatenates hundreds of millions of pixels.
+    """
+    if not samples:
+        return np.empty(0), np.empty(0, dtype=bool)
+    per = None if cap is None else max(1, cap // len(samples))
     preds, refs = [], []
     for s in samples:
         v = s.valid
-        preds.append(s.predictor[v])
-        refs.append(s.reference[v])
-    if not preds:
-        return np.empty(0), np.empty(0, dtype=bool)
-    pred = np.concatenate(preds)
-    ref = np.concatenate(refs)
-    if cap is not None and pred.size > cap:
-        idx = rng.choice(pred.size, size=cap, replace=False)
-        pred, ref = pred[idx], ref[idx]
-    return pred, ref
+        p = s.predictor[v]
+        r = s.reference[v]
+        if per is not None and p.size > per:
+            idx = rng.choice(p.size, size=per, replace=False)
+            p, r = p[idx], r[idx]
+        preds.append(p)
+        refs.append(r)
+    return np.concatenate(preds), np.concatenate(refs)
 
 
 def _stratified_confusion(pred_mask, truth, n_alloc, rng) -> np.ndarray:

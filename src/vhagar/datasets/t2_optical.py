@@ -34,6 +34,7 @@ def target_grid_for_fire(
     res_m: float = 30.0,
     buffer_factor: float = 1.6,
     min_half_m: float = 5_000.0,
+    max_half_m: float = 30_000.0,
 ):
     """A fire's analysis window on the region's equal-area grid, plus a lon/lat bbox.
 
@@ -51,7 +52,11 @@ def target_grid_for_fire(
 
     cx, cy = fwd.transform(record.lon, record.lat)
     radius = math.sqrt(record.area_ha * 1e4 / math.pi) if record.area_ha else 0.0
-    half = max(min_half_m, radius * buffer_factor)
+    # Clamp the half-window: below by a floor so small fires get a usable scene,
+    # above by a cap so a Dixie-scale fire does not allocate a 100+ km array. A
+    # capped window clips the very largest fires' extent, which is a per-fire
+    # area caveat, not a threshold-calibration problem.
+    half = min(max_half_m, max(min_half_m, radius * buffer_factor))
 
     x0 = math.floor((cx - half) / res_m) * res_m
     y0 = math.floor((cy - half) / res_m) * res_m
