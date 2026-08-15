@@ -672,6 +672,9 @@ def t2_stage0_cmd(
     stratify_raster: Path = typer.Option(
         None, help="global class raster (e.g. Koppen); enables per-stratum thresholds"
     ),
+    with_stack: bool = typer.Option(
+        False, help="also cache the pre/post NBR stack for deep models (t2-deep); tag _w15bgs"
+    ),
     n_reference: int = typer.Option(500, help="Olofsson reference-sample size per fold"),
     seed: int = typer.Option(0),
 ) -> None:
@@ -728,6 +731,7 @@ def t2_stage0_cmd(
     samples = build_optical_samples(
         fires, mosaic, on_start=on_start, on_done=on_done, on_error=on_error,
         max_cloud=max_cloud, max_scenes=max_scenes, res_m=res_m, cache_dir=cache_dir,
+        with_stack=with_stack,
     )
     # Drop fires that cannot calibrate a threshold: all-cloud windows (no valid
     # predictor) or windows entirely inside or outside the burn.
@@ -1031,6 +1035,85 @@ def t2_unet_cmd(
         "[dim]  Same RBR input, same leakage-proof folds, same naive baseline. If the\n"
         "  U-Net does not clear the threshold here, a spatial model adds nothing on this\n"
         "  input, which is worth knowing before anything fancier. See docs/11.[/dim]"
+    )
+
+
+@app.command("t2-deep")
+def t2_deep_cmd(
+    cache_dir: Path = typer.Option(Path("data/t2_cache"), help="cached T2 samples with stack"),
+    pattern: str = typer.Option("mtbs_*_w15bgs.npz", help="glob for stack samples (_w15bgs)"),
+    model: str = typer.Option("siamese", help="deep model: siamese | unet"),
+    folds: int = typer.Option(5, help="grouped k-fold (leakage-proof, by fire)"),
+    epochs: int = typer.Option(20, help="training epochs per fold"),
+    crop: int = typer.Option(128, help="training tile size"),
+    method: str = typer.Option("global", help="threshold baseline: global | perstratum"),
+    objective: str = typer.Option("youden", help="threshold objective for the baseline"),
+    seed: int = typer.Option(0),
+) -> None:
+    """Deep models on the pre/post NBR stack vs the RBR threshold.
+
+    ``--model siamese`` (default) gives a shared-weight change model the pre- and
+    post-fire NBR as separate inputs; ``--model unet`` runs a multi-channel U-Net over
+    the full stack. Same leakage-proof folds and skill-over-naive protocol as t2-unet.
+    Needs samples built with ``with_stack=True`` (cache tag ``_w15bgs``) and torch.
+    """
+    import glob as _glob
+
+    from vhagar.datasets.burned_area import T2Sample
+    from vhagar.eval.t2_deep import run_deep_cv, summarise_deep_cv
+
+    paths = sorted(_glob.glob(str(cache_dir / pattern)))
+    samples = {}
+    for p in paths:
+        s = T2Sample.load(p)
+        if s.is_usable:
+            samples[s.event_id] = s
+    if len(samples) < folds:
+        console.print(
+            f"[red]only {len(samples)} usable stack samples matching {pattern}[/red]\n"
+            "Build them first with a stack pull (build_optical_sample(..., with_stack=True))."
+        )
+        raise typer.Exit(1)
+    has_stack = sum(1 for s in samples.values() if s.stack is not None)
+    console.print(
+        f"[bold]T2 deep baseline[/bold] ({model}): {len(samples)} fires "
+        f"({has_stack} with a stack), {folds}-fold, {epochs} epochs (torch)..."
+    )
+    try:
+        results = run_deep_cv(
+            samples, model_kind=model, k=folds, method=method, objective=objective,
+            epochs=epochs, crop=crop, seed=seed,
+        )
+    except ImportError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    t = Table(title=f"T2 {model} vs RBR threshold (grouped k-fold, per held-out fire)")
+    for col in ("held-out fire", f"{model} F1", f"{model} skill", "thr skill", "model - thr"):
+        t.add_column(col, justify="right")
+    for r in results:
+        diff = r.skill_f1 - r.thr_skill_f1
+        t.add_row(
+            r.held_out.split(":")[-1][:20], f"{r.f1:.3f}",
+            f"{r.skill_f1:+.3f}", f"{r.thr_skill_f1:+.3f}",
+            f"[green]{diff:+.3f}[/green]" if diff > 0 else f"[red]{diff:+.3f}[/red]",
+        )
+    console.print(t)
+    s = summarise_deep_cv(results)
+    if s.get("fires"):
+        console.print(
+            f"\n  [bold]{s['fires']} fires[/bold]: {model} mean skill {s['deep_skill_mean']:+.3f}, "
+            f"threshold mean skill {s['thr_skill_mean']:+.3f}, "
+            f"{model} - threshold {s['deep_minus_thr']:+.3f} "
+            f"({model} wins {s['deep_beats_thr']}/{s['fires']})"
+        )
+    console.print(
+        "[dim]  Pre/post NBR as separate inputs, same leakage-proof folds and naive\n"
+        "  baseline. Compare to t2-unet (RBR, one channel) to see whether richer inputs\n"
+        "  and the change formulation help beyond a single-channel segmenter. docs/11.[/dim]"
     )
 
 

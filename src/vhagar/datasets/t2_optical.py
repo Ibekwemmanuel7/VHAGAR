@@ -194,6 +194,7 @@ def build_optical_sample(
     res_m: float = 100.0,
     cache_dir=None,
     include_background: bool = True,
+    with_stack: bool = False,
     **grid_kw,
 ):
     """Build one fire's T2 sample: Sentinel-2 RBR predictor, MTBS reference.
@@ -230,15 +231,27 @@ def build_optical_sample(
         # background-as-unburned detection reference (docs/11) gets a ``bg`` tag so
         # it never collides with the old perimeter-only samples of the same window.
         bg_tag = "bg" if (include_background and not callable(mosaic_path)) else ""
-        cache_path = cache_dir / f"{safe}_r{int(res_m)}_w{win_km}{bg_tag}.npz"
+        # ``with_stack`` samples carry extra channels (pre/post NBR), so they get a
+        # distinct ``s`` tag: a deep-model cache never collides with the RBR-only one.
+        s_tag = "s" if with_stack else ""
+        cache_path = cache_dir / f"{safe}_r{int(res_m)}_w{win_km}{bg_tag}{s_tag}.npz"
         if cache_path.exists():
             return T2Sample.load(cache_path)
 
     grid, bbox = target_grid_for_fire(record, res_m=res_m, **grid_kw)
-    predictor = sentinel2_rbr(
-        bbox, record.ignition_date.isoformat(), grid,
-        max_cloud=max_cloud, max_scenes=max_scenes,
-    )
+    stack = None
+    if with_stack:
+        from vhagar.io.optical import sentinel2_stack
+
+        predictor, stack = sentinel2_stack(
+            bbox, record.ignition_date.isoformat(), grid,
+            max_cloud=max_cloud, max_scenes=max_scenes,
+        )
+    else:
+        predictor = sentinel2_rbr(
+            bbox, record.ignition_date.isoformat(), grid,
+            max_cloud=max_cloud, max_scenes=max_scenes,
+        )
     # ``mosaic_path`` is either an MTBS thematic mosaic (path) or a callable
     # reference reader, e.g. an EMS delineation. This is what lets the same
     # optical predictor pipeline serve both the CONUS and the European side of
@@ -251,7 +264,7 @@ def build_optical_sample(
         )
     sample = make_sample(
         record.event_id, predictor, burned, reference_valid=valid,
-        tile_id=record.tile_ids[0] if record.tile_ids else None,
+        tile_id=record.tile_ids[0] if record.tile_ids else None, stack=stack,
     )
     if cache_path is not None:
         sample.save(cache_path)

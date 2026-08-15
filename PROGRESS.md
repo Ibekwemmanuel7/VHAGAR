@@ -3,7 +3,50 @@
 Last updated: 2026-08-14. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: EMS batch, added 2 large summer Csb fires (2026-08-15)
+## Latest: 9-fire EU run, Csb fails (threshold-transfer, not signal) (2026-08-15)
+
+Ran continent-out with the 2 new large Csb Portugal fires (9 EU fires now). Per-fire
+skill: Csa Attika +0.661, Syria +0.345, Evia +0.057; Dfb Albania +0.559, Poland -0.004
+(tiny); Cfa Montenegro +0.451; Csb Arouca +0.000, Estrela +0.000, West Spain +0.000.
+
+Key finding: Csb FAILS even on the two large clean Portuguese fires (8% and 18% burned,
+not degenerate), yet their per-fire oracle is +0.589/+0.587 -> RBR separates Portuguese
+Csb strongly; the transferred THRESHOLD fails, not the signal. Diagnosed: the 7 US Csb
+fires have wildly heterogeneous per-fire Youden cuts (2,26,27,55,65,99, one pathological
+-941218), so pooling their pixels collapses the Csb threshold to -3787 (predict-all-
+burned); plus an absolute-scale offset (US Csb unburned RBR ~-30 vs Portuguese ~+30).
+This is the pointwise threshold's failure mode, and points straight to the U-Net (+0.441)
+as the scale-adaptive fix. Per-stratum helps only when a stratum's US fires share the EU
+fire's RBR scale (Csa/Cfa/Dfb here). docs/11 "Nine-fire EU generalisation" rewritten.
+Pooled row +0.112. Possible future: robust per-stratum aggregate (median of per-fire
+cuts) would rescue some Csb, but the model is the durable answer.
+
+## multi-channel U-Net + Siamese change model (t2-deep) (2026-08-15)
+
+Built the architecture's intended T2 direction: pre/post NBR bands and a Siamese change
+model, as the next rung above the RBR U-Net (which scored +0.441 vs threshold +0.096).
+
+- sentinel2_stack: returns [pre_nbr, post_nbr, dnbr] from the SAME imagery pull as RBR
+  (no extra scenes). T2Sample gains optional `stack` + `features` accessor; save/load
+  round-trip it. build_optical_sample(with_stack=True) and t2-stage0 --with-stack cache
+  it under a distinct `_w15bgs` tag (never collides with the RBR-only cache).
+- src/vhagar/eval/t2_deep.py + CLI `vhagar t2-deep --model siamese|unet`: multi-channel
+  U-Net over the stack, and SiameseChangeNet (shared encoder on pre/post NBR, fused as
+  [|f_post-f_pre|, f_post]). Same leakage-proof grouped folds, per-channel standardiser
+  (train-only), masked BCE+Dice, skill-over-naive, RBR threshold on the identical fold.
+- 6 tests (numpy core + stack round-trip + torch smoke for both models via importorskip).
+  Full suite 344 passed, 5 skipped, ruff clean.
+
+Needs a stack re-pull on your machine (torch + network), the RBR-only cache can't feed
+the deep models:
+  vhagar t2-stage0 --min-area-ha 2000 --max-fires 34 --select size --res-m 100 ^
+    --objective youden --with-stack
+  vhagar t2-deep --model siamese --folds 5 --epochs 20
+  vhagar t2-deep --model unet    --folds 5 --epochs 20
+Question: do pre/post bands + the change formulation beat the +0.441 RBR U-Net on the
+same folds? Recorded once the run completes. docs/11 "Richer inputs" has the writeup.
+
+## EMS batch, added 2 large summer Csb fires (2026-08-15)
 
 Downloaded (browser) burnt-area delineations for 2 large summer Csb wildfires from
 Portugal, joining the set (emsr_extract/, ingest gives 9 delineations now):

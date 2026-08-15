@@ -16,12 +16,13 @@ over a trivial baseline, and where the predictor does show real skill.
 > below, which supersedes the retraction and the stratification-negative sections.
 >
 > **Update (2026-08-14, 7-fire EU generalisation).** The cross-continent transfer was
-> re-run with the EU test set expanded from 2 Greek fires to 7 fires. Per-stratum
-> transfer is positive across **three climate zones**, Csa (Attika +0.73, Syria
-> +0.58), Cfa (Montenegro +0.45) and Dfb (Albania +0.21), each calibrated on US fires
-> of that zone. It is not Mediterranean-specific. The catch: it needs a climate-
-> diverse (size-stratified) US training set; a largest-N pick has no Cfa fire and
-> gives +0.000. See "Seven-fire EU generalisation" below.
+> re-run with the EU test set expanded to nine fires. Per-stratum transfer is positive
+> across **three climate zones**, Csa (Attika +0.66, Syria +0.35), Cfa (Montenegro
+> +0.45) and Dfb (Albania +0.56), but **Csb fails** (+0.000) even on two large clean
+> Portuguese fires whose own oracle is +0.59, because the US Csb threshold is degenerate
+> (scale heterogeneity) and offset from Portuguese RBR. That is the pointwise threshold's
+> failure mode, and the scale-adaptive U-Net (+0.441) is the robust answer. See
+> "Nine-fire EU generalisation" below.
 
 ## Headline (retracted as an accuracy claim, kept as a lesson)
 
@@ -162,29 +163,52 @@ This supersedes the "climate stratification is mostly-negative" and "objective x
 window" sections below, which were all computed on the discarded-surround reference
 and measure the wrong task. They are kept for the audit trail, not as conclusions.
 
-### Seven-fire EU generalisation: does per-stratum transfer hold beyond Csa?
+### Nine-fire EU generalisation: per-stratum transfer holds, except Csb
 
-The Csa->Csa result rested on two Greek fires. To test whether it generalises, the
-EU set was expanded to seven Copernicus EMS fires (batch-pulled with the new
-``emsr-candidates`` / ``emsr-ingest`` tooling). Train the per-stratum threshold on
-the background-inclusive US fires, test per EU fire. Each fire's Koppen class is
-sampled at the centroid of its burnt geometry (so Albania's mountain fire lands in
-Dfb, not the coastal Csa of its activation centroid).
+The Csa->Csa result rested on two Greek fires. Expanded to nine Copernicus EMS fires
+(batch-pulled with the new ``emsr-candidates`` / ``emsr-ingest`` tooling), including
+two large clean Csb fires added specifically to test that zone. Train the per-stratum
+threshold on the size-stratified background-inclusive US fires, test per EU fire; each
+fire's Koppen class is sampled at its burnt-geometry centroid (so Albania's mountain
+fire lands in Dfb, not the coastal Csa of its activation centroid).
 
-| EU fire | zone | in-window burn % | per-stratum skill |
-|---|---|---|---|
-| Greece Attika | Csa | 7.6 | **+0.732** |
-| Syria | Csa | 9.3 | **+0.581** |
-| Montenegro | Cfa | 7.0 | **+0.451** |
-| Albania | Dfb | 3.0 | **+0.214** |
-| Greece Evia | Csa | 17.5 | +0.050 |
-| West Spain | Csb | 0.9 | +0.000 |
-| Poland | Dfb | 0.2 | +0.000 (single-class) |
+| EU fire | zone | in-window burn % | per-stratum skill | per-fire oracle |
+|---|---|---|---|---|
+| Greece Attika | Csa | 7.6 | **+0.661** | +0.75 |
+| Albania | Dfb | 3.0 | **+0.559** | +0.57 |
+| Montenegro | Cfa | 7.0 | **+0.451** | +0.64 |
+| Syria | Csa | 9.3 | **+0.345** | +0.69 |
+| Greece Evia | Csa | 17.5 | +0.057 | +0.06 |
+| Portugal Arouca | Csb | 8.2 | +0.000 | **+0.589** |
+| Portugal Estrela | Csb | 18.5 | +0.000 | **+0.587** |
+| West Spain | Csb | 0.9 | +0.000 | +0.22 |
+| Poland | Dfb | 0.2 | -0.004 | ~0 |
 
-The finding holds and is broader than "Csa only": per-stratum transfer is positive
-across **three climate zones**, Csa (Attika +0.73, Syria +0.58), Cfa (Montenegro
-+0.45) and Dfb (Albania +0.21), each calibrated on US fires of that zone it never
-saw. It is not Mediterranean-specific.
+Per-stratum transfer is positive across **three climate zones**, Csa (Attika +0.66,
+Syria +0.35), Cfa (Montenegro +0.45) and Dfb (Albania +0.56), each calibrated on US
+fires of that zone it never saw. It is not Mediterranean-specific.
+
+**Csb fails, and the reason is instructive.** The two large clean Portuguese Csb fires
+(8% and 18% burned, 90k and 360k valid px, not degenerate) both score +0.000, yet
+their per-fire oracle is +0.589 and +0.587: **RBR separates Portuguese Csb strongly;
+it is the transferred threshold that fails, not the signal.** Two causes, both about
+absolute RBR scale, which is exactly the fragility a pointwise threshold has and a
+spatial model does not:
+
+- **Within-stratum scale heterogeneity.** The seven US Csb fires have per-fire Youden
+  cuts of 2, 26, 27, 55, 65, 99, and one pathological -941218. Pooling their pixels to
+  fit one Csb threshold collapses it to -3787 (predict-all-burned), so every Csb test
+  fire gets F1 = naive, skill +0.000.
+- **An absolute-scale offset.** US Csb unburned RBR sits near -30, Portuguese near +30.
+  Even a sane US cut lands on the wrong side of the Portuguese unburned population.
+
+So Csb is the cleanest illustration of the threshold's failure mode, and it points
+straight back to the U-Net result: the scale-adaptive segmenter (+0.441) is robust to
+exactly this, where an absolute cut is not. Per-stratum thresholding helps only when a
+stratum's US fires happen to share the EU fire's RBR scale (Csa, Cfa, Dfb here); it is
+not a general fix. A more robust per-stratum aggregate (median of per-fire cuts, or
+trimming a pathological fire) would rescue some of Csb, but the durable answer is the
+model, not a better cut.
 
 **Crucial dependency: the US training set must be climate-diverse.** This only works
 if training uses *size-stratified* US fires (``--select size``, now the default).
@@ -196,21 +220,20 @@ via size stratification. This is a real methodological point: per-ecoregion tran
 needs the training set to actually span the ecoregions, which biases against a
 megafire-only sample.
 
-Honest limits, all data quality rather than method:
+Further honest limits:
 
-- **Greece Evia (+0.050) is a low-ceiling fire**: its own per-fire oracle is only
-  ~+0.06, so RBR simply cannot separate that particular 2021 scar; nothing to
-  transfer. Not a stratification failure.
-- **West Spain and Poland were too thin to test.** Spain's window was cloud-reduced
-  to 0.9% burned (18k valid px) and Poland's spring fire rasterised to 0.2% burned
-  at 100 m; both are near single-class, so transfer is unmeasurable (Spain's oracle
-  ~+0.22 shows the signal is there). Csb and a clean Dfb still need larger, less-
-  cloudy activations to be judged.
+- **Greece Evia (+0.057) is a low-ceiling fire**: its own per-fire oracle is only
+  ~+0.06, so RBR cannot separate that particular 2021 scar; nothing to transfer. Not a
+  stratification failure.
+- **Poland (-0.004) is a tiny spring fire**: 0.2% burned at 100 m, effectively single-
+  class and unmeasurable. West Spain (0.9% burned, cloud-thinned) is the third Csb that
+  scores +0.000, but unlike the two clean Portuguese Csb fires it is also near-
+  degenerate, so it says less.
 
 Note on the pooled CLI number. ``t2-continent-out`` prints one pooled row (here skill
-**+0.26** with size-stratified training) because it concatenates every EU fire's
-pixels into a single F1. The near-degenerate fires (Poland, Spain, Evia) drag that
-pooled figure down and hide the clean per-zone transfer above. The per-fire table the
+**+0.112** over the nine fires) because it concatenates every EU fire's pixels into a
+single F1. The four zero/near-zero fires (three Csb plus Poland) drag it down and hide
+the clean per-zone transfer above. The per-fire table the
 CLI now prints (added after this was first written, alongside ``--select size`` as
 the default) is the honest read, not the pooled row.
 
@@ -290,6 +313,42 @@ model, not a tuned cut) and sets the bar the foundation-model fine-tune must cle
 **skill +0.441 on this protocol**. Next inputs to try, pre/post NBR bands and a Siamese
 change model, should raise the ceiling further, and the degenerate fires want better
 imagery, not a bigger head.
+
+## Richer inputs: multi-channel U-Net and a Siamese change model (`t2-deep`)
+
+The RBR U-Net sees a single pre-differenced channel. Burned area is intrinsically
+bi-temporal, so the architecture's intended T2 model is a **Siamese change model**
+that sees the pre-fire and post-fire NBR separately and differences them in feature
+space. ``t2-deep`` runs two models on the same protocol as ``t2-unet``:
+
+- ``--model unet``: a multi-channel U-Net over the stack ``[pre_nbr, post_nbr, dnbr]``.
+- ``--model siamese`` (default): a shared-weight encoder on pre and post NBR, fused
+  per scale as ``[|f_post - f_pre|, f_post]``, so the decoder gets the change signal
+  explicitly while keeping post-fire texture (a burn scar vs a harvested clearcut have
+  similar dNBR but different texture).
+
+Plumbing added for it: ``sentinel2_stack`` returns the pre/post NBR stack from the
+**same** imagery pull as RBR (no extra scenes); ``T2Sample`` carries an optional
+``stack`` and ``features`` accessor; ``build_optical_sample(..., with_stack=True)`` and
+``t2-stage0 --with-stack`` cache it under a distinct ``_w15bgs`` tag so a deep cache
+never collides with the RBR-only one. Standardisation is per-channel, fit on train
+fires only; everything else (leakage-proof grouped folds, masked BCE+Dice, skill over
+naive, the RBR threshold measured on the identical fold) matches ``t2-unet``.
+
+Populate the stack cache, then run both models:
+
+```
+vhagar t2-stage0 --min-area-ha 2000 --max-fires 34 --select size --res-m 100 \
+  --objective youden --with-stack        # re-pull, one pull, caches pre/post NBR
+vhagar t2-deep --model siamese --folds 5 --epochs 20
+vhagar t2-deep --model unet    --folds 5 --epochs 20
+```
+
+The comparison of interest is against the RBR U-Net's +0.441: does giving the model
+the pre/post bands and the change formulation beat a single-channel segmenter on the
+same folds? The numpy dataset/fold code is unit-tested (including a torch smoke test
+for both models via ``importorskip``); the training itself needs the torch extra and a
+stack re-pull, so the measured number is recorded once that run completes.
 
 ## What the numbers say
 

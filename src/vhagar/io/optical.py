@@ -37,6 +37,7 @@ __all__ = [
     "mean_composite",
     "scl_valid_mask",
     "sentinel2_rbr",
+    "sentinel2_stack",
     "stream_nbr",
 ]
 
@@ -212,3 +213,49 @@ def sentinel2_rbr(
     nbr_pre = stream_nbr(_scene_arrays(pre_start, pre_end), grid.shape, keep)
     nbr_post = stream_nbr(_scene_arrays(post_start, post_end), grid.shape, keep)
     return rbr(nbr_pre, nbr_post)
+
+
+def sentinel2_stack(
+    bbox_4326,
+    ignition_date: str,
+    grid: TargetGrid,
+    pre_days: tuple[int, int] = (90, 15),
+    post_days: tuple[int, int] = (15, 75),
+    max_cloud: float = 60.0,
+    max_scenes: int = 12,
+    keep: tuple[int, ...] = SCL_KEEP,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Like :func:`sentinel2_rbr` but also returns a multi-channel feature stack.
+
+    Returns ``(rbr, stack)`` where ``stack`` is ``[pre_nbr, post_nbr, dnbr]`` on the
+    grid. The RBR is the threshold predictor (unchanged), and the stack is the extra
+    input a change/segmentation model can use (pre and post NBR as separate channels
+    for a Siamese model, plus the difference). Same single imagery pull, so building
+    the stack costs no extra scenes over RBR alone. Needs network, pystac + rasterio.
+    """
+    from datetime import date, timedelta
+
+    from vhagar.features.indices import dnbr as _dnbr
+
+    ig = date.fromisoformat(ignition_date)
+
+    def _scene_arrays(start: str, end: str):
+        items = _search_sentinel2(bbox_4326, start, end, max_cloud, max_scenes)
+        if not items:
+            raise RuntimeError(f"no Sentinel-2 scenes for {start}/{end}")
+        for it in items:
+            a = it.assets
+            nir = _warp_asset_to_grid(a["nir08"].href, grid)
+            swir = _warp_asset_to_grid(a["swir22"].href, grid)
+            scl = _warp_asset_to_grid(a["scl"].href, grid, resampling="nearest")
+            yield nir, swir, scl
+
+    pre_start = (ig - timedelta(days=pre_days[0])).isoformat()
+    pre_end = (ig - timedelta(days=pre_days[1])).isoformat()
+    post_start = (ig + timedelta(days=post_days[0])).isoformat()
+    post_end = (ig + timedelta(days=post_days[1])).isoformat()
+
+    nbr_pre = stream_nbr(_scene_arrays(pre_start, pre_end), grid.shape, keep)
+    nbr_post = stream_nbr(_scene_arrays(post_start, post_end), grid.shape, keep)
+    stack = np.stack([nbr_pre, nbr_post, _dnbr(nbr_pre, nbr_post)]).astype(np.float32)
+    return rbr(nbr_pre, nbr_post), stack

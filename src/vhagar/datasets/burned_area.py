@@ -52,13 +52,22 @@ class T2Sample:
 
     event_id: str
     tile_id: str | None
-    predictor: np.ndarray   # continuous, e.g. dNBR (higher = more burned)
+    predictor: np.ndarray   # continuous, e.g. RBR (higher = more burned)
     reference: np.ndarray   # bool, True = burned (truth)
     valid: np.ndarray       # bool, True = usable in both predictor and reference
+    #: Optional multi-channel feature stack ``[C, H, W]`` for deep models (e.g.
+    #: pre-NBR, post-NBR, dNBR). The threshold baseline uses only ``predictor`` so
+    #: the two stay comparable; ``stack`` is extra input the segmenter can use.
+    stack: np.ndarray | None = None
 
     @property
     def shape(self) -> tuple[int, ...]:
         return self.predictor.shape
+
+    @property
+    def features(self) -> np.ndarray:
+        """Model input as ``[C, H, W]``: the stack if present, else predictor as 1 channel."""
+        return self.stack if self.stack is not None else self.predictor[None]
 
     @property
     def n_valid(self) -> int:
@@ -86,11 +95,13 @@ class T2Sample:
     def save(self, path) -> Path:
         """Persist to a compressed ``.npz`` so an expensive imagery pull is reused."""
         path = Path(path)
-        np.savez_compressed(
-            path,
+        arrays = dict(
             predictor=self.predictor, reference=self.reference, valid=self.valid,
             event_id=np.array(self.event_id), tile_id=np.array(self.tile_id or ""),
         )
+        if self.stack is not None:
+            arrays["stack"] = self.stack.astype(np.float32)
+        np.savez_compressed(path, **arrays)
         return path if path.suffix else path.with_suffix(".npz")
 
     @classmethod
@@ -103,6 +114,7 @@ class T2Sample:
                 predictor=z["predictor"],
                 reference=z["reference"].astype(bool),
                 valid=z["valid"].astype(bool),
+                stack=z["stack"] if "stack" in z.files else None,
             )
 
 
@@ -144,6 +156,7 @@ def make_sample(
     reference_valid: np.ndarray | None = None,
     predictor_nodata: float | None = None,
     tile_id: str | None = None,
+    stack: np.ndarray | None = None,
 ) -> T2Sample:
     """Assemble a :class:`T2Sample`, propagating nodata into the valid mask.
 
@@ -171,12 +184,22 @@ def make_sample(
             )
         valid &= rv
 
+    stack_arr = None
+    if stack is not None:
+        stack_arr = np.asarray(stack, dtype=np.float32)
+        if stack_arr.ndim != 3 or stack_arr.shape[1:] != predictor.shape:
+            raise ValueError(
+                f"stack shape {stack_arr.shape} must be (C, {predictor.shape[0]}, "
+                f"{predictor.shape[1]})"
+            )
+
     return T2Sample(
         event_id=event_id,
         tile_id=tile_id,
         predictor=predictor,
         reference=reference,
         valid=valid,
+        stack=stack_arr,
     )
 
 
