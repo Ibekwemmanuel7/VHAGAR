@@ -63,6 +63,16 @@ through that lens: the transfer discussion, the Olofsson areas, and the threshol
 spread are all still informative about mechanism, but the within-CONUS F1 is not an
 accuracy claim.
 
+Is the +0.088 distinguishable from zero? A spatial-block bootstrap (the two EU
+windows tiled into 860 blocks of ~24x24 cells, resampled with replacement, B=2000)
+puts a 95% CI on the skill margin of **[+0.068, +0.111]**, with 100% of resamples
+positive. So the margin is not an artefact of a few lucky blocks; it is stable
+across where in these two fires you look. The honest limit: this resamples *within*
+two fires, so it captures spatial uncertainty, not fire-to-fire variability. Two
+activations cannot speak to how the margin would hold across the range of European
+fuels and regimes; more EMS fires are the only way to turn this suggestive-but-real
+margin into a general claim.
+
 ## What the numbers say
 
 - **Threshold transfer is the real limitation, and it is exposed honestly.** The
