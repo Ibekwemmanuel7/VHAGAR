@@ -962,6 +962,78 @@ def t2_continent_out_cmd(
     )
 
 
+@app.command("t2-unet")
+def t2_unet_cmd(
+    cache_dir: Path = typer.Option(Path("data/t2_cache"), help="cached T2 samples"),
+    pattern: str = typer.Option("mtbs_*_w15bg.npz", help="glob for samples to use"),
+    folds: int = typer.Option(5, help="grouped k-fold (leakage-proof, by fire)"),
+    epochs: int = typer.Option(20, help="training epochs per fold"),
+    crop: int = typer.Option(128, help="training tile size"),
+    method: str = typer.Option("global", help="threshold baseline: global | perstratum"),
+    objective: str = typer.Option("youden", help="threshold objective for the baseline"),
+    seed: int = typer.Option(0),
+) -> None:
+    """Companion baseline: a U-Net over the RBR field vs the RBR threshold.
+
+    Trains a single-channel U-Net on the same RBR windows the threshold sees, in
+    leakage-proof grouped folds, and reports each held-out fire's skill over the
+    predict-all-burned baseline next to the threshold's skill on the identical fold.
+    The question is narrow and fair: does a spatial model beat a pointwise cut on the
+    same input? Needs ``vhagar[torch]``; run where torch is installed.
+    """
+    import glob as _glob
+
+    from vhagar.datasets.burned_area import T2Sample
+    from vhagar.eval.t2_unet import run_unet_cv, summarise_unet_cv
+
+    paths = sorted(_glob.glob(str(cache_dir / pattern)))
+    samples = {}
+    for p in paths:
+        s = T2Sample.load(p)
+        if s.is_usable:
+            samples[s.event_id] = s
+    if len(samples) < folds:
+        console.print(f"[red]only {len(samples)} usable samples for {folds} folds[/red]")
+        raise typer.Exit(1)
+    console.print(
+        f"[bold]U-Net companion baseline[/bold]: {len(samples)} fires, {folds}-fold, "
+        f"{epochs} epochs. Training on the RBR field (torch)..."
+    )
+    try:
+        results = run_unet_cv(
+            samples, k=folds, method=method, objective=objective,
+            epochs=epochs, crop=crop, seed=seed,
+        )
+    except ImportError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    t = Table(title="T2 U-Net vs RBR threshold (grouped k-fold, per held-out fire)")
+    for col in ("held-out fire", "U-Net F1", "U-Net skill", "thr skill", "U-Net - thr"):
+        t.add_column(col, justify="right")
+    for r in results:
+        diff = r.skill_f1 - r.thr_skill_f1
+        t.add_row(
+            r.held_out.split(":")[-1][:20], f"{r.f1:.3f}",
+            f"{r.skill_f1:+.3f}", f"{r.thr_skill_f1:+.3f}",
+            f"[green]{diff:+.3f}[/green]" if diff > 0 else f"[red]{diff:+.3f}[/red]",
+        )
+    console.print(t)
+    s = summarise_unet_cv(results)
+    if s.get("fires"):
+        console.print(
+            f"\n  [bold]{s['fires']} fires[/bold]: U-Net mean skill {s['unet_skill_mean']:+.3f}, "
+            f"threshold mean skill {s['thr_skill_mean']:+.3f}, "
+            f"U-Net - threshold {s['unet_minus_thr']:+.3f} "
+            f"(U-Net wins {s['unet_beats_thr']}/{s['fires']})"
+        )
+    console.print(
+        "[dim]  Same RBR input, same leakage-proof folds, same naive baseline. If the\n"
+        "  U-Net does not clear the threshold here, a spatial model adds nothing on this\n"
+        "  input, which is worth knowing before anything fancier. See docs/11.[/dim]"
+    )
+
+
 @app.command("emsr-candidates")
 def emsr_candidates_cmd(
     koppen: Path = typer.Option(

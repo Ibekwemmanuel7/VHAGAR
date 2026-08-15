@@ -214,6 +214,41 @@ pooled figure down and hide the clean per-zone transfer above. The per-fire tabl
 CLI now prints (added after this was first written, alongside ``--select size`` as
 the default) is the honest read, not the pooled row.
 
+## Companion baseline: a U-Net over the RBR field (`t2-unet`)
+
+The permanent-baselines rule asks for a learned segmenter next to the pointwise
+threshold. ``vhagar t2-unet`` trains a single-channel U-Net on exactly the input the
+threshold sees, the RBR window, in leakage-proof grouped folds (each fire tests in
+one fold, no fire in both sides), and reports each held-out fire's skill over the
+predict-all-burned baseline next to the threshold's skill on the identical fold. It
+is a deliberately narrow, fair question: **does a spatial model beat a pointwise cut
+on the same input?**
+
+Design choices, all in service of a defensible comparison rather than a flattering
+one:
+
+- **Same input, same folds, same naive baseline.** The U-Net gets the one RBR
+  channel, nothing the threshold lacks; both are scored as F1 minus predict-all-
+  burned on the same held-out fires.
+- **Train-only statistics.** Input standardisation (robust median/MAD) and the loss
+  ``pos_weight`` are fit on each fold's training fires only, never the test fire.
+- **Masked, imbalance-aware loss.** Weighted BCE plus soft Dice, both restricted to
+  valid pixels so cloud and nodata contribute nothing; the Dice term keeps spatial
+  structure (per-image set overlap), which is the point of using a segmenter.
+- **Burned-biased crops.** Half the training tiles are centred on a burned pixel so
+  the rare positive class is actually seen; the rest are uniform.
+
+Run: ``vhagar t2-unet --pattern "mtbs_*_w15bg.npz" --folds 5 --epochs 20`` where torch
+is installed (the numpy dataset/fold code is unit-tested everywhere; only the train
+loop needs the torch extra). The head-to-head is against the **global** threshold
+(both learn on the training fires with no stratum information), so it isolates the
+model, not the climate matching. Expectation to state up front, not after the fact: on
+a single noisy RBR channel a well-tuned threshold is a strong baseline, so a U-Net
+that fails to clear it here is itself a finding, it says spatial context adds little
+on this input, and the lever is better inputs (pre/post NBR bands, a Siamese change
+model) rather than a bigger single-date head. The result is recorded once the run
+completes.
+
 ## What the numbers say
 
 - **Threshold transfer is the real limitation, and it is exposed honestly.** The

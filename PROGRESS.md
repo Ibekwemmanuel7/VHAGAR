@@ -3,7 +3,32 @@
 Last updated: 2026-08-14. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: 7-fire EU generalisation, corrected + CLI fixes (2026-08-15)
+## Latest: U-Net companion baseline built (t2-unet) (2026-08-15)
+
+Built the plain-U-Net companion baseline the protocol asks for, as a fair head-to-head
+against the RBR threshold. New module src/vhagar/eval/t2_unet.py + CLI `vhagar t2-unet`:
+
+- Single-channel U-Net over the RBR field (same input the threshold sees).
+- Leakage-proof grouped k-fold (each fire tests once, no fire in both sides).
+- Masked ComboLoss (weighted BCE + soft Dice over valid pixels only); pos_weight and
+  input standardisation (median/MAD) fit on train folds only; burned-biased crops.
+- Reports per-held-out-fire skill over naive next to the threshold's skill on the same
+  fold; summary says how often the U-Net beats the threshold.
+- Numpy core (crops, standardiser, folds) is unit-tested in-sandbox; the torch train
+  loop is guarded and runs on your machine (sandbox proxy blocks the torch wheel).
+
+Fixed two subtle correctness issues while writing it: masking valid pixels into a 1-D
+vector breaks the Dice term (each pixel becomes its own image), so the loss masks the
+maps and keeps spatial structure; and eval now runs the full window in one pass with a
+pad-to-multiple-of-8 (three encoder poolings) instead of tiling, which avoided tiny
+remainder tiles collapsing. 6 tests (5 numpy + 1 torch smoke, importorskip).
+
+To run on your machine (torch installed):
+  vhagar t2-unet --pattern "mtbs_*_w15bg.npz" --folds 5 --epochs 20
+Compares U-Net vs the GLOBAL threshold (both learn on train fires, no stratum info),
+so it isolates the model. Writeup stub in docs/11 "Companion baseline: a U-Net".
+
+## 7-fire EU generalisation, corrected + CLI fixes (2026-08-15)
 
 Ran the expanded continent-out and, on scrutiny, corrected two things in the first
 writeup. Canonical CLI result (size-stratified US training, burnt-centroid strata,
