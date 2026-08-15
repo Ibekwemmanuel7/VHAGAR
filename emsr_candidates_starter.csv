@@ -1,0 +1,13 @@
+code,event_date,koppen,koppen_label,countries,name
+EMSR527,2021-08-03,8,Csa,Greece,Wildfires in Evia and Attika Greece
+EMSR816,2025-07-23,8,Csa,Albania,Wildfire in Albania
+EMSR811,2025-07-03,8,Csa,Syria,Wildfire in Latakia Syria
+EMSR837,2025-08-15,9,Csb,Spain,Wildfires in West Spain
+EMSR831,2025-08-09,9,Csb,Portugal,Wildfire in Beiras e Serra da Estrela
+EMSR892,2026-07-09,6,BSh,Spain,Wildfire in Andalusia Spain
+EMSR826,2025-07-28,7,BSk,Spain,Wildfire in Spain
+EMSR836,2025-08-10,14,Cfa,Montenegro,Wildfires in Montenegro
+EMSR896,2026-07-15,14,Cfa,Spain,Wildfire in Aragon Spain
+EMSR890,2026-07-07,15,Cfb,France,Wildfire in Diois France
+EMSR801,2025-04-20,26,Dfb,Poland,Wildfire in Poland
+EMSR875,2026-05-03,26,Dfb,Germany,Wildfire in Bavaria Germany

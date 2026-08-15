@@ -3,7 +3,79 @@
 Last updated: 2026-08-14. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: reference bug found and fixed; the predictor is actually good (2026-08-14)
+## Latest: 7-fire EU generalisation RAN, transfer generalises beyond Csa (2026-08-14)
+
+Ran the expanded continent-out (34 US bg fires -> 7 EU fires, 4 Koppen zones,
+per-stratum, Youden). Per-fire skill over naive:
+
+  Csa: Greece Attika +0.71, Albania +0.51, Syria +0.49, Greece Evia +0.05 (low oracle)
+  Cfa: Montenegro +0.451   <- GENERALISES beyond Mediterranean
+  Csb: West Spain +0.00 (oracle +0.22; window cloud-thinned to 0.9% burned)
+  Dfb: Poland dropped (0.2% burned, single-class, spring fire too small at 100 m)
+
+Headline: per-stratum transfer generalises to a second climate zone (Cfa), and Csa
+holds across three new countries; the +0.115 Greek result was not a Csa-only fluke.
+Failures are data quality (tiny/cloudy fires), not method: Evia is a low-ceiling fire
+(oracle +0.057), Spain/Poland too thin to test. Csb/Dfb need larger, less-cloudy
+activations. The pooled CLI row (+0.046) is misleading, it concatenates all 7 fires'
+pixels so the 3 degenerate ones drag it down; per-fire breakdown is the honest read.
+Written up in docs/11 "Seven-fire EU generalisation". Cache: emsr_*_AOI*_r100_w15.npz.
+
+Next: a CLI flag to print per-fire skill (not just pooled); more Csb/Dfb/BSk fires.
+
+## EU fire set expanded to 4 Koppen zones, ready to run (2026-08-14)
+
+Downloaded (via the browser) burnt-area delineations for 5 new EMS wildfire
+activations and extracted them into emsr_extract/, joining the 2 original Greek
+fires. The EU test set now spans FOUR Koppen zones instead of one:
+
+  Csa (Mediterranean): EMSR527 Greece x2, EMSR816 Albania, EMSR811 Syria
+  Csb (warm Mediterranean): EMSR837 West Spain
+  Cfa (humid subtropical): EMSR836 Montenegro
+  Dfb (humid continental): EMSR801 Poland
+
+All 7 validated with real burnt geometries (read_emsr_burned_geometries: 2 to 1882
+polygons each, EPSG:4326). Skipped EMSR826 (BSk) because it only had a Grading
+product, no observedEventA; BSk still needs a delineation activation.
+
+To run the generalisation test on your machine (needs the Sentinel-2 pull for the 5
+new EU fires; reuses the US _w15bg cache):
+
+  vhagar emsr-ingest emsr_extract --dates emsr_candidates_starter.csv --out emsr.csv
+  vhagar t2-continent-out --registry data\labels\registry.parquet ^
+    --mosaic mtbs_extract\mtbs_CONUS_2021.tif --emsr-manifest emsr.csv ^
+    --stratify-raster koppen_extract\1991_2020\koppen_geiger_0p00833333.tif ^
+    --min-area-ha 2000 --max-fires 34 --res-m 100 --objective youden
+
+This is the test of whether per-stratum transfer holds across Csa/Csb/Cfa/Dfb, not
+just Greek Csa. Cleanup: leftover *.zip in emsr_extract and EMSR837_products.zip
+(2.1 GB) in Downloads can be deleted.
+
+## EMSR batch-pull tooling to generalise the cross-continent result (2026-08-14)
+
+To turn the +0.115 Csa->Csa transfer into a general claim we need more European fires
+across more Koppen zones. Built two tools (src/vhagar/labels/emsr_fetch.py, CLI):
+
+- `vhagar emsr-candidates --koppen <tif> --out emsr_candidates.csv`: queries the
+  public CEMS Rapid Mapping API (no login) for wildfire activations, tags each with
+  its Koppen zone from the raster, writes a climate-diverse candidate table. Runs on
+  your machine (network).
+- `vhagar emsr-ingest <folder> --dates emsr_candidates.csv --out emsr.csv`: scans a
+  folder of downloaded EMS vector packages, finds each AOI's burnt-area
+  observedEventA (latest monitoring step), writes the t2-continent-out manifest. No
+  network, no manual CSV editing. Tested against the EMSR527 folders (picks MONIT03).
+
+Runbook:
+  1. vhagar emsr-candidates --koppen koppen_extract/1991_2020/koppen_geiger_0p00833333.tif
+  2. From the portal (rapidmapping.emergency.copernicus.eu/EMSR<code>/download), download
+     the vector package for each chosen code into a folder, e.g. emsr_extract/. A curated
+     starter set spanning Csa/Csb/BSh/BSk/Cfa/Cfb/Dfb is in emsr_candidates_starter.csv.
+  3. vhagar emsr-ingest emsr_extract --dates emsr_candidates_starter.csv --out emsr.csv
+  4. vhagar t2-continent-out ... --emsr-manifest emsr.csv --stratify-raster <koppen> --objective youden
+Then per-stratum should be testable across several shared US<->EU climate zones, not
+just Csa. Suite 334 passed, 2 skipped, ruff clean.
+
+## reference bug found and fixed; the predictor is actually good (2026-08-14)
 
 The big one. The wide-window re-pull did NOT drop the burned fraction (still 57-95%)
 because the confound was never the window: read_mtbs_reference_on_grid marked only

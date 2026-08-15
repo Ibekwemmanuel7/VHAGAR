@@ -920,6 +920,89 @@ def t2_continent_out_cmd(
     )
 
 
+@app.command("emsr-candidates")
+def emsr_candidates_cmd(
+    koppen: Path = typer.Option(
+        None, help="Koppen class raster; tags each fire with its climate zone"
+    ),
+    out: Path = typer.Option(Path("emsr_candidates.csv"), help="write candidate table here"),
+    year_min: int = typer.Option(2017, help="earliest event year (Sentinel-2 starts ~2017)"),
+    year_max: int = typer.Option(2100),
+    min_products: int = typer.Option(1, help="require at least this many products"),
+    limit: int = typer.Option(0, help="cap printed rows (0 = all)"),
+) -> None:
+    """List CEMS wildfire activations (public API) tagged by Koppen climate zone.
+
+    Use this to pick a climate-diverse set of European fires to generalise the
+    cross-continent transfer result: matching US strata to more than just Greek
+    Csa. Writes a CSV; download the chosen activations' vector packages from the
+    portal, then wire them up with ``emsr-ingest``. Needs the network.
+    """
+    from vhagar.labels.emsr_fetch import list_wildfire_candidates, write_candidates_csv
+
+    console.print("[bold]Querying CEMS Rapid Mapping public API for wildfires...[/bold]")
+    acts = list_wildfire_candidates(
+        koppen_raster=koppen, year_min=year_min, year_max=year_max,
+        min_products=min_products,
+    )
+    acts.sort(key=lambda a: (a.koppen or 999, a.event_date))
+    write_candidates_csv(acts, out)
+
+    from collections import Counter
+    by_zone = Counter(a.koppen_label for a in acts)
+    t = Table(title=f"CEMS wildfire candidates ({len(acts)} activations, {year_min}-{year_max})")
+    for col in ("code", "date", "Koppen", "country", "prod", "name"):
+        t.add_column(col, justify="left", overflow="ellipsis")
+    for a in (acts if limit == 0 else acts[:limit]):
+        t.add_row(a.code, a.event_date, a.koppen_label,
+                  ",".join(a.countries)[:16], str(a.n_products), a.name[:44])
+    console.print(t)
+    console.print(f"[dim]  climate spread: {dict(by_zone)}[/dim]")
+    console.print(f"[green]wrote {out}[/green] (edit down to your picks, then emsr-ingest)")
+
+
+@app.command("emsr-ingest")
+def emsr_ingest_cmd(
+    root: Path = typer.Argument(..., exists=True, help="folder of downloaded EMS vector packages"),
+    dates: Path = typer.Option(
+        None, help="candidates CSV (from emsr-candidates) to supply event dates"
+    ),
+    out: Path = typer.Option(Path("emsr.csv"), help="write the t2-continent-out manifest here"),
+) -> None:
+    """Build the EMSR manifest from a folder of downloaded EMS delineations.
+
+    Finds each AOI's burnt-area observedEventA layer (latest monitoring step) and
+    writes ``emsr.csv`` for ``t2-continent-out``. No network. Extract the portal
+    zips into ``root`` first (any nesting is fine, it recurses).
+    """
+    from vhagar.labels.emsr_fetch import (
+        ingest_delineations,
+        load_dates_from_candidates,
+        write_manifest_csv,
+    )
+
+    date_map = load_dates_from_candidates(dates) if dates else {}
+    rows = ingest_delineations(root, dates=date_map)
+    if not rows:
+        console.print(f"[red]no observedEventA delineations found under {root}[/red]")
+        raise typer.Exit(1)
+    write_manifest_csv(rows, out)
+    t = Table(title=f"EMSR manifest: {len(rows)} delineations")
+    for col in ("activation_id", "event_date", "delineation"):
+        t.add_column(col, justify="left", overflow="ellipsis")
+    missing = 0
+    for r in rows:
+        if not r["event_date"]:
+            missing += 1
+        t.add_row(r["activation_id"], r["event_date"] or "[red]?[/red]",
+                  Path(r["delineation_path"]).name[:48])
+    console.print(t)
+    if missing:
+        console.print(f"[yellow]{missing} rows have no event date[/yellow]; "
+                      "pass --dates or fill them in before t2-continent-out.")
+    console.print(f"[green]wrote {out}[/green]")
+
+
 @app.command("t2-perimeter")
 def t2_perimeter_cmd(
     mosaic: Path = typer.Argument(..., exists=True, help="MTBS thematic burn-severity GeoTIFF"),

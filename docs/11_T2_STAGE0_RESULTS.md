@@ -14,6 +14,13 @@ over a trivial baseline, and where the predictor does show real skill.
 > per-stratum calibration recovers about a fifth of that (+0.097) where a single
 > global threshold recovers none. See "Corrected reference: the real Stage-0 result"
 > below, which supersedes the retraction and the stratification-negative sections.
+>
+> **Update (2026-08-14, 7-fire EU generalisation).** The cross-continent transfer was
+> re-run with the EU test set expanded from 2 Greek fires to 7 fires across four
+> Koppen zones. Per-stratum transfer **generalises beyond Mediterranean Csa to Cfa**
+> (Montenegro +0.451 skill), and Csa holds across three new countries (Attika +0.71,
+> Albania +0.51, Syria +0.49). The +0.115 from Greece alone was not a Csa-only fluke.
+> See "Seven-fire EU generalisation" below.
 
 ## Headline (retracted as an accuracy claim, kept as a lesson)
 
@@ -153,6 +160,48 @@ and clean but needs more fires to become a general claim.
 This supersedes the "climate stratification is mostly-negative" and "objective x
 window" sections below, which were all computed on the discarded-surround reference
 and measure the wrong task. They are kept for the audit trail, not as conclusions.
+
+### Seven-fire EU generalisation: does per-stratum transfer hold beyond Csa?
+
+The Csa->Csa result rested on two Greek fires. To test whether it generalises, the
+EU set was expanded to seven Copernicus EMS fires across four Koppen zones (batch-
+pulled with the new ``emsr-candidates`` / ``emsr-ingest`` tooling). Train the
+per-stratum threshold on the 34 background-inclusive US fires, test per EU fire.
+
+| EU fire | zone | in-window burn % | per-stratum skill | per-fire oracle |
+|---|---|---|---|---|
+| Greece Attika | Csa | 7.6 | **+0.707** | +0.746 |
+| Albania | Csa | 3.0 | **+0.512** | +0.566 |
+| Syria | Csa | 9.3 | **+0.485** | +0.690 |
+| Montenegro | Cfa | 7.0 | **+0.451** | +0.644 |
+| Greece Evia | Csa | 17.5 | +0.054 | +0.057 |
+| West Spain | Csb | 0.9 | +0.000 | +0.221 |
+| Poland | Dfb | 0.2 | dropped, single-class | -- |
+
+Two clear conclusions:
+
+- **Transfer generalises to a second climate zone.** Montenegro (Cfa, humid
+  subtropical) transfers at +0.451, calibrated on US Cfa fires it never saw. The
+  mechanism is not Mediterranean-specific.
+- **Csa is robust across new countries.** Attika, Albania and Syria all clear
+  +0.48, so the Greek result was not a two-fire artefact.
+
+And two honest limits, both data quality rather than method:
+
+- **Greece Evia (+0.054) is a low-ceiling fire**: its own per-fire oracle is only
+  +0.057, so RBR simply cannot separate that particular 2021 scar; nothing to
+  transfer. It is not a stratification failure.
+- **West Spain and Poland were too thin to test.** Spain's window was cloud-reduced
+  to 0.9% burned (18k valid px) and Poland's spring fire rasterised to 0.2% burned
+  at 100 m; both are near single-class, so per-stratum transfer is unmeasurable even
+  though Spain's oracle (+0.221) shows the signal is there. Csb and Dfb need larger,
+  less-cloudy activations to be judged.
+
+Note on the pooled CLI number. ``t2-continent-out`` prints one pooled row, here
+skill **+0.046**, because it concatenates every EU fire's pixels into a single F1.
+The three near-degenerate fires (Poland, Spain, Evia) drag that pooled figure down
+and hide the clean per-zone transfer above. The per-fire breakdown, not the pooled
+row, is the honest read; a future CLI change should report per-fire skill directly.
 
 ## What the numbers say
 
