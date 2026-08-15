@@ -3,7 +3,30 @@
 Last updated: 2026-08-14. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: U-Net companion baseline built (t2-unet) (2026-08-15)
+## Latest: EMS batch, added 2 large summer Csb fires (2026-08-15)
+
+Downloaded (browser) burnt-area delineations for 2 large summer Csb wildfires from
+Portugal, joining the set (emsr_extract/, ingest gives 9 delineations now):
+  EMSR831 Beiras e Serra da Estrela (2790 burn polygons, big), EMSR824 Arouca (105).
+These strengthen Csb, which previously rested on the cloud-thinned West Spain window
+(0.9% burned). Both validated with burnt geometries; added to emsr_candidates_starter.csv.
+
+Catalog limitation found: the public rapidmapping API only lists ~2024-2026 (EMSR765+),
+and Europe's big fires there are Mediterranean, so LARGE Dfb/BSk activations are scarce
+(central Europe reads as Cfb; the 2021 Turkey/BSk fires and EMSR527-era events are not
+in this API). Dfb rests on Albania (mountain, +0.214) and tiny Poland; BSk still has no
+usable delineation (EMSR826 was grading-only). To fill Dfb/BSk would need an older-
+catalog source or non-EMS burnt-area data.
+
+Re-run to test the expanded Csb (needs S2 pull on your machine for EMSR824/831; rest
+cached):
+  vhagar emsr-ingest emsr_extract --dates emsr_candidates_starter.csv --out emsr.csv
+  vhagar t2-continent-out --registry data\labels\registry.parquet ^
+    --mosaic mtbs_extract\mtbs_CONUS_2021.tif --emsr-manifest emsr.csv ^
+    --stratify-raster koppen_extract\1991_2020\koppen_geiger_0p00833333.tif ^
+    --min-area-ha 2000 --max-fires 34 --res-m 100 --objective youden
+
+## U-Net companion baseline built (t2-unet) (2026-08-15)
 
 Built the plain-U-Net companion baseline the protocol asks for, as a fair head-to-head
 against the RBR threshold. New module src/vhagar/eval/t2_unet.py + CLI `vhagar t2-unet`:
