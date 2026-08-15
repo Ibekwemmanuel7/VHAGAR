@@ -30,10 +30,18 @@ negative and objective sections (kept for audit trail). Added include_background
 threaded through read_mtbs_reference_on_grid and build_optical_sample (bg cache tag),
 plus a regression test.
 
-Open: the corrected continent-out (US bg -> EU) with one global threshold is also
-~zero skill (same scale-pooling problem); EU per-stratum/per-fire is the next test.
+Corrected continent-out (US bg -> EU), the capstone: global one-threshold +0.002
+(collapses, RBR scale heterogeneity), per-stratum Koppen (Csa->Csa) +0.115, EU oracle
+ceiling +0.123. So climate stratification recovers ~93% of the achievable cross-
+continent skill, taking transfer from nothing to nearly oracle. Strongest evidence yet
+for the per-ecoregion thesis; rests on 2 US Csa + 2 EU fires, needs more to generalise.
+
 Coastal-window caveat: MTBS mosaic uses 0 for both background and nodata, so ocean
 counts as unburned; fine for these interior fires, flag for coastal ones.
+
+Next levers: more EU EMS fires (generalise the +0.115), more US fires per Koppen
+stratum (push within-CONUS per-stratum toward its +0.464 oracle ceiling), and per-fire
+adaptive calibration as the eventual production path.
 
 ## within-CONUS F1 has no skill over predict-all-burned (2026-08-14, superseded above)
 

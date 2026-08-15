@@ -127,6 +127,29 @@ Three conclusions, and they reverse the pessimism above:
    now empirically justified, with headroom (a fifth of the ceiling) that better
    per-stratum data and per-fire calibration should extend.
 
+### Corrected continent-out: climate stratification nearly closes the transfer gap
+
+The same fix applied to leave-one-continent-out (train US, test the two Greek EMS
+fires) is the strongest result in this document. Both sides are now detection-framed
+(the EMS delineation already labels the whole window, so EU never had the bug; the US
+side now matches it), so for the first time CONUS and EU walk the same code path.
+
+| method (US background-inclusive train, EU test) | threshold | skill over naive |
+|---|---|---|
+| global (one threshold) | -5461 | +0.002 |
+| **per-stratum, Koppen (Csa to Csa)** | 144 | **+0.115** |
+| EU per-fire oracle (ceiling) | 112 | +0.123 |
+
+A single global threshold has no cross-continent skill: the US pool spans too many RBR
+scales, so no one cut separates (some fires even have burned RBR below other fires'
+unburned RBR, which is why the pooled Youden cut runs off to -5461). Matching the
+Greek Csa (hot-summer Mediterranean) fires to the two US Csa fires gives a threshold
+of 144, almost the EU-optimal 112, and recovers **+0.115 of the +0.123 achievable
+skill, about 93% of the ceiling.** Climate-stratified thresholds take cross-continent
+transfer from nothing to nearly oracle. This is the per-ecoregion thesis working as
+designed. Caveat: it rests on two US Csa fires and two EU fires; the effect is large
+and clean but needs more fires to become a general claim.
+
 This supersedes the "climate stratification is mostly-negative" and "objective x
 window" sections below, which were all computed on the discarded-surround reference
 and measure the wrong task. They are kept for the audit trail, not as conclusions.
