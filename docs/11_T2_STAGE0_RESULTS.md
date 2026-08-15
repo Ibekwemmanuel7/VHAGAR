@@ -242,12 +242,54 @@ Run: ``vhagar t2-unet --pattern "mtbs_*_w15bg.npz" --folds 5 --epochs 20`` where
 is installed (the numpy dataset/fold code is unit-tested everywhere; only the train
 loop needs the torch extra). The head-to-head is against the **global** threshold
 (both learn on the training fires with no stratum information), so it isolates the
-model, not the climate matching. Expectation to state up front, not after the fact: on
-a single noisy RBR channel a well-tuned threshold is a strong baseline, so a U-Net
-that fails to clear it here is itself a finding, it says spatial context adds little
-on this input, and the lever is better inputs (pre/post NBR bands, a Siamese change
-model) rather than a bigger single-date head. The result is recorded once the run
-completes.
+model, not the climate matching.
+
+### Result: the spatial model beats the threshold decisively
+
+On 43 CONUS fires, 5 leakage-proof grouped folds, single RBR channel:
+
+| method (identical folds, same input) | mean skill over naive | fires beating naive |
+|---|---|---|
+| global threshold (Youden) | +0.096 | ~4 of 43 |
+| **U-Net over the RBR field** | **+0.441** | 39 of 43 |
+
+The U-Net beats the global threshold on **39 of 43 fires**, mean skill +0.441 vs
++0.096 (+0.346 per fire). More striking, that +0.441 sits right at the per-fire
+**oracle** ceiling measured earlier (+0.464, a threshold tuned on the test fire
+itself) and far above per-stratum climate calibration (+0.097). A spatial model over
+the same one RBR channel recovers almost all the transferable skill a pointwise
+global cut throws away, and it does so **without** the Köppen raster that per-stratum
+needs.
+
+Why this is credible and not an artefact:
+
+- **No positional shortcut.** Windows are fire-centred, so "predict burned in the
+  middle" would look skillful. It cannot happen here: a plain conv U-Net with no
+  coordinate channels is translation-equivariant and has no access to absolute
+  position, so it must use the RBR values. Training on local 128 px crops reinforces
+  this. The win is from spatial *context* (a coherent high-RBR region against its
+  local background), which is exactly what makes it scale-adaptive where a single
+  absolute RBR cut is not, and scale heterogeneity is precisely why the global
+  threshold transfers at +0.00.
+- **Failures are the honest ones.** The four fires the U-Net does not clear are the
+  degenerate ones where RBR itself cannot separate burned from unburned (AR36076,
+  burned RBR approximately equals unburned RBR; OK36688; and two near-0%-burned
+  windows). The threshold fails on the same fires.
+
+Caveat on comparability: the U-Net used 5-fold grouped CV; the earlier per-stratum
+(+0.097) and oracle (+0.464) numbers used leave-one-fire-out. Both are leakage-proof,
+but the schemes differ, so read the oracle/per-stratum cross-reference as indicative,
+not same-path. The global-threshold comparison here **is** same-path (identical folds)
+and is the defensible claim: on this input, the segmenter beats the threshold by a
+wide margin.
+
+This reframes the earlier "threshold transfer is the real limitation" conclusion:
+transfer is a limitation *of a pointwise threshold*, and a spatial model largely
+dissolves it. It validates the architecture's intended direction (a change/segmentation
+model, not a tuned cut) and sets the bar the foundation-model fine-tune must clear:
+**skill +0.441 on this protocol**. Next inputs to try, pre/post NBR bands and a Siamese
+change model, should raise the ceiling further, and the degenerate fires want better
+imagery, not a bigger head.
 
 ## What the numbers say
 

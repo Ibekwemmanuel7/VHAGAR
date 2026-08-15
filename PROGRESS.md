@@ -23,10 +23,20 @@ maps and keeps spatial structure; and eval now runs the full window in one pass 
 pad-to-multiple-of-8 (three encoder poolings) instead of tiling, which avoided tiny
 remainder tiles collapsing. 6 tests (5 numpy + 1 torch smoke, importorskip).
 
-To run on your machine (torch installed):
-  vhagar t2-unet --pattern "mtbs_*_w15bg.npz" --folds 5 --epochs 20
-Compares U-Net vs the GLOBAL threshold (both learn on train fires, no stratum info),
-so it isolates the model. Writeup stub in docs/11 "Companion baseline: a U-Net".
+RESULT (ran on your machine, 43 fires, 5-fold): U-Net mean skill +0.441 vs global
+threshold +0.096, U-Net wins 39/43. That +0.441 is near the per-fire ORACLE ceiling
+(+0.464) and far above per-stratum (+0.097): a spatial model over the same single RBR
+channel recovers almost all the transferable skill a pointwise cut throws away, WITHOUT
+the Koppen raster. Credible (no positional shortcut: plain conv U-Net is translation-
+equivariant, no coord channels; the 4 losses are the degenerate RBR-can't-separate
+fires). Caveat: U-Net used 5-fold, the oracle/per-stratum numbers used LOFO, so that
+cross-reference is indicative; the global-threshold comparison is same-path (identical
+folds). Reframes "threshold transfer is the limitation": it's a limitation of a
+POINTWISE threshold; a spatial model largely dissolves it. Sets the bar the foundation-
+model fine-tune must clear (+0.441). docs/11 "Companion baseline" has the writeup.
+
+Next inputs: pre/post NBR bands + Siamese change model (should raise the ceiling);
+degenerate fires want better imagery not a bigger head.
 
 ## 7-fire EU generalisation, corrected + CLI fixes (2026-08-15)
 
