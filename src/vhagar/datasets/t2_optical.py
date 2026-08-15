@@ -114,11 +114,14 @@ def target_grid_for_fire(
     return grid, bbox_4326
 
 
-def read_mtbs_reference_on_grid(mosaic_path, grid: TargetGrid):
+def read_mtbs_reference_on_grid(mosaic_path, grid: TargetGrid, include_background: bool = True):
     """Warp the MTBS thematic mosaic onto a window and return ``(burned, valid)``.
 
-    Nearest resampling, because the thematic classes are categorical. Needs
-    rasterio.
+    Nearest resampling, because the thematic classes are categorical. With
+    ``include_background=True`` (the default) the unburned background around the
+    fire is counted as valid unburned, so the sample is a burned-area detection
+    task at a realistic base rate rather than a within-perimeter severity task
+    (docs/11). Needs rasterio.
     """
     import rasterio
     from rasterio.enums import Resampling
@@ -134,7 +137,7 @@ def read_mtbs_reference_on_grid(mosaic_path, grid: TargetGrid):
         resampling=Resampling.nearest,
     ) as vrt:
         severity = vrt.read(1)
-    return mtbs_burned_mask(severity)
+    return mtbs_burned_mask(severity, include_background=include_background)
 
 
 def rasterize_burned_on_grid(geometries, src_crs, grid: TargetGrid):
@@ -190,6 +193,7 @@ def build_optical_sample(
     max_scenes: int = 6,
     res_m: float = 100.0,
     cache_dir=None,
+    include_background: bool = True,
     **grid_kw,
 ):
     """Build one fire's T2 sample: Sentinel-2 RBR predictor, MTBS reference.
@@ -222,7 +226,11 @@ def build_optical_sample(
         # silently reusing narrow-window samples, which the "never compare across
         # code paths" rule forbids. Default floor 15 km -> ``w15``.
         win_km = int(grid_kw.get("min_half_m", 15_000.0) / 1000)
-        cache_path = cache_dir / f"{safe}_r{int(res_m)}_w{win_km}.npz"
+        # The reference framing is also part of what the sample measures. The
+        # background-as-unburned detection reference (docs/11) gets a ``bg`` tag so
+        # it never collides with the old perimeter-only samples of the same window.
+        bg_tag = "bg" if (include_background and not callable(mosaic_path)) else ""
+        cache_path = cache_dir / f"{safe}_r{int(res_m)}_w{win_km}{bg_tag}.npz"
         if cache_path.exists():
             return T2Sample.load(cache_path)
 
@@ -238,7 +246,9 @@ def build_optical_sample(
     if callable(mosaic_path):
         burned, valid = mosaic_path(grid)
     else:
-        burned, valid = read_mtbs_reference_on_grid(mosaic_path, grid)
+        burned, valid = read_mtbs_reference_on_grid(
+            mosaic_path, grid, include_background=include_background
+        )
     sample = make_sample(
         record.event_id, predictor, burned, reference_valid=valid,
         tile_id=record.tile_ids[0] if record.tile_ids else None,

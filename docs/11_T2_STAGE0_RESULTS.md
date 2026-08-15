@@ -5,6 +5,16 @@ evaluated against MTBS thematic severity on 2021 CONUS wildfires. What follows
 records how a good-looking first number was found, on scrutiny, to have no skill
 over a trivial baseline, and where the predictor does show real skill.
 
+> **Read this first (2026-08-14 correction).** The whole "no skill" story below had
+> a root cause deeper than window size: the MTBS reference discarded the unburned
+> surround (class 0), so the task was accidentally "severity within a burn perimeter"
+> (~90% burned), never "burned area vs unburned land." Fixed by counting class 0 as
+> unburned. On the corrected reference the predictor is clearly good, the per-fire
+> oracle threshold beats the naive baseline on 29 of 29 fires (+0.464), and Köppen
+> per-stratum calibration recovers about a fifth of that (+0.097) where a single
+> global threshold recovers none. See "Corrected reference: the real Stage-0 result"
+> below, which supersedes the retraction and the stratification-negative sections.
+
 ## Headline (retracted as an accuracy claim, kept as a lesson)
 
 The original headline was **F1 0.865 ± 0.056** (5 large fires), later 0.900 over 34
@@ -72,6 +82,54 @@ two fires, so it captures spatial uncertainty, not fire-to-fire variability. Two
 activations cannot speak to how the margin would hold across the range of European
 fuels and regimes; more EMS fires are the only way to turn this suggestive-but-real
 margin into a general claim.
+
+## Corrected reference: the real Stage-0 result
+
+The section above hunts a window-size fix, but a wide-window re-pull did not move the
+burned fraction at all (still 57 to 95%). The reason is the reference, not the
+window: `read_mtbs_reference_on_grid` marked only MTBS classes 1-5 (inside the burn
+perimeter) as valid and **discarded class 0, the unburned background**, so widening
+the geographic window only added more discarded pixels. The predictor was finite over
+the whole window the entire time (one 2,030 ha fire: 90,601 finite RBR pixels, only
+2,042 ever scored). The evaluation was silently measuring severity discrimination
+*inside* a fire, a ~90%-burned task, not burned-area detection against unburned land.
+
+Fix (`mtbs_burned_mask(..., include_background=True)`, now the default in the sample
+builder): count class 0 within the window as an unburned negative, exclude only the
+non-processing mask (class 6). Caveat: the CONUS mosaic stores 0 for both background
+and out-of-footprint nodata, so a coastal window can count ocean as unburned;
+acceptable for these interior fires. Samples were rebuilt locally from the cached
+predictors (no re-pull), tagged `_w15bg`.
+
+On the corrected reference (29 usable fires, mean burned fraction **0.10**, a
+realistic base rate), leave-one-fire-out with the balanced objective:
+
+| method | mean skill over naive | fires beating naive |
+|---|---|---|
+| global (one threshold, all fires) | +0.000 | 9 / 29 |
+| **per-stratum, Koppen climate** | **+0.097** | 17 / 29 |
+| **per-fire oracle (skill ceiling)** | **+0.464** | 29 / 29 |
+
+Three conclusions, and they reverse the pessimism above:
+
+1. **The predictor is good.** The per-fire oracle threshold beats predict-all-burned
+   on every one of 29 fires, +0.464 skill. Sentinel-2 RBR cleanly separates burned
+   from unburned once the reference includes unburned land; the median RBR runs ~170
+   to 490 on burned pixels versus roughly -40 to +40 on unburned.
+2. **A single global threshold captures none of it (+0.000).** Pooling fires with
+   different RBR scales smears the burned and unburned distributions together, so one
+   cut is worthless. This is the threshold-transfer problem, now measured as the full
+   +0.464 oracle-minus-global gap.
+3. **Climate stratification recovers about a fifth of the gap (+0.097, 17/29).** On
+   the correct reference, matching Koppen zones helps rather than hurts, which is the
+   opposite of the earlier within-CONUS result and confirms that that negative finding
+   was an artefact of the discarded-surround reference. Per-ecoregion breakpoints are
+   now empirically justified, with headroom (a fifth of the ceiling) that better
+   per-stratum data and per-fire calibration should extend.
+
+This supersedes the "climate stratification is mostly-negative" and "objective x
+window" sections below, which were all computed on the discarded-surround reference
+and measure the wrong task. They are kept for the audit trail, not as conclusions.
 
 ## What the numbers say
 
@@ -177,6 +235,12 @@ Stage-0 baseline, and adaptive thresholding is not a free transfer win. Run
 either with `--method global|otsu`.
 
 ## Climate stratification: does matching Koppen zones help transfer?
+
+> **Superseded (2026-08-14).** This section and the next were computed on the
+> discarded-surround reference (~90% burned), so they measure severity within a
+> perimeter, not burned-area detection. On the corrected reference (see "Corrected
+> reference: the real Stage-0 result") per-stratum matching *helps* (+0.097 vs
+> +0.000 global). Kept for the audit trail.
 
 The architecture's thesis is that thresholds should be calibrated per climate or
 fuel regime, not globally. The two Greek fires are Koppen class 8 (Csa, hot-summer

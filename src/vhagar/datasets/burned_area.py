@@ -30,6 +30,7 @@ import numpy as np
 __all__ = [
     "MTBS_BURNED_CLASSES",
     "MTBS_MAPPED_CLASSES",
+    "MTBS_NONPROCESSING_CLASS",
     "T2Sample",
     "make_sample",
     "mtbs_burned_mask",
@@ -41,6 +42,8 @@ __all__ = [
 #: burned, so it is a valid negative, not nodata.
 MTBS_BURNED_CLASSES = (2, 3, 4)
 MTBS_MAPPED_CLASSES = (1, 2, 3, 4, 5)
+#: MTBS class 6 is the non-processing / non-mapping mask: never a valid label.
+MTBS_NONPROCESSING_CLASS = 6
 
 
 @dataclass(slots=True)
@@ -107,16 +110,30 @@ def mtbs_burned_mask(
     severity: np.ndarray,
     burned_classes: tuple[int, ...] = MTBS_BURNED_CLASSES,
     mapped_classes: tuple[int, ...] = MTBS_MAPPED_CLASSES,
+    include_background: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Turn an MTBS thematic severity raster into ``(burned, valid)`` boolean masks.
 
-    ``burned`` is True for the burned classes; ``valid`` is True for any mapped
-    class (so increased-greenness pixels are valid negatives, and background /
-    non-processing pixels are excluded rather than counted as unburned).
+    ``burned`` is True for the burned classes. ``valid`` marks pixels with a known
+    label. Two framings:
+
+    * ``include_background=False`` (default): valid is only the mapped in-perimeter
+      classes (1-5). This measures burn-severity discrimination *within* a fire, a
+      task whose base rate is ~90% burned. Kept for backward compatibility.
+    * ``include_background=True``: background (class 0) counts as a genuine unburned
+      negative, so valid is every class except the non-processing mask (6). This is
+      the burned-area *detection* task against an unburned landscape, at a realistic
+      base rate, and is the correct framing when the window carries unburned context
+      (docs/11). Caveat: the MTBS CONUS mosaic uses 0 for both background and out-of-
+      footprint nodata, so a coastal window can count ocean as unburned; acceptable
+      for interior fires, a caveat for coastal ones.
     """
     sev = np.asarray(severity)
     burned = np.isin(sev, burned_classes)
-    valid = np.isin(sev, mapped_classes)
+    # include_background: everything with a real thematic label is valid, excluding
+    # only the non-processing mask (6), so background (0) becomes an unburned
+    # negative. Otherwise only the in-perimeter mapped classes (1-5) are valid.
+    valid = (sev != MTBS_NONPROCESSING_CLASS) if include_background else np.isin(sev, mapped_classes)
     return burned, valid
 
 

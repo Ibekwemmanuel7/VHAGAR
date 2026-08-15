@@ -28,6 +28,23 @@ def test_mtbs_burned_mask_maps_classes():
     assert valid.tolist() == [[False, True, True], [True, True, True], [False, True, True]]
 
 
+def test_include_background_counts_class0_as_unburned():
+    """With include_background, the unburned surround (class 0) is a valid negative
+    and only the non-processing mask (6) is excluded. This turns a within-perimeter
+    severity task into a burned-area detection task at a realistic base rate
+    (docs/11)."""
+    sev = np.array([[0, 0, 1], [2, 3, 4], [5, 6, 0]])
+    # perimeter-only (default): class 0 discarded, base rate is high
+    burned_p, valid_p = mtbs_burned_mask(sev)
+    assert valid_p.tolist() == [[False, False, True], [True, True, True], [True, False, False]]
+    # background-inclusive: every class except 6 is valid; burned set unchanged
+    burned_b, valid_b = mtbs_burned_mask(sev, include_background=True)
+    assert burned_b.tolist() == burned_p.tolist()          # burned classes 2,3,4
+    assert valid_b.tolist() == [[True, True, True], [True, True, True], [True, False, True]]
+    # base rate collapses: 3 burned pixels over 8 valid, not over 5
+    assert int(valid_b.sum()) == 8 and int(valid_p.sum()) == 5
+
+
 def test_make_sample_propagates_nodata_into_valid():
     predictor = np.array([[100.0, np.nan], [200.0, 300.0]])
     reference = np.array([[True, True], [False, True]])

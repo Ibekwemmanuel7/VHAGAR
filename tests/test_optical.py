@@ -138,7 +138,7 @@ def test_build_optical_sample_wires_predictor_and_reference(monkeypatch):
         assert (grid.height, grid.width) == grid.shape
         return np.resize(fake_rbr, grid.shape)
 
-    def fake_reference(mosaic_path, grid):
+    def fake_reference(mosaic_path, grid, include_background=True):
         return np.resize(burned, grid.shape), np.resize(valid, grid.shape)
 
     monkeypatch.setattr(optical, "sentinel2_rbr", fake_sentinel2_rbr)

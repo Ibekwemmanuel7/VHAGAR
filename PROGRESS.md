@@ -3,7 +3,39 @@
 Last updated: 2026-08-14. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: within-CONUS F1 has no skill over predict-all-burned (2026-08-14)
+## Latest: reference bug found and fixed; the predictor is actually good (2026-08-14)
+
+The big one. The wide-window re-pull did NOT drop the burned fraction (still 57-95%)
+because the confound was never the window: read_mtbs_reference_on_grid marked only
+MTBS classes 1-5 (inside the perimeter) valid and DISCARDED class 0 (unburned
+background). So the eval measured severity-within-a-fire (~90% burned), not burned-
+area detection. The predictor was finite over the whole window all along (one 2,030
+ha fire: 90,601 finite RBR px, only 2,042 scored).
+
+Fix: mtbs_burned_mask(..., include_background=True), now default in the sample
+builder; counts class 0 as unburned, excludes only class 6. Rebuilt samples locally
+from cached predictors (no re-pull), tagged _w15bg. On the corrected reference (29
+fires, realistic 0.10 burned fraction), leave-one-fire-out, balanced objective:
+
+  global one-threshold:   skill +0.000  (9/29 beat naive)
+  per-stratum Koppen:     skill +0.097  (17/29)   <- climate matching now HELPS
+  per-fire oracle ceiling:skill +0.464  (29/29)   <- predictor separates every fire
+
+So: the predictor is good (oracle 29/29), a single global threshold captures none of
+it (RBR scale varies fire-to-fire), and per-ecoregion calibration recovers ~a fifth
+of the ceiling. This vindicates the architecture's per-ecoregion thesis and REVERSES
+the earlier "stratification hurts" finding, which was a reference-bug artefact.
+docs/11 has a new "Corrected reference" section that supersedes the stratification-
+negative and objective sections (kept for audit trail). Added include_background,
+threaded through read_mtbs_reference_on_grid and build_optical_sample (bg cache tag),
+plus a regression test.
+
+Open: the corrected continent-out (US bg -> EU) with one global threshold is also
+~zero skill (same scale-pooling problem); EU per-stratum/per-fire is the next test.
+Coastal-window caveat: MTBS mosaic uses 0 for both background and nodata, so ocean
+counts as unburned; fine for these interior fires, flag for coastal ones.
+
+## within-CONUS F1 has no skill over predict-all-burned (2026-08-14, superseded above)
 
 The decisive check. On the narrow per-fire windows, the trivial predict-all-burned
 baseline scores F1 0.896 (large fires) to 0.911 (all 34), and the calibrated RBR
