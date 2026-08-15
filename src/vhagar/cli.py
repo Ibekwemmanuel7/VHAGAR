@@ -759,12 +759,15 @@ def t2_stage0_cmd(
     )
 
     t = Table(title=f"T2 Stage-0, independent RBR vs MTBS ({region} {year}, leave-one-fire-out)")
-    for col in ("held out", "thresh", "F1", "IoU", "mapped ha", "adjusted ha", "95% CI"):
+    for col in ("held out", "thresh", "F1", "naive F1", "skill", "IoU", "adjusted ha", "95% CI"):
         t.add_column(col, justify="right")
     for r in results:
+        skill_str = f"{r.skill_f1:+.3f}"
         t.add_row(
-            r.held_out[:22], f"{r.threshold:.3f}", f"{r.f1:.3f}", f"{r.iou:.3f}",
-            f"{r.mapped_burned_ha:,.0f}",
+            r.held_out[:22], f"{r.threshold:.3f}", f"{r.f1:.3f}",
+            f"{r.naive_f1:.3f}",
+            f"[red]{skill_str}[/red]" if r.skill_f1 <= 0 else f"[green]{skill_str}[/green]",
+            f"{r.iou:.3f}",
             f"{r.adjusted_burned_ha:,.0f}" if r.adjusted_burned_ha is not None else "-",
             f"±{r.ci95_ha:,.0f}" if r.ci95_ha is not None else "-",
         )
@@ -775,10 +778,15 @@ def t2_stage0_cmd(
             f"\n  [bold]{s['folds']} folds[/bold]: F1 {s['f1_mean']:.3f} ± {s['f1_std']:.3f}, "
             f"IoU {s['iou_mean']:.3f} ± {s['iou_std']:.3f}"
         )
+        console.print(
+            f"  [bold]skill over naive[/bold] (predict-all-burned F1 {s['naive_f1_mean']:.3f}): "
+            f"{s['skill_f1_mean']:+.3f}, beating naive on "
+            f"{s['folds_beating_naive']}/{s['folds']} folds"
+        )
     console.print(
-        "[dim]  Independent predictor (Sentinel-2), MTBS reference: this is an accuracy\n"
-        "  claim, not a self-comparison. Per-fold std reported because it rivals model "
-        "spread.[/dim]"
+        "[dim]  Read F1 against the naive predict-all-burned baseline: on burn-heavy\n"
+        "  windows a high F1 can be a window artefact with zero or negative skill. Only\n"
+        "  a positive skill margin is an accuracy claim. See docs/11.[/dim]"
     )
 
 
@@ -893,19 +901,22 @@ def t2_continent_out_cmd(
         method=method, strata=strata, objective=objective, seed=seed,
     )
     t = Table(title="T2 leave-one-continent-out: train US MTBS, test EU EMS")
-    for col in ("test", "US fires", "EU fires", "thresh", "F1", "IoU", "adjusted ha", "95% CI"):
+    for col in ("test", "US fires", "EU fires", "thresh", "F1", "naive F1", "skill", "IoU", "adjusted ha", "95% CI"):
         t.add_column(col, justify="right")
+    skill_str = f"{r.skill_f1:+.3f}"
     t.add_row(
         "EU EMS", str(len(train)), str(len(test)), f"{r.threshold:.3f}",
-        f"{r.f1:.3f}", f"{r.iou:.3f}",
+        f"{r.f1:.3f}", f"{r.naive_f1:.3f}",
+        f"[red]{skill_str}[/red]" if r.skill_f1 <= 0 else f"[green]{skill_str}[/green]",
+        f"{r.iou:.3f}",
         f"{r.adjusted_burned_ha:,.0f}" if r.adjusted_burned_ha is not None else "-",
         f"±{r.ci95_ha:,.0f}" if r.ci95_ha is not None else "-",
     )
     console.print(t)
     console.print(
         "[dim]  The threshold is calibrated only on US fires and never sees Europe.\n"
-        "  This is the honest cross-continent transfer number; expect it below the\n"
-        "  within-CONUS leave-one-fire-out F1.[/dim]"
+        "  Skill = F1 minus the predict-all-burned baseline; only a positive skill\n"
+        "  margin on these balanced EU windows is a real accuracy claim. See docs/11.[/dim]"
     )
 
 

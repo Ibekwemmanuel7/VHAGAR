@@ -45,7 +45,18 @@ class FoldResult:
     mapped_burned_ha: float
     adjusted_burned_ha: float | None
     ci95_ha: float | None
+    #: F1 of the trivial "predict everything burned" classifier on this fold's
+    #: test pixels. On a window that is ~90% burned this is ~0.95, so a model F1
+    #: below it has *negative skill*: it is worse than ignoring the imagery. This
+    #: is the permanent no-skill baseline the results must always be read against.
+    naive_f1: float = 0.0
+    naive_iou: float = 0.0
     note: str = ""
+
+    @property
+    def skill_f1(self) -> float:
+        """F1 improvement over the predict-all-burned baseline. Can be negative."""
+        return self.f1 - self.naive_f1
 
 
 def _pool(samples: Sequence, cap: int | None, rng) -> tuple[np.ndarray, np.ndarray]:
@@ -169,6 +180,10 @@ def evaluate_fold(
         raise ValueError(f"method must be 'global' or 'otsu', got {method!r}")
 
     cc = confusion_counts(truth_u8, pred_mask)
+    # The no-skill baseline: predict every valid pixel burned. On burn-heavy
+    # windows this scores a high F1 that owes nothing to the predictor, so it is
+    # reported alongside every fold to keep the model honest (see docs/11).
+    naive = confusion_counts(truth_u8, np.ones_like(pred_mask))
     n_map = np.array([int(np.count_nonzero(pred_mask == 0)), int(np.count_nonzero(pred_mask == 1))])
     mapped_burned_ha = float(n_map[1] * pixel_area_ha)
 
@@ -200,6 +215,8 @@ def evaluate_fold(
         mapped_burned_ha=mapped_burned_ha,
         adjusted_burned_ha=adjusted,
         ci95_ha=ci,
+        naive_f1=float(naive.f1),
+        naive_iou=float(naive.iou),
         note=note,
     )
 
@@ -261,10 +278,17 @@ def summarise_stage0(results: Sequence[FoldResult]) -> dict:
         return {"folds": 0}
     f1 = np.array([r.f1 for r in results])
     iou = np.array([r.iou for r in results])
+    naive = np.array([r.naive_f1 for r in results])
+    skill = f1 - naive
     return {
         "folds": len(results),
         "f1_mean": float(f1.mean()),
         "f1_std": float(f1.std(ddof=1)) if len(f1) > 1 else 0.0,
         "iou_mean": float(iou.mean()),
         "iou_std": float(iou.std(ddof=1)) if len(iou) > 1 else 0.0,
+        # Mean F1 improvement over predict-all-burned, and how many folds clear it.
+        # A negative or near-zero skill means the headline F1 is a window artefact.
+        "naive_f1_mean": float(naive.mean()),
+        "skill_f1_mean": float(skill.mean()),
+        "folds_beating_naive": int((skill > 0).sum()),
     }

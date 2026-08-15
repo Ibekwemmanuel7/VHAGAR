@@ -3,7 +3,24 @@
 Last updated: 2026-08-14. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: Koppen climate stratification, a mostly-negative result (2026-08-14)
+## Latest: within-CONUS F1 has no skill over predict-all-burned (2026-08-14)
+
+The decisive check. On the narrow per-fire windows, the trivial predict-all-burned
+baseline scores F1 0.896 (large fires) to 0.911 (all 34), and the calibrated RBR
+threshold does NOT beat it on a single fold (0/34, skill -0.01). The within-CONUS
+0.865/0.900 "accuracy" numbers are window artefacts, not skill. The predictor shows
+real skill in exactly one place: the balanced EU continent-out test (naive 0.485),
+where Youden-objective RBR scores 0.573, a +0.088 margin. That modest cross-continent
+margin is the only defensible accuracy signal so far.
+
+Baked the no-skill baseline into the eval so this can never be hidden: FoldResult now
+carries naive_f1 and skill_f1, summarise_stage0 reports skill_f1_mean and
+folds_beating_naive, and both CLI tables print a naive-F1 column and a red/green skill
+margin. docs/11 headline rewritten to retract the accuracy claim and record the skill
+finding. Suite 327 passed, 2 skipped, ruff clean. This makes the wide-window re-pull
+essential (only balanced windows can measure predictor skill), not just a refinement.
+
+## Koppen climate stratification, a mostly-negative result (2026-08-14)
 
 Downloaded the 1 km Koppen-Geiger present-day raster (Beck et al., 1991-2020) and
 tested whether matching US-to-EU climate zones lifts continent-out transfer. First

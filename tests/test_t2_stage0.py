@@ -225,6 +225,46 @@ def test_perstratum_beats_global_when_strata_have_different_scales():
     assert p.f1 > 0.85                      # per-stratum recovers the B fire well
 
 
+def test_naive_baseline_and_skill_are_reported():
+    """Every fold carries the predict-all-burned F1 and the model's skill over it.
+    On a separable fire the calibrated threshold has positive skill; the naive F1
+    equals 2p/(1+p) for burned fraction p, so this is a real, checkable number."""
+    from vhagar.eval.metrics import confusion_counts
+
+    test = [_fire("te", burned_frac=0.3, seed=3)]
+    r = evaluate_fold([_fire("tr", burned_frac=0.3, seed=4)], test, seed=0)
+    v = test[0].valid
+    truth = test[0].reference[v].astype(np.uint8)
+    expected_naive = confusion_counts(truth, np.ones_like(truth)).f1
+    assert r.naive_f1 == pytest.approx(expected_naive, abs=1e-6)
+    assert r.skill_f1 == pytest.approx(r.f1 - r.naive_f1, abs=1e-9)
+    assert r.skill_f1 > 0.0                      # separable fire: real skill over naive
+
+
+def test_all_burned_window_has_zero_naive_skill():
+    """A ~all-burned window: predict-all-burned already scores ~1.0, so even a
+    perfect-looking model F1 has essentially no skill. This is the confound the
+    naive baseline exists to expose (docs/11)."""
+    rng = np.random.default_rng(0)
+    truth = rng.random((60, 60)) < 0.97          # 97% burned
+    dnbr = np.where(truth, rng.normal(320, 40, (60, 60)), rng.normal(150, 40, (60, 60)))
+    test = [make_sample("burnt", dnbr, truth)]
+    r = evaluate_fold([_fire("tr", seed=1)], test, seed=0)
+    assert r.naive_f1 > 0.95
+    assert r.skill_f1 < 0.05                      # little or no room to beat naive
+
+
+def test_summarise_reports_folds_beating_naive():
+    samples = {f"f{i}": _fire(f"f{i}", burned_frac=0.3, seed=i) for i in range(4)}
+    manifest = SplitManifest(
+        scheme="test",
+        folds=[{"train": ["f0", "f1"], "test": ["f2", "f3"], "held_out": "A"}],
+    )
+    s = summarise_stage0(run_stage0(samples, manifest, seed=0))
+    assert "naive_f1_mean" in s and "skill_f1_mean" in s
+    assert 0 <= s["folds_beating_naive"] <= s["folds"]
+
+
 def test_single_class_window_skips_area_without_crashing():
     """A small fire whose window is ~all burned yields a single-class map; the
     area adjustment must be skipped, not crash the allocator (regression)."""

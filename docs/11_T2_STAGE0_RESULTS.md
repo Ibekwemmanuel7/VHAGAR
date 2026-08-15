@@ -1,17 +1,34 @@
 # T2 Stage-0 results: independent RBR vs MTBS, CONUS 2021
 
-First defensible accuracy number for the project. An independent Sentinel-2 RBR
-predictor, calibrated leave-one-fire-out and evaluated against the MTBS thematic
-severity, on the largest 2021 CONUS wildfires.
+An independent Sentinel-2 RBR predictor, calibrated leave-one-fire-out and
+evaluated against MTBS thematic severity on 2021 CONUS wildfires. What follows
+records how a good-looking first number was found, on scrutiny, to have no skill
+over a trivial baseline, and where the predictor does show real skill.
 
-## Headline
+## Headline (retracted as an accuracy claim, kept as a lesson)
 
-**F1 0.865 ± 0.056, IoU 0.765 ± 0.084** across 5 leave-one-fire-out folds.
+The original headline was **F1 0.865 ± 0.056** (5 large fires), later 0.900 over 34
+fires, presented as "the first defensible accuracy number." It is not defensible,
+and the correction is the real result:
 
-This is an accuracy claim, not a self-comparison: the predictor (Sentinel-2 RBR)
-and the reference (MTBS) share no lineage. It sits squarely in the burned-area
-literature's honest range (~0.7 to 0.85), and it is not a suspicious ~0.99, which
-would signal leakage.
+**On these per-fire windows the trivial "predict everything burned" baseline scores
+F1 0.896 (large fires) to 0.911 (all 34), and the calibrated RBR threshold does not
+beat it on a single fold (0 of 34). Skill over naive is -0.01.** The windows are
+~90% burned, so a high F1 measures the window's class balance, not the predictor.
+This is exactly what the permanent no-skill baseline exists to catch, and it was
+caught only when the baseline was actually computed. Every fold now reports its
+naive F1 and skill margin so this cannot recur.
+
+**Where the predictor does show skill: the balanced cross-continent test.** On the
+Greek EMS windows (32% burned, so naive all-burned F1 is only 0.485), the RBR
+threshold with a balanced objective scores **0.573, a real +0.088 skill margin**
+over naive. That, not the within-CONUS 0.9, is the defensible signal that the
+Sentinel-2 RBR predictor carries independent burned-area information. It is modest
+and rests on two fires, but it is skill rather than a window artefact.
+
+Consequence: the within-CONUS leave-one-fire-out numbers below are reported with
+their naive baseline and should be read as "no demonstrated skill on burn-heavy
+windows," pending the wide-window re-pull that gives the test real unburned context.
 
 ## Per-fold table
 
@@ -25,6 +42,26 @@ analysis at 100 m, up to 4 least-cloudy Sentinel-2 scenes per pre/post window.
 | CA39876… (Dixie) | 111.3 | 0.891 | 0.803 | 14,761 | 17,112 | ±687  |
 | CA41142… | 25.2  | 0.885 | 0.794 |  2,198 |  2,138 | ±164  |
 | OR42616… (Bootleg) | -10.9 | 0.845 | 0.731 | 12,286 |  9,694 | ±1,147 |
+
+## Skill over the no-skill baseline (the decisive check)
+
+Read every F1 above against the trivial predict-all-burned baseline. The eval now
+computes it per fold (`FoldResult.naive_f1`, `.skill_f1`) and the CLI prints it.
+
+| set | model F1 | naive all-burned F1 | skill | folds beating naive |
+|---|---|---|---|---|
+| large fires (headline 5, here 13 usable) | 0.896 | 0.896 | -0.000 | 0 / 13 |
+| all 34 CONUS fires | 0.900 | 0.911 | -0.010 | 0 / 34 |
+| continent-out EU, F1 objective | 0.488 | 0.485 | +0.003 | - |
+| **continent-out EU, Youden objective** | **0.573** | **0.485** | **+0.088** | - |
+
+The within-CONUS model never beats predict-all-burned: the windows are ~90% burned,
+so F1 is dominated by prevalence and the predictor adds nothing measurable. Only on
+the balanced EU windows, and only with a balanced objective, does the RBR threshold
+clear the naive baseline (+0.088). Everything else in this document should be read
+through that lens: the transfer discussion, the Olofsson areas, and the threshold
+spread are all still informative about mechanism, but the within-CONUS F1 is not an
+accuracy claim.
 
 ## What the numbers say
 
