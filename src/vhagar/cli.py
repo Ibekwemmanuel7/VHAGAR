@@ -799,6 +799,9 @@ def t2_continent_out_cmd(
     ),
     min_area_ha: float = typer.Option(10000.0, help="US training fires at least this large"),
     max_fires: int = typer.Option(6, help="cap US training fires"),
+    select: str = typer.Option(
+        "size", help="US fire selection: size (climate-diverse, needed for per-stratum) | largest"
+    ),
     max_scenes: int = typer.Option(4),
     res_m: float = typer.Option(100.0),
     cache_dir: Path = typer.Option(Path("data/t2_cache")),
@@ -824,6 +827,7 @@ def t2_continent_out_cmd(
         build_optical_sample,
         build_optical_samples,
         read_emsr_reference_on_grid,
+        select_fires,
     )
     from vhagar.eval.t2_stage0 import evaluate_fold
     from vhagar.labels.ingest import read_emsr
@@ -832,14 +836,19 @@ def t2_continent_out_cmd(
     pixel_area_ha = (res_m ** 2) / 1e4
 
     # --- US training side (cached from t2-stage0) ---
+    # Default to size-stratified selection, not largest-N. Per-stratum transfer
+    # needs a climate-diverse training set: the largest CONUS fires cluster in a
+    # few western zones (Dsb, BSk), so a "largest" pick has no Cfa/Csa fire to match
+    # a European Cfa/Csa fire against, and per-stratum silently falls back to the
+    # global threshold. Size stratification pulls in the small fires that carry the
+    # other climate zones. See docs/11.
     reg = EventRegistry.from_parquet(registry)
     us = [
         r for r in reg
         if r.region == "conus" and r.ignition_date and r.ignition_date.year == 2021
         and (r.area_ha or 0) >= min_area_ha and r.tile_ids
     ]
-    us.sort(key=lambda r: r.area_ha or 0, reverse=True)
-    us = us[:max_fires]
+    us = select_fires(us, max_fires, strategy=select)
     console.print(f"[bold]US training: {len(us)} MTBS fires[/bold] (reusing cache where present).")
     train = build_optical_samples(
         us, mosaic, cache_dir=cache_dir, max_scenes=max_scenes, res_m=res_m,
@@ -895,12 +904,45 @@ def t2_continent_out_cmd(
         console.print(
             f"[dim]  strata: {len(set(strata.values()))} classes; EU fires in {eu_classes}[/dim]"
         )
+    # Per-fire breakdown first. The pooled row below concatenates every EU fire's
+    # pixels into one F1, so a few near-degenerate fires (very low burn fraction)
+    # can mask clean per-zone transfer. The honest read is per fire, per climate
+    # zone (docs/11, "Seven-fire EU generalisation").
+    from vhagar.labels.emsr_fetch import koppen_name
+
+    train_list = list(train.values())
+    per = Table(title="Per-fire cross-continent skill (train US, test each EU fire)")
+    for col in ("EU fire", "zone", "burn%", "F1", "naive", "skill"):
+        per.add_column(col, justify="right")
+    for eid, s in test.items():
+        zone = koppen_name(strata.get(eid)) if strata else "-"
+        try:
+            rf = evaluate_fold(
+                train_list, [s], pixel_area_ha=pixel_area_ha, n_reference=n_reference,
+                method=method, strata=strata, objective=objective, seed=seed,
+            )
+        except Exception as exc:  # noqa: BLE001
+            per.add_row(eid.split(":")[-1][:20], zone,
+                        f"{100 * s.burned_fraction:.1f}", "-", "-", f"[dim]{type(exc).__name__}[/dim]")
+            continue
+        sk = f"{rf.skill_f1:+.3f}"
+        per.add_row(
+            eid.split(":")[-1][:20], zone, f"{100 * s.burned_fraction:.1f}",
+            f"{rf.f1:.3f}", f"{rf.naive_f1:.3f}",
+            f"[red]{sk}[/red]" if rf.skill_f1 <= 0 else f"[green]{sk}[/green]",
+        )
+    console.print(per)
+    console.print(
+        "[dim]  A low-burn-fraction fire (cloud-thinned or tiny) can be near single-\n"
+        "  class and unmeasurable; read its skill next to its burn %. See docs/11.[/dim]\n"
+    )
+
     r = evaluate_fold(
         list(train.values()), list(test.values()), held_out="EMSR (Europe)",
         pixel_area_ha=pixel_area_ha, n_reference=n_reference,
         method=method, strata=strata, objective=objective, seed=seed,
     )
-    t = Table(title="T2 leave-one-continent-out: train US MTBS, test EU EMS")
+    t = Table(title="T2 leave-one-continent-out (pooled): train US MTBS, test EU EMS")
     for col in ("test", "US fires", "EU fires", "thresh", "F1", "naive F1", "skill", "IoU", "adjusted ha", "95% CI"):
         t.add_column(col, justify="right")
     skill_str = f"{r.skill_f1:+.3f}"

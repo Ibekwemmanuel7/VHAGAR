@@ -3,25 +3,33 @@
 Last updated: 2026-08-14. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: 7-fire EU generalisation RAN, transfer generalises beyond Csa (2026-08-14)
+## Latest: 7-fire EU generalisation, corrected + CLI fixes (2026-08-15)
 
-Ran the expanded continent-out (34 US bg fires -> 7 EU fires, 4 Koppen zones,
-per-stratum, Youden). Per-fire skill over naive:
+Ran the expanded continent-out and, on scrutiny, corrected two things in the first
+writeup. Canonical CLI result (size-stratified US training, burnt-centroid strata,
+per-stratum, Youden), per-fire skill over naive:
 
-  Csa: Greece Attika +0.71, Albania +0.51, Syria +0.49, Greece Evia +0.05 (low oracle)
-  Cfa: Montenegro +0.451   <- GENERALISES beyond Mediterranean
-  Csb: West Spain +0.00 (oracle +0.22; window cloud-thinned to 0.9% burned)
-  Dfb: Poland dropped (0.2% burned, single-class, spring fire too small at 100 m)
+  Csa: Attika +0.732, Syria +0.581, Evia +0.050 (low-ceiling fire)
+  Cfa: Montenegro +0.451
+  Dfb: Albania +0.214, Poland +0.000 (0.2% burned, single-class)
+  Csb: Spain +0.000 (0.9% burned, cloud-thinned)
+  pooled row: skill +0.26.
 
-Headline: per-stratum transfer generalises to a second climate zone (Cfa), and Csa
-holds across three new countries; the +0.115 Greek result was not a Csa-only fluke.
-Failures are data quality (tiny/cloudy fires), not method: Evia is a low-ceiling fire
-(oracle +0.057), Spain/Poland too thin to test. Csb/Dfb need larger, less-cloudy
-activations. The pooled CLI row (+0.046) is misleading, it concatenates all 7 fires'
-pixels so the 3 degenerate ones drag it down; per-fire breakdown is the honest read.
-Written up in docs/11 "Seven-fire EU generalisation". Cache: emsr_*_AOI*_r100_w15.npz.
+Transfer is positive across THREE zones (Csa, Cfa, Dfb), not Mediterranean-specific.
 
-Next: a CLI flag to print per-fire skill (not just pooled); more Csb/Dfb/BSk fires.
+Two corrections vs the first pass: (1) Albania is Dfb at its burnt centroid (mountain
+fire), not Csa, and transfers +0.214, not +0.51; (2) the exact skills shifted because
+the reproducible CLI path differs from the one-off script.
+
+Two CLI fixes (this is why the first CLI run looked weak, +0.046 pooled):
+- t2-continent-out now prints a PER-FIRE skill table before the pooled row.
+- t2-continent-out now defaults to --select size. It used largest-N, which clusters
+  in western US zones (Dsb, BSk) with NO Cfa fire, so Montenegro fell back to the
+  global predict-all-burned threshold (+0.000). Size stratification pulls in the small
+  fires that carry Cfa/other zones. Real methodological point: per-ecoregion transfer
+  needs the training set to span the ecoregions. docs/11 updated.
+
+Next: more clean Csb/Dfb/BSk activations; the per-fire oracle column in the CLI.
 
 ## EU fire set expanded to 4 Koppen zones, ready to run (2026-08-14)
 

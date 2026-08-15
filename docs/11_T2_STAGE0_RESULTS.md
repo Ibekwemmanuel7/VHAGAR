@@ -16,11 +16,12 @@ over a trivial baseline, and where the predictor does show real skill.
 > below, which supersedes the retraction and the stratification-negative sections.
 >
 > **Update (2026-08-14, 7-fire EU generalisation).** The cross-continent transfer was
-> re-run with the EU test set expanded from 2 Greek fires to 7 fires across four
-> Koppen zones. Per-stratum transfer **generalises beyond Mediterranean Csa to Cfa**
-> (Montenegro +0.451 skill), and Csa holds across three new countries (Attika +0.71,
-> Albania +0.51, Syria +0.49). The +0.115 from Greece alone was not a Csa-only fluke.
-> See "Seven-fire EU generalisation" below.
+> re-run with the EU test set expanded from 2 Greek fires to 7 fires. Per-stratum
+> transfer is positive across **three climate zones**, Csa (Attika +0.73, Syria
+> +0.58), Cfa (Montenegro +0.45) and Dfb (Albania +0.21), each calibrated on US fires
+> of that zone. It is not Mediterranean-specific. The catch: it needs a climate-
+> diverse (size-stratified) US training set; a largest-N pick has no Cfa fire and
+> gives +0.000. See "Seven-fire EU generalisation" below.
 
 ## Headline (retracted as an accuracy claim, kept as a lesson)
 
@@ -164,44 +165,54 @@ and measure the wrong task. They are kept for the audit trail, not as conclusion
 ### Seven-fire EU generalisation: does per-stratum transfer hold beyond Csa?
 
 The Csa->Csa result rested on two Greek fires. To test whether it generalises, the
-EU set was expanded to seven Copernicus EMS fires across four Koppen zones (batch-
-pulled with the new ``emsr-candidates`` / ``emsr-ingest`` tooling). Train the
-per-stratum threshold on the 34 background-inclusive US fires, test per EU fire.
+EU set was expanded to seven Copernicus EMS fires (batch-pulled with the new
+``emsr-candidates`` / ``emsr-ingest`` tooling). Train the per-stratum threshold on
+the background-inclusive US fires, test per EU fire. Each fire's Koppen class is
+sampled at the centroid of its burnt geometry (so Albania's mountain fire lands in
+Dfb, not the coastal Csa of its activation centroid).
 
-| EU fire | zone | in-window burn % | per-stratum skill | per-fire oracle |
-|---|---|---|---|---|
-| Greece Attika | Csa | 7.6 | **+0.707** | +0.746 |
-| Albania | Csa | 3.0 | **+0.512** | +0.566 |
-| Syria | Csa | 9.3 | **+0.485** | +0.690 |
-| Montenegro | Cfa | 7.0 | **+0.451** | +0.644 |
-| Greece Evia | Csa | 17.5 | +0.054 | +0.057 |
-| West Spain | Csb | 0.9 | +0.000 | +0.221 |
-| Poland | Dfb | 0.2 | dropped, single-class | -- |
+| EU fire | zone | in-window burn % | per-stratum skill |
+|---|---|---|---|
+| Greece Attika | Csa | 7.6 | **+0.732** |
+| Syria | Csa | 9.3 | **+0.581** |
+| Montenegro | Cfa | 7.0 | **+0.451** |
+| Albania | Dfb | 3.0 | **+0.214** |
+| Greece Evia | Csa | 17.5 | +0.050 |
+| West Spain | Csb | 0.9 | +0.000 |
+| Poland | Dfb | 0.2 | +0.000 (single-class) |
 
-Two clear conclusions:
+The finding holds and is broader than "Csa only": per-stratum transfer is positive
+across **three climate zones**, Csa (Attika +0.73, Syria +0.58), Cfa (Montenegro
++0.45) and Dfb (Albania +0.21), each calibrated on US fires of that zone it never
+saw. It is not Mediterranean-specific.
 
-- **Transfer generalises to a second climate zone.** Montenegro (Cfa, humid
-  subtropical) transfers at +0.451, calibrated on US Cfa fires it never saw. The
-  mechanism is not Mediterranean-specific.
-- **Csa is robust across new countries.** Attika, Albania and Syria all clear
-  +0.48, so the Greek result was not a two-fire artefact.
+**Crucial dependency: the US training set must be climate-diverse.** This only works
+if training uses *size-stratified* US fires (``--select size``, now the default).
+The largest CONUS 2021 fires cluster in a few western zones (Dsb, BSk) and contain no
+Cfa fire, so a "largest-N" training pick has nothing to match Montenegro against and
+per-stratum silently falls back to the global predict-all-burned threshold, giving
+Montenegro **+0.000**. The small Arkansas Cfa fires that carry the match only enter
+via size stratification. This is a real methodological point: per-ecoregion transfer
+needs the training set to actually span the ecoregions, which biases against a
+megafire-only sample.
 
-And two honest limits, both data quality rather than method:
+Honest limits, all data quality rather than method:
 
-- **Greece Evia (+0.054) is a low-ceiling fire**: its own per-fire oracle is only
-  +0.057, so RBR simply cannot separate that particular 2021 scar; nothing to
-  transfer. It is not a stratification failure.
+- **Greece Evia (+0.050) is a low-ceiling fire**: its own per-fire oracle is only
+  ~+0.06, so RBR simply cannot separate that particular 2021 scar; nothing to
+  transfer. Not a stratification failure.
 - **West Spain and Poland were too thin to test.** Spain's window was cloud-reduced
   to 0.9% burned (18k valid px) and Poland's spring fire rasterised to 0.2% burned
-  at 100 m; both are near single-class, so per-stratum transfer is unmeasurable even
-  though Spain's oracle (+0.221) shows the signal is there. Csb and Dfb need larger,
-  less-cloudy activations to be judged.
+  at 100 m; both are near single-class, so transfer is unmeasurable (Spain's oracle
+  ~+0.22 shows the signal is there). Csb and a clean Dfb still need larger, less-
+  cloudy activations to be judged.
 
-Note on the pooled CLI number. ``t2-continent-out`` prints one pooled row, here
-skill **+0.046**, because it concatenates every EU fire's pixels into a single F1.
-The three near-degenerate fires (Poland, Spain, Evia) drag that pooled figure down
-and hide the clean per-zone transfer above. The per-fire breakdown, not the pooled
-row, is the honest read; a future CLI change should report per-fire skill directly.
+Note on the pooled CLI number. ``t2-continent-out`` prints one pooled row (here skill
+**+0.26** with size-stratified training) because it concatenates every EU fire's
+pixels into a single F1. The near-degenerate fires (Poland, Spain, Evia) drag that
+pooled figure down and hide the clean per-zone transfer above. The per-fire table the
+CLI now prints (added after this was first written, alongside ``--select size`` as
+the default) is the honest read, not the pooled row.
 
 ## What the numbers say
 
