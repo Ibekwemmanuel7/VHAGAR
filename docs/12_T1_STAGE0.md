@@ -17,7 +17,24 @@ the GOES sector. 104,772 VIIRS detections in domain.
 | naive | 2 km | 0.376 | 2 min |
 | **parallax-aware** | **4 km** | **0.499** | **2 min** |
 
-Two things to read from this:
+And the precision / false-alarm side, scored only on GOES detections VIIRS was actually
+overhead for (a GOES detection is *evaluable* when some VIIRS detection is within ~50 km
+and +/-30 min, so a real fire between the twice-daily overpasses is not miscounted as a
+false alarm). 30,800 of 188,639 GOES detections are evaluable:
+
+| matching | cell | precision | FAR |
+|---|---|---|---|
+| naive | 2 km | 0.843 | 0.157 |
+| **parallax-aware** | **4 km** | **0.944** | **0.056** |
+
+**This is the architecture's headline geometry number, reproduced.** The apparent FAR
+drops from 15.7% (naive 2 km) to 5.6% (parallax 4 km), landing squarely in the published
+"naive 26-36% -> parallax 7-15%" range. The 10-point drop is footprint quantisation plus
+terrain parallax, not model error: a too-tight cell mislabels an offset-but-real GOES/
+VIIRS match as a false alarm. Conditioning on VIIRS coincidence is what makes precision
+interpretable at all for a GEO/LEO pair.
+
+Two things to read from the POD side:
 
 - **GOES FDC detects about half of VIIRS's fire pixels** (POD ~0.50 at the parallax
   scale), near-simultaneously (median gap 2 min). That is the credible, literature-
@@ -42,10 +59,10 @@ rate. Diagnosis: (1) VIIRS spanned tropical/agricultural fires outside the GOES-
 sector, counted as misses; (2) matching 50 km-cell cluster centroids at 3.6 km
 guarantees misses (median nearest-centroid distance was 276 km); (3) an int-unit bug in
 an exploratory grid check gave a spurious 0.0. The fix is detection-level coincidence in
-space **and** time, domain-restricted, above. Precision/FAR are deliberately *not*
-reported: they need the VIIRS swath geometry to be interpretable (a GOES detection with
-no VIIRS nearby may be a real fire between the twice-daily overpasses, not a false
-alarm), so they are Stage-2 work.
+space **and** time, domain-restricted, above. Precision/FAR then need one more
+correction, conditioning on VIIRS overpass coincidence (only score a GOES detection when
+VIIRS was overhead), which is the precision/FAR table above; without that conditioning a
+real fire between overpasses would be miscounted as a false alarm.
 
 ## What is built (this pass)
 

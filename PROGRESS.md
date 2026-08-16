@@ -3,7 +3,23 @@
 Last updated: 2026-08-14. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: T1 Stage-2 preview, lat/lon leakage demonstrated (2026-08-16)
+## Latest: T1 Stage-0 completed with precision/FAR (2026-08-16)
+
+Finished the T1 detection metric: added precision_far_scores() (conditioned on VIIRS
+overpass coincidence, so a fire between overpasses is not miscounted as a false alarm)
+to eval/t1_stage0.py, wired into the t1-stage0 CLI as a second table. Real result:
+
+  naive 2km:     precision 0.843, FAR 0.157
+  parallax 4km:  precision 0.944, FAR 0.056   (30,800 of 188,639 GOES evaluable)
+
+This REPRODUCES the architecture's headline geometry number on our data: apparent FAR
+15.7% (naive) -> 5.6% (parallax), squarely in the published "26-36% -> 7-15%" range. The
+10-point drop is footprint quantisation + terrain parallax, not model error. T1 Stage-0
+is now a complete detection result: POD 0.50, precision 0.94 / FAR 0.06, latency 2 min,
+with the GEO/LEO geometry effect measured on BOTH POD (+0.12) and FAR (-0.10). 1 test.
+Full suite 356 passed, 5 skipped, ruff clean. docs/12 updated.
+
+## T1 Stage-2 preview, lat/lon leakage demonstrated (2026-08-16)
 
 Built the Stage-2 event-classifier leakage experiment (src/vhagar/eval/t1_classifier.py,
 CLI `vhagar t1-classify`), reproducing the architecture's central T1 warning on our data.

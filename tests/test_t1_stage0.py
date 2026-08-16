@@ -98,6 +98,25 @@ def test_coincidence_pod_respects_the_time_window():
     assert s["pod"] == 0.0                          # outside the +/-30 min window
 
 
+def test_precision_far_conditions_on_viirs_overpass_coincidence():
+    from datetime import timedelta
+
+    from vhagar.eval.t1_stage0 import precision_far_scores
+
+    viirs = [_det(0, 0, T0, sensor="viirs")]
+    goes = [
+        _det(1_000, 0, T0 + timedelta(minutes=2)),      # 1 km: confirmed -> TP
+        _det(30_000, 0, T0 + timedelta(minutes=2)),     # 30 km: VIIRS overhead but not
+                                                        # confirmed -> false alarm
+        _det(500_000, 0, T0),                           # 500 km: VIIRS not overhead ->
+                                                        # not evaluable (excluded)
+        _det(1_000, 0, T0 + timedelta(minutes=90)),     # right place, wrong time -> excluded
+    ]
+    r = precision_far_scores(goes, viirs, cell_m=4_000.0, coverage_cell_m=50_000.0, window_min=30.0)
+    assert r["tp"] == 1 and r["fp"] == 1 and r["n_evaluable"] == 2
+    assert r["precision"] == 0.5 and r["far"] == 0.5
+
+
 def test_fdc_window_reads_dates_and_padded_bbox(tmp_path):
     import pandas as pd
 

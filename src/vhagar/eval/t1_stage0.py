@@ -39,6 +39,7 @@ __all__ = [
     "EventMatch",
     "match_events",
     "coincidence_scores",
+    "precision_far_scores",
     "detection_latency_minutes",
     "load_fdc_detections",
     "load_fdc_events",
@@ -230,6 +231,80 @@ def coincidence_scores(
         "n_viirs": int(len(vx)), "n_goes": int(len(gx)), "tp": tp,
         "median_gap_min": float(np.median(gaps)) if gaps else float("nan"),
         "cell_m": cell_m, "window_min": window_min,
+    }
+
+
+def precision_far_scores(
+    goes: list[Detection],
+    viirs: list[Detection],
+    cell_m: float = 4_000.0,
+    coverage_cell_m: float = 50_000.0,
+    window_min: float = 30.0,
+) -> dict:
+    """GOES precision / false-alarm rate, conditioned on VIIRS overpass coincidence.
+
+    Precision at the raw detection level is uninterpretable for a GEO/LEO pair: GOES
+    scans continuously, VIIRS passes twice a day, so a GOES detection with no VIIRS
+    nearby is usually a real fire *between overpasses*, not a false alarm. The fix is
+    to score a GOES detection only when VIIRS was actually observing its area: a GOES
+    detection is **evaluable** when some VIIRS detection lies within ``coverage_cell_m``
+    (an 8-neighbour of a ~50 km cell, so VIIRS was passing over) within ``window_min``;
+    among evaluable detections it is a **true positive** when a VIIRS detection lies in
+    the same tight ``cell_m`` cell, else a **false alarm**. ``precision = TP / evaluable``,
+    ``far = 1 - precision``. Compare ``cell_m`` 2 km (naive) vs 4 km (parallax) to see the
+    geometry: a too-tight cell mislabels an offset-but-real match as a false alarm.
+    """
+    import numpy as np
+
+    if not goes or not viirs:
+        return {"precision": float("nan"), "far": float("nan"), "tp": 0, "fp": 0,
+                "n_evaluable": 0, "n_goes": len(goes), "cell_m": cell_m}
+    gx = np.array([d.x for d in goes])
+    gy = np.array([d.y for d in goes])
+    gt = np.array([_posix(d.when) for d in goes])
+    vx = np.array([d.x for d in viirs])
+    vy = np.array([d.y for d in viirs])
+    vt = np.array([_posix(d.when) for d in viirs])
+
+    from collections import defaultdict
+
+    def build_index(size):
+        idx = defaultdict(list)
+        cxx = np.floor(vx / size).astype(int)
+        cyy = np.floor(vy / size).astype(int)
+        for i in range(len(vx)):
+            idx[(int(cxx[i]), int(cyy[i]))].append(vt[i])
+        return {k: np.sort(np.asarray(v)) for k, v in idx.items()}
+
+    fine = build_index(cell_m)
+    coarse = build_index(coverage_cell_m)
+    w = window_min * 60.0
+
+    def has_hit(index, cx, cy, t0):
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                arr = index.get((cx + dx, cy + dy))
+                if arr is None:
+                    continue
+                j = int(np.searchsorted(arr, t0))
+                if any(0 <= jj < len(arr) and abs(float(arr[jj]) - t0) <= w for jj in (j - 1, j)):
+                    return True
+        return False
+
+    tp = fp = 0
+    for i in range(len(gx)):
+        t0 = gt[i]
+        if not has_hit(coarse, int(gx[i] // coverage_cell_m), int(gy[i] // coverage_cell_m), t0):
+            continue  # VIIRS was not observing this area then; not evaluable
+        if has_hit(fine, int(gx[i] // cell_m), int(gy[i] // cell_m), t0):
+            tp += 1
+        else:
+            fp += 1
+    n_eval = tp + fp
+    return {
+        "precision": tp / n_eval if n_eval else float("nan"),
+        "far": fp / n_eval if n_eval else float("nan"),
+        "tp": tp, "fp": fp, "n_evaluable": n_eval, "n_goes": int(len(gx)), "cell_m": cell_m,
     }
 
 
