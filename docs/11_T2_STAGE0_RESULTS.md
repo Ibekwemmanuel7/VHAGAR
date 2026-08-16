@@ -344,11 +344,43 @@ vhagar t2-deep --model siamese --folds 5 --epochs 20
 vhagar t2-deep --model unet    --folds 5 --epochs 20
 ```
 
-The comparison of interest is against the RBR U-Net's +0.441: does giving the model
-the pre/post bands and the change formulation beat a single-channel segmenter on the
-same folds? The numpy dataset/fold code is unit-tested (including a torch smoke test
-for both models via ``importorskip``); the training itself needs the torch extra and a
-stack re-pull, so the measured number is recorded once that run completes.
+The numpy dataset/fold code is unit-tested (including a torch smoke test for both
+models via ``importorskip``); the training needs the torch extra and the stack re-pull.
+
+### Result: inputs matter more than architecture, spatial model matters most
+
+All four measured on the **same 32 stack fires, same 5 leakage-proof folds** (the RBR
+U-Net re-run on the ``_w15bgs`` cache so it shares the exact fires and folds, not the
+earlier 43-fire number):
+
+| model (identical 32 fires, 5-fold) | mean skill over naive | wins vs naive |
+|---|---|---|
+| global threshold (Youden) | +0.000 | ~1 / 32 |
+| RBR U-Net (1 channel) | +0.448 | 29 / 32 |
+| **stack U-Net** (pre/post NBR + dNBR) | **+0.538** | 30 / 32 |
+| Siamese change model | +0.533 | 30 / 32 |
+
+Three conclusions, each same-path and defensible:
+
+1. **The spatial model is the big lever.** Any U-Net (+0.45 to +0.54) crushes the
+   global threshold (+0.00, collapsed to predict-all-burned by RBR scale
+   heterogeneity). This is the headline: replace the pointwise cut with a segmenter.
+2. **Richer inputs buy a real +0.09.** The stack U-Net (+0.538) beats the single-RBR
+   U-Net (+0.448) by +0.090, about 20% relative, on identical folds. The pre and post
+   NBR bands carry burned-area signal that a pre-differenced RBR throws away, so it is
+   worth feeding the model the two dates rather than one derived index.
+3. **The Siamese architecture earns nothing over a plain multi-channel U-Net**
+   (+0.533 vs +0.538, within noise, same 30/32 wins). Explicit bi-temporal feature
+   differencing does not beat simply stacking pre and post as input channels here. On
+   this data the fancy change-model design is not carrying its weight; the gain came
+   from the inputs, not the architecture.
+
+So: inputs matter more than architecture, and the spatial model matters most of all.
+The three models also agree on which fires are genuinely hard, MT47702, AR36076 and
+OK36688 are negative or near-zero in all of them, which are the low-RBR-separability
+scars; that agreement is a good sign the ranking is real and not fold noise. Bar for
+the eventual foundation-model fine-tune: **skill +0.54 on this protocol**, and it must
+beat a plain multi-channel U-Net, not just the threshold, to justify itself.
 
 ## What the numbers say
 

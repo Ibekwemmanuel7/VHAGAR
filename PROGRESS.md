@@ -3,7 +3,26 @@
 Last updated: 2026-08-14. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: 9-fire EU run, Csb fails (threshold-transfer, not signal) (2026-08-15)
+## Latest: deep-model ladder RAN, inputs > architecture (2026-08-15)
+
+The full three-way comparison ran on the SAME 32 stack fires, same 5 folds (RBR U-Net
+re-run on _w15bgs so it shares exact fires/folds):
+
+  global threshold:           skill +0.000
+  RBR U-Net (1 channel):      skill +0.448  (29/32)
+  stack U-Net (pre/post+dnbr): skill +0.538 (30/32)
+  Siamese change model:       skill +0.533  (30/32)
+
+Findings (all same-path): (1) the spatial model is the big lever, any U-Net crushes the
+collapsed threshold; (2) richer inputs buy a real +0.09, stack U-Net +0.538 vs RBR
+U-Net +0.448 (~20% relative), so pre/post NBR carry signal a pre-differenced RBR loses;
+(3) Siamese ~ plain multi-channel U-Net (+0.533 vs +0.538), the bi-temporal change
+architecture earns NOTHING over stacking pre/post as channels. Inputs > architecture,
+spatial model most of all. All three models agree on the hard fires (MT47702, AR36076,
+OK36688). Bar for the foundation-model fine-tune: +0.54, and it must beat a plain
+multi-channel U-Net, not just the threshold. docs/11 "Result: inputs matter more" done.
+
+## 9-fire EU run, Csb fails (threshold-transfer, not signal) (2026-08-15)
 
 Ran continent-out with the 2 new large Csb Portugal fires (9 EU fires now). Per-fire
 skill: Csa Attika +0.661, Syria +0.345, Evia +0.057; Dfb Albania +0.559, Poland -0.004
