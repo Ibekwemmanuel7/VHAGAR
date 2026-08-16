@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from datetime import UTC, timedelta
 from pathlib import Path
@@ -1028,6 +1029,119 @@ def t1_temporal_cmd(
         "[dim]  Residual-against-diurnal-baseline catches the fire as soon as it lifts BT\n"
         "  above the pixel's own night baseline; the absolute cut must wait for the global\n"
         "  threshold. Same mechanism on real 3.9um cubes with TemporalAnomalyNet. docs/12.[/dim]"
+    )
+
+
+@app.command("t1-pull-cube")
+def t1_pull_cube_cmd(
+    out: Path = typer.Argument(..., help="output .npz for the BT cube"),
+    start: str = typer.Option(..., help="start datetime, YYYY-MM-DDTHH:MM (UTC)"),
+    end: str = typer.Option(..., help="end datetime, YYYY-MM-DDTHH:MM (UTC), inclusive"),
+    bbox: str = typer.Option(..., help="west,south,east,north in degrees. Keep it small."),
+    satellite: int = typer.Option(18, help="GOES satellite number"),
+    channel: str = typer.Option("C07", help="ABI emissive channel (C07 is the 3.9um fire band)"),
+    cadence_min: int = typer.Option(5, help="frame spacing; 5 is native CONUS cadence"),
+    workers: int = typer.Option(8, help="concurrent frame reads"),
+) -> None:
+    """Pull a time-ordered 3.9um BT cube [T,H,W] over a small region for the temporal detector.
+
+    Reads GOES ABI L2 CMIP from the public S3 archive, crops each 5-minute frame to the
+    bbox, and stacks them on the one stationary ABI grid into an .npz carrying its own UTC
+    timestamps and geometry. This is the real input for `t1-temporal-real`. Needs s3fs +
+    xarray + network. Keep the bbox small (a fire-prone box, not CONUS): the cube is dense.
+    See docs/12.
+    """
+    from datetime import datetime as _dt
+
+    from vhagar.archive.temporal_cube import TemporalCubeConfig, pull_bt_cube
+
+    def _parse(s: str) -> _dt:
+        for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%d"):
+            with contextlib.suppress(ValueError):
+                return _dt.strptime(s, fmt).replace(tzinfo=UTC)
+        console.print("[red]datetimes must be YYYY-MM-DDTHH:MM or YYYY-MM-DD[/red]")
+        raise typer.Exit(1)
+
+    t0, t1 = _parse(start), _parse(end)
+    parts = [p for p in bbox.split(",") if p.strip()]
+    if len(parts) != 4:
+        console.print("[red]bbox needs four numbers: west,south,east,north[/red]")
+        raise typer.Exit(1)
+    box = tuple(float(p) for p in parts)
+
+    cfg = TemporalCubeConfig(
+        out_path=out, start=t0, end=t1, bbox=box, satellite=satellite,
+        channel=channel, cadence_min=cadence_min, workers=workers,
+    )
+    console.print(f"[bold]Pulling {channel} cube[/bold] {t0:%Y-%m-%d %H:%M}..{t1:%H:%M} "
+                  f"over {box} from GOES-{satellite}.")
+    with console.status("reading frames from S3..."):
+        cube = pull_bt_cube(cfg)
+    valid = float(np.isfinite(cube.bt).mean())
+    console.print(
+        f"[green]cube {cube.shape}[/green] ({len(cube.times)} frames @ {cadence_min}min, "
+        f"{100 * valid:.0f}% valid pixels) saved to {out}."
+    )
+
+
+@app.command("t1-temporal-real")
+def t1_temporal_real_cmd(
+    cube_path: Path = typer.Argument(..., exists=True, help="BT cube .npz from t1-pull-cube"),
+    detections: Path = typer.Option(Path("data/detections/detections"), help="FDC parquet root"),
+    fars: str = typer.Option("0.05,0.01,0.002", help="false-alarm rates to compare at"),
+    clear_frac: float = typer.Option(0.6, help="leading fraction of frames used as clear-sky baseline"),
+    n_bins: int = typer.Option(24, help="diurnal bins for the baseline"),
+) -> None:
+    """Real lead time: residual-vs-diurnal-baseline early detection timed against GOES FDC.
+
+    Loads a pulled 3.9um cube, fits the NaN-safe per-pixel diurnal baseline on the leading
+    clear-sky fraction, and for every pixel FDC eventually flags, measures how many minutes
+    earlier the residual crossed a matched-FAR threshold than FDC's first detection. The
+    threshold is calibrated on fire-free pixels, so residual and FDC are compared at equal
+    false-alarm rate. This is the synthetic +70min demo, re-run on real data. See docs/12.
+    """
+    from vhagar.archive.temporal_cube import fdc_first_detection_grid, load_bt_cube
+    from vhagar.eval.t1_temporal import HourlyBaselineForecaster, real_lead_experiment
+
+    cube = load_bt_cube(cube_path)
+    T, H, W = cube.shape
+    hours = cube.hours_of_day()
+    bbox = (float(cube.lon.min()), float(cube.lat.min()),
+            float(cube.lon.max()), float(cube.lat.max()))
+    console.print(f"[bold]Cube[/bold] {cube.shape} ({cube.channel}), "
+                  f"{cube.times[0]:%Y-%m-%d %H:%M}..{cube.times[-1]:%H:%M} UTC.")
+
+    bt2d = cube.bt.reshape(T, H * W).T                       # [n_pixels, T]
+    clear = np.zeros(T, dtype=bool)
+    clear[: max(1, int(clear_frac * T))] = True
+    fc = HourlyBaselineForecaster.fit(hours, bt2d, n_bins=n_bins, clear_mask=clear)
+    resid = fc.residual(hours, bt2d)
+
+    first_idx = fdc_first_detection_grid(detections, bbox, cube.times, cube.lat, cube.lon)
+    n_fire = int((first_idx >= 0).sum())
+    console.print(f"FDC flags {n_fire} of {H * W} cube pixels in window.")
+    if n_fire == 0:
+        console.print("[yellow]No FDC detections landed in this cube; pick a box/window with "
+                      "a known fire to measure lead time.[/yellow]")
+        return
+
+    t = Table(title="T1 residual detector vs GOES FDC first detection (real cube, equal FAR)")
+    for col in ("target FAR", "fire pixels", "residual led", "median lead (min)", "IQR"):
+        t.add_column(col, justify="right")
+    for far in [float(x) for x in fars.split(",") if x.strip()]:
+        r = real_lead_experiment(resid, first_idx.ravel(), target_far=far)
+        t.add_row(
+            f"{far:.3f}", f"{r.n_fire_pixels}",
+            f"{r.frac_residual_led:.0%}",
+            f"[green]+{r.median_lead_min:.0f}[/green]" if r.median_lead_min > 0
+            else f"{r.median_lead_min:.0f}",
+            f"{r.p25_lead_min:.0f}..{r.p75_lead_min:.0f}",
+        )
+    console.print(t)
+    console.print(
+        "[dim]  Positive lead: the residual crossed its matched-FAR threshold before FDC's\n"
+        "  first detection on that pixel. Baseline is the NaN-safe per-pixel diurnal mean;\n"
+        "  swap in TemporalAnomalyNet residuals for the learned forecaster. docs/12.[/dim]"
     )
 
 

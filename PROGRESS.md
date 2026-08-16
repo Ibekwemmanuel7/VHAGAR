@@ -3,7 +3,33 @@
 Last updated: 2026-08-14. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: T1 temporal-anomaly grounded in real 3.9um climatology (2026-08-16)
+## Latest: T1 temporal-anomaly real-data pull + FDC lead-time eval (2026-08-16)
+
+Built the real input and the real comparison for the temporal detector, the heavy piece
+that was outstanding. archive/temporal_cube.py: pull_bt_cube reads GOES ABI L2 CMIP band 7
+(3.9um) from public S3, crops each 5-min frame to a small bbox, stacks onto the one
+stationary ABI fixed grid into a [T,H,W] cube carrying its own UTC timestamps+geometry.
+Grid alignment asserted (shape+corner nav; mismatched frames dropped, never misaligned);
+NaN stays NaN. CLI `t1-pull-cube`. Plus solar_zenith_cube covariate, load/save_bt_cube.
+
+Closed the loop against GOES FDC: `t1-temporal-real` fits HourlyBaselineForecaster (NaN-safe
+per-pixel per-hour mean, the on-the-fly DiurnalClimatology; real cubes' NaNs rule out the
+harmonic lstsq) on the leading clear-sky fraction, then real_lead_experiment times the
+residual's first threshold crossing vs FDC first-detection per pixel, threshold calibrated
+to matched FAR on the fire-free pixels. Positive lead = residual beat FDC at equal FAR. This
+is the synthetic +70min demo re-run on real observations. fdc_first_detection_grid maps FDC
+parquet detections to cube pixels (nearest, <=3km reject). Learned upgrade is drop-in: swap
+TemporalAnomalyNet residuals into real_lead_experiment; protocol unchanged.
+
+4 new offline tests (cube assemble/align drops mismatched grid; solar zenith ~small at local
+noon; hourly baseline NaN-safe+removes diurnal; real_lead_experiment residual leads a late
+FDC). End-to-end smoke test on a synthetic cube+fake FDC parquet: residual leads +50 min at
+FAR 0.01. Suite green, ruff clean. docs/12 "Running it on real GOES data (the pull)".
+
+Still the user's to run: the S3 pull itself (network + a bbox/window with a real fire) and,
+if wanted, the torch TemporalAnomalyNet training. All alignment/matched-FAR code is in place.
+
+## T1 temporal-anomaly grounded in real 3.9um climatology (2026-08-16)
 
 Grounded the temporal-anomaly differentiator in real data. The synthetic lead magnitude
 is tunable, but its CAUSE is a measurable quantity: the actual 3.9um night->day BT swing,

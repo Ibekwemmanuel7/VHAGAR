@@ -1,21 +1,37 @@
-T1 temporal-anomaly: ground the diurnal-baseline argument in real 3.9um climatology
+T1 temporal-anomaly: real 3.9um cube pull + matched-FAR lead-time eval vs GOES FDC
 
-The synthetic lead-time magnitude is tunable; its cause is not. Measure the real
-quantity that makes a diurnal-baseline detector beat an absolute threshold: how far
-the 3.9um brightness temperature actually swings night->day, which is what an absolute
-cut must clear and a residual detector recovers.
+The heavy piece left for the temporal differentiator was its real input and a real
+comparison. Both are now built and unit-tested offline; only the S3 pull (network) and
+optional torch training are the user's to run.
 
-- climatology_diurnal_amplitude(): from the on-disk per-pixel per-UTC-hour C07
-  climatology (DiurnalClimatology .npz), per-pixel amplitude = max-hour mean - min-hour
-  mean, NaN-safe over partially populated bins. Real result (GOES-18, N. California,
-  71,574 pixels): C07 diurnal amplitude 32.9 K median (p25 23.4, p90 45.5). An absolute
-  contextual threshold is thus ~33 K less sensitive to a cold-start night fire than the
-  residual detector.
-- CLI: vhagar t1-temporal --climatology data/climatology/climatology.npz prints the real
-  amplitude alongside the synthetic lead-time table.
-- Test: recovers a known injected 20 K diurnal swing from a synthetic climatology npz.
-- docs/12 "Grounded in the real 3.9 um climatology"; PROGRESS updated. Honest caveat:
-  per-hour sigma (~0.5 K) is thin (~4 samples/bin), so the amplitude (difference of
-  hourly means) is the trustworthy number, not amplitude-in-sigmas.
+archive/temporal_cube.py
+- pull_bt_cube: read GOES ABI L2 CMIP band 7 (3.9um) from public S3, crop each 5-min
+  frame to a small bbox, stack onto the one stationary ABI fixed grid into a [T,H,W] cube
+  that carries its own UTC timestamps + lat/lon/view-zenith. Grid alignment asserted
+  (shape + corner navigation); a mismatched frame is dropped, never misaligned. NaN
+  (cloud/fill/saturation) stays NaN so nodata never enters the baseline. Concurrent reads,
+  pure assemble_cube. save/load_bt_cube.
+- solar_zenith_cube: per-frame solar zenith covariate (3.9um carries daytime solar
+  reflectance) via physics.geometry.solar_position.
+- fdc_first_detection_grid: map FDC parquet detections in the cube's bbox/window to the
+  nearest cube pixel (<=3km reject), earliest frame index per pixel.
 
-Full suite green, ruff clean.
+eval/t1_temporal.py
+- HourlyBaselineForecaster: NaN-safe per-pixel per-hour-bin mean BT, the on-the-fly
+  counterpart of DiurnalClimatology. A real cube's NaNs rule out the harmonic lstsq of
+  DiurnalForecaster; this is the same diurnal-baseline idea that tolerates holes.
+- real_lead_experiment: residual threshold calibrated to matched FAR on the fire-free
+  pixels; per-fire-pixel lead = FDC first-detection index - first residual crossing.
+  Positive = the residual detector beat FDC at equal false-alarm rate. The synthetic
+  +70min demo, re-run on real observations.
+
+CLI: t1-pull-cube (run the pull), t1-temporal-real (fit baseline, time vs FDC).
+
+Tests (4 new, offline): assemble_cube drops a mismatched-grid frame and restores order;
+solar zenith ~small at local noon; hourly baseline is NaN-safe and removes the diurnal
+cycle; real_lead_experiment shows the residual leading a deliberately late FDC. End-to-end
+smoke on a synthetic cube + fake FDC parquet: residual leads +50 min at FAR 0.01.
+
+Learned upgrade is drop-in: swap TemporalAnomalyNet residuals into real_lead_experiment;
+the matched-FAR lead-time protocol is unchanged. docs/12 "Running it on real GOES data
+(the pull)"; PROGRESS updated. Full suite green, ruff clean.

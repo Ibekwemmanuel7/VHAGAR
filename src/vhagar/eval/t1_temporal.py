@@ -28,10 +28,14 @@ import numpy as np
 
 __all__ = [
     "DiurnalForecaster",
+    "HourlyBaselineForecaster",
+    "RealLeadResult",
     "synthetic_bt_series",
     "calibrate_threshold_to_far",
     "early_detection_experiment",
     "climatology_diurnal_amplitude",
+    "hourly_baseline_residual",
+    "real_lead_experiment",
     "train_temporal_net",
 ]
 
@@ -180,6 +184,125 @@ def early_detection_experiment(
         residual_detect_min_after_onset=float(r_min),
         absolute_detect_min_after_onset=float(a_min),
         target_far=target_far,
+    )
+
+
+@dataclass(slots=True)
+class HourlyBaselineForecaster:
+    """NaN-safe diurnal baseline for the *real* cube: per-pixel, per-hour-bin mean BT.
+
+    The harmonic :class:`DiurnalForecaster` needs a clean series; a real 3.9 um cube is
+    full of NaN (cloud, fill, saturation), which ``lstsq`` cannot take. This forecaster is
+    the same diurnal-baseline idea expressed as the on-the-fly counterpart of
+    :class:`~vhagar.archive.climatology.DiurnalClimatology`: bin frames by UTC hour and
+    take the per-pixel ``nanmean``. The residual ``BT - baseline[hour]`` is the anomaly
+    score, NaN wherever the pixel itself is NaN, so nodata never masquerades as an anomaly.
+    """
+
+    baseline: np.ndarray        # [n_pixels, n_bins] per-pixel per-hour-bin mean BT
+    n_bins: int
+
+    @classmethod
+    def fit(
+        cls, hours: np.ndarray, bt: np.ndarray, n_bins: int = 24,
+        clear_mask: np.ndarray | None = None,
+    ) -> HourlyBaselineForecaster:
+        """Fit on (clear-sky) history. ``bt`` is ``[n_pixels, n_t]``; ``hours`` is the
+        UTC hour-of-day per frame. ``clear_mask`` (``[n_t]``) selects the frames used as
+        the baseline (default: all)."""
+        n_pix = bt.shape[0]
+        base = np.full((n_pix, n_bins), np.nan, dtype=np.float64)
+        bins = np.floor((hours % 24) / (24.0 / n_bins)).astype(int) % n_bins
+        sel = np.ones(bt.shape[1], dtype=bool) if clear_mask is None else clear_mask
+        for b in range(n_bins):
+            cols = np.flatnonzero((bins == b) & sel)
+            if cols.size:
+                with np.errstate(invalid="ignore"):
+                    base[:, b] = np.nanmean(bt[:, cols], axis=1)
+        return cls(baseline=base, n_bins=n_bins)
+
+    def predict(self, hours: np.ndarray) -> np.ndarray:
+        bins = np.floor((hours % 24) / (24.0 / self.n_bins)).astype(int) % self.n_bins
+        return self.baseline[:, bins]           # [n_pixels, n_t]
+
+    def residual(self, hours: np.ndarray, bt: np.ndarray) -> np.ndarray:
+        return bt - self.predict(hours)
+
+
+def hourly_baseline_residual(
+    hours: np.ndarray, bt2d: np.ndarray, n_bins: int = 24,
+    clear_mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """Convenience: fit :class:`HourlyBaselineForecaster` and return the residual array."""
+    fc = HourlyBaselineForecaster.fit(hours, bt2d, n_bins=n_bins, clear_mask=clear_mask)
+    return fc.residual(hours, bt2d)
+
+
+@dataclass(frozen=True, slots=True)
+class RealLeadResult:
+    n_fire_pixels: int
+    n_residual_led: int
+    frac_residual_led: float
+    median_lead_min: float
+    p25_lead_min: float
+    p75_lead_min: float
+    target_far: float
+    residual_threshold_k: float
+
+
+def real_lead_experiment(
+    residual2d: np.ndarray, fdc_first_idx: np.ndarray, target_far: float = 0.01,
+    cadence_min: int = 5, min_valid_frac: float = 0.5,
+) -> RealLeadResult:
+    """On a real cube, how much earlier does the residual detector fire than GOES FDC?
+
+    ``residual2d`` is ``[n_pixels, n_t]`` (a flattened cube's residual); ``fdc_first_idx``
+    is the per-pixel first FDC-detection frame index (``-1`` where FDC never fired), from
+    :func:`vhagar.archive.temporal_cube.fdc_first_detection_grid`, flattened to
+    ``[n_pixels]``. The residual threshold is calibrated to ``target_far`` on the
+    **fire-free** pixels (those FDC never flagged and that are mostly valid), the matched
+    false-alarm rate that makes the comparison fair. For each fire pixel, the lead is
+    ``(fdc_first_idx - first residual exceedance) * cadence_min`` minutes; positive means
+    the residual detector was earlier. Pure numpy.
+    """
+    fire = fdc_first_idx >= 0
+    valid_frac = np.isfinite(residual2d).mean(axis=1)
+    free = (~fire) & (valid_frac >= min_valid_frac)
+    if not free.any():
+        raise ValueError("no fire-free, mostly-valid pixels to calibrate the threshold on")
+
+    free_scores = residual2d[free]
+    thr = float(np.nanpercentile(free_scores, 100.0 * (1.0 - target_far)))
+
+    leads: list[float] = []
+    n_led = 0
+    fire_idx = np.flatnonzero(fire)
+    for p in fire_idx:
+        row = residual2d[p]
+        exceed = np.flatnonzero(np.nan_to_num(row, nan=-np.inf) > thr)
+        if exceed.size == 0:
+            continue                       # residual never fired on this pixel
+        r_first = int(exceed[0])
+        lead = (int(fdc_first_idx[p]) - r_first) * cadence_min
+        leads.append(float(lead))
+        if lead > 0:
+            n_led += 1
+    if not leads:
+        return RealLeadResult(
+            n_fire_pixels=int(fire.sum()), n_residual_led=0, frac_residual_led=0.0,
+            median_lead_min=0.0, p25_lead_min=0.0, p75_lead_min=0.0,
+            target_far=target_far, residual_threshold_k=thr,
+        )
+    a = np.array(leads)
+    return RealLeadResult(
+        n_fire_pixels=len(leads),
+        n_residual_led=n_led,
+        frac_residual_led=float(n_led / len(leads)),
+        median_lead_min=float(np.median(a)),
+        p25_lead_min=float(np.percentile(a, 25)),
+        p75_lead_min=float(np.percentile(a, 75)),
+        target_far=target_far,
+        residual_threshold_k=thr,
     )
 
 

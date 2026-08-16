@@ -196,10 +196,43 @@ anywhere; the production forecaster is
 clear-sky history, no fire labels), wired by ``train_temporal_net`` for real data. Only
 the forecaster changes; the residual / matched-FAR / lead-time protocol is identical.
 
-To run it for real, pull GOES ABI CMIP band 7 (3.9 um) at 5-min cadence over a region and
-period as a ``[T, H, W]`` cube, train ``TemporalAnomalyNet`` on the clear-sky span, and
-feed its residuals to ``early_detection_experiment`` against the FDC first-detection
-times. Needs torch and the CMIP pull; that is the one heavy piece left for this component.
+### Running it on real GOES data (the pull)
+
+The pull that turns this from a demonstration into a measured number is now built, in
+``archive/temporal_cube.py``. It reads GOES ABI L2 CMIP band 7 (3.9 um) from the public S3
+archive, crops every 5-minute frame to a small bbox, and stacks them on the one stationary
+ABI fixed grid into a ``[T, H, W]`` cube that carries its own UTC timestamps and geometry.
+Because the fixed grid does not move, cropping the same bbox yields the identical pixel
+window every timestep; that is asserted (shape and corner navigation), and any frame that
+disagrees is dropped, never misaligned. NaN stays NaN, so cloud and fill never enter the
+baseline. Keep the bbox small (a fire-prone box, not CONUS): the cube is dense.
+
+The real lead-time comparison closes the loop against GOES FDC itself. ``t1-temporal-real``
+fits the NaN-safe per-pixel diurnal baseline (``HourlyBaselineForecaster``, the on-the-fly
+counterpart of ``DiurnalClimatology``, since a real cube's NaNs rule out the harmonic
+least-squares fit) on the leading clear-sky fraction, then for every pixel FDC eventually
+flags it measures how many minutes earlier the residual crossed a threshold **calibrated to
+the same false-alarm rate on the fire-free pixels**. Positive lead means the residual
+detector beat FDC's own first detection on that pixel, at equal FAR. This is the synthetic
++70 min demo, re-run on real observations rather than an injected ramp.
+
+```
+# 1. pull a 3.9um cube over a box and window that contains a known fire (needs s3fs+xarray)
+vhagar t1-pull-cube cube.npz --start 2026-08-01T00:00 --end 2026-08-02T00:00 \
+    --bbox -121.2,39.3,-120.6,39.9 --satellite 18
+# 2. time the residual detector against FDC first detection, at matched FAR
+vhagar t1-temporal-real cube.npz --detections data/detections/detections
+```
+
+The learned upgrade is a drop-in: train ``TemporalAnomalyNet`` on the same cube's clear-sky
+span (``train_temporal_net``, needs torch), take its per-frame residual, and feed it to
+``real_lead_experiment`` in place of the hourly-baseline residual. Only the forecaster
+changes; the matched-FAR lead-time protocol is identical. A ``solar_zenith_cube`` covariate
+(the 3.9 um channel carries daytime solar reflectance) is available for the learned path.
+
+What is still the user's to run: the S3 pull itself (network + a box with a real fire) and,
+if wanted, the torch training. The code, the alignment guarantees, and the matched-FAR
+comparison are in place and unit-tested offline.
 
 ## Open items
 
