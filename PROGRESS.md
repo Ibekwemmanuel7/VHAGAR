@@ -3,7 +3,31 @@
 Last updated: 2026-08-14. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: deep-model ladder RAN, inputs > architecture (2026-08-15)
+## Latest: T1 Stage-0 detection framework opened (2026-08-15)
+
+Opened the second pillar: T1 active-fire detection (GOES FDC vs VIIRS truth). Built
+src/vhagar/eval/t1_stage0.py + CLI `vhagar t1-stage0`, reusing the existing fusion
+infra (Detection, FireEvent, cluster_detections, geo_leo_tolerance_m) and eval/splits.
+
+- match_events: parallax-aware one-to-one GEO/LEO event matching -> TP/FP/FN.
+- DetectionScores: POD (recall), FAR (FP/(TP+FP)), precision, F1 (POD+FAR always together).
+- detection_latency_minutes: median GOES lead over the VIIRS overpass (the GEO backbone point).
+- load_fdc_events_by_tile / firms_to_detections: project to EPSG:5070, cluster to events.
+- CLI reports parallax-aware vs naive-2km FAR side by side (the 26-36% -> 7-15% geometry
+  finding: footprint quantisation + terrain parallax, not model error).
+- 6 pure unit tests; verified FDC->Detection->events on the real parquet (median match
+  tolerance 3.6 km at CONUS view zenith, 4x a flat 2 km). Full suite 350 passed, 5 skipped.
+
+Also closed the Csb loop: a robust per-stratum threshold (median of per-fire cuts) does
+NOT cleanly rescue Csb (+0.15) and HURTS Csa/Cfa, reconfirming the model (U-Net +0.54) is
+the answer, not a better cut.
+
+Open (docs/12): (1) VIIRS reference not pulled yet, run FirmsClient (needs FIRMS map key)
+for the FDC dates/bbox, pass --firms-csv, then POD/FAR/latency become real; (2) O(n^2)
+clusterer needs a ball-tree for a full month; (3) Stage-2 event classifier with the
+random->event-aware->spatial-block leakage story (0.985->0.767->0.627) is the next rung.
+
+## deep-model ladder RAN, inputs > architecture (2026-08-15)
 
 The full three-way comparison ran on the SAME 32 stack fires, same 5 folds (RBR U-Net
 re-run on _w15bgs so it shares exact fires/folds):

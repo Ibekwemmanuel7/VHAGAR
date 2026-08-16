@@ -966,6 +966,72 @@ def t2_continent_out_cmd(
     )
 
 
+@app.command("t1-stage0")
+def t1_stage0_cmd(
+    detections: Path = typer.Option(
+        Path("data/detections/detections"), help="FDC detections parquet root"
+    ),
+    firms_csv: Path = typer.Option(
+        None, help="FIRMS/VIIRS CSV (the reference truth); omit to see the GOES side only"
+    ),
+    region_crs: str = typer.Option("EPSG:5070", help="equal-area CRS for planar matching"),
+    max_gap_hours: float = typer.Option(12.0, help="temporal gap that separates events"),
+) -> None:
+    """T1 Stage-0: GOES FDC active-fire events vs VIIRS truth (POD, FAR, latency).
+
+    Clusters the GOES FDC detections into fire events (per tile), and, if a FIRMS
+    CSV of VIIRS detections is supplied, matches them with a parallax-aware GEO/LEO
+    tolerance and reports probability of detection, false-alarm rate, the naive-2km
+    vs parallax FAR difference (geometry, not model error), and detection latency.
+    Without a FIRMS CSV it summarises the GOES side only. See docs/12.
+    """
+    from vhagar.eval.t1_stage0 import (
+        events_from_detections,
+        firms_to_detections,
+        load_fdc_events_by_tile,
+        run_t1_stage0,
+    )
+    from vhagar.io.firms import parse_firms_csv
+
+    console.print(f"[bold]Clustering GOES FDC detections[/bold] under {detections}...")
+    goes = load_fdc_events_by_tile(detections, region_crs=region_crs, max_gap_hours=max_gap_hours)
+    console.print(f"  {len(goes):,} GOES fire events")
+    if firms_csv is None:
+        console.print(
+            "[yellow]No FIRMS truth given[/yellow]: pass --firms-csv <viirs.csv> to score "
+            "POD/FAR/latency. Pull it with the FIRMS area API (io.firms.FirmsClient) for the "
+            "same dates/bbox as the FDC window."
+        )
+        return
+
+    truth_recs = parse_firms_csv(firms_csv.read_text())
+    truth_dets = firms_to_detections(truth_recs, region_crs=region_crs)
+    truth = events_from_detections(truth_dets, max_gap_hours=max_gap_hours)
+    console.print(f"  {len(truth):,} VIIRS truth events from {len(truth_recs):,} FIRMS records")
+
+    r = run_t1_stage0(goes, truth)
+    aw, nv = r["parallax_aware"], r["naive_2km"]
+    t = Table(title="T1 Stage-0: GOES FDC vs VIIRS (event level)")
+    for col in ("matching", "POD", "FAR", "precision", "F1", "TP", "FP", "FN"):
+        t.add_column(col, justify="right")
+    for name, s in (("parallax-aware", aw), ("naive 2 km", nv)):
+        t.add_row(name, f"{s['pod']:.3f}", f"{s['far']:.3f}", f"{s['precision']:.3f}",
+                  f"{s['f1']:.3f}", str(s["tp"]), str(s["fp"]), str(s["fn"]))
+    console.print(t)
+    lat = r["latency"]
+    if lat.get("n"):
+        console.print(
+            f"  [bold]latency[/bold]: median lead {lat['median_lead_min']:+.0f} min "
+            f"(IQR {lat['p25_lead_min']:+.0f}..{lat['p75_lead_min']:+.0f}), "
+            f"GOES earlier on {100 * lat['frac_earlier']:.0f}% of matched events"
+        )
+    console.print(
+        f"  [bold]FAR from geometry[/bold]: naive 2 km {nv['far']:.2f} -> parallax-aware "
+        f"{aw['far']:.2f} (a {r['far_reduction']:+.2f} change that is footprint + terrain "
+        "parallax, not model error). See docs/12."
+    )
+
+
 @app.command("t2-unet")
 def t2_unet_cmd(
     cache_dir: Path = typer.Option(Path("data/t2_cache"), help="cached T2 samples"),
