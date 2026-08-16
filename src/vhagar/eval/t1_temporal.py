@@ -31,8 +31,38 @@ __all__ = [
     "synthetic_bt_series",
     "calibrate_threshold_to_far",
     "early_detection_experiment",
+    "climatology_diurnal_amplitude",
     "train_temporal_net",
 ]
+
+
+def climatology_diurnal_amplitude(npz_path, channel: str = "C07", min_bins: int = 8) -> dict:
+    """Real diurnal amplitude of a channel from a saved :class:`DiurnalClimatology`.
+
+    Loads the per-pixel, per-UTC-hour mean/variance ``.npz`` (``{ch}::mean``, ``m2``,
+    ``count``) and returns the per-pixel diurnal amplitude ``max_hour(mean) -
+    min_hour(mean)`` summary for the fire channel. This is the concrete sensitivity an
+    *absolute* contextual threshold sacrifices: it must sit roughly one amplitude above
+    the night baseline to avoid daytime false alarms, which a residual detector recovers.
+    Pure numpy. Returns median/p25/p90 amplitude (K), median per-hour sigma, and pixel
+    count.
+    """
+    z = np.load(npz_path)
+    mean = z[f"{channel}::mean"]
+    m2 = z[f"{channel}::m2"]
+    cnt = z[f"{channel}::count"]
+    valid = (cnt > 0).sum(axis=0) >= min_bins
+    mu = np.where(cnt > 0, mean, np.nan)[:, valid]
+    amp = np.nanmax(mu, axis=0) - np.nanmin(mu, axis=0)
+    var = np.where(cnt > 1, m2 / np.maximum(cnt - 1, 1), np.nan)[:, valid]
+    return {
+        "channel": channel,
+        "n_pixels": int(valid.sum()),
+        "amplitude_k_median": float(np.nanmedian(amp)),
+        "amplitude_k_p25": float(np.nanpercentile(amp, 25)),
+        "amplitude_k_p90": float(np.nanpercentile(amp, 90)),
+        "sigma_k_median": float(np.nanmedian(np.sqrt(var))),
+    }
 
 
 def synthetic_bt_series(

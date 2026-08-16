@@ -3,7 +3,21 @@
 Last updated: 2026-08-14. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: T1 temporal-anomaly early detection built + demonstrated (2026-08-16)
+## Latest: T1 temporal-anomaly grounded in real 3.9um climatology (2026-08-16)
+
+Grounded the temporal-anomaly differentiator in real data. The synthetic lead magnitude
+is tunable, but its CAUSE is a measurable quantity: the actual 3.9um night->day BT swing,
+which is exactly what an absolute threshold must clear and a diurnal-baseline detector
+recovers. Measured on the on-disk per-pixel per-UTC-hour C07 climatology (DiurnalClimato-
+logy, GOES-18, N. California, 71,574 pixels): real C07 diurnal amplitude = 32.9 K median
+(p25 23.4, p90 45.5). So an absolute contextual threshold is ~33 K less sensitive to a
+cold-start night fire than the residual detector. `climatology_diurnal_amplitude` +
+`vhagar t1-temporal --climatology data/climatology/climatology.npz` print it; +1 test.
+Honest caveat: per-hour sigma (~0.5 K) is thin (~4 samples/bin in this backfill), so trust
+the amplitude (a difference of hourly means), not amplitude-in-sigmas. Suite green, ruff
+clean. docs/12 "Grounded in the real 3.9 um climatology".
+
+## T1 temporal-anomaly early detection built + demonstrated (2026-08-16)
 
 Built the T1 differentiator (Stage-1): temporal-anomaly early detection. src/vhagar/eval/
 t1_temporal.py + CLI `vhagar t1-temporal`. Forecast expected per-pixel BT from a diurnal

@@ -8,6 +8,7 @@ import pytest
 from vhagar.eval.t1_temporal import (
     DiurnalForecaster,
     calibrate_threshold_to_far,
+    climatology_diurnal_amplitude,
     early_detection_experiment,
     synthetic_bt_series,
 )
@@ -44,6 +45,22 @@ def test_residual_detector_leads_the_absolute_threshold_at_equal_far():
     # residual anomaly catches the night fire well before the absolute cut
     assert r.residual_detect_min_after_onset < r.absolute_detect_min_after_onset
     assert r.lead_minutes > 20.0
+
+
+def test_climatology_amplitude_recovers_injected_diurnal(tmp_path):
+    # build a tiny per-pixel per-UTC-hour climatology with a known 20 K diurnal swing
+    hours = np.arange(24)
+    amp = 20.0
+    mean = 285.0 + (amp / 2.0) * np.cos(2 * np.pi * (hours - 14) / 24.0)  # [24]
+    mean = np.repeat(mean[:, None, None], 4, axis=1).repeat(5, axis=2)     # [24,4,5]
+    cnt = np.full_like(mean, 4.0)
+    m2 = np.full_like(mean, 3.0)   # var ~ 1 K^2 -> sigma ~ 1 K with count 4
+    p = tmp_path / "clim.npz"
+    np.savez(p, **{"C07::mean": mean, "C07::m2": m2, "C07::count": cnt})
+    out = climatology_diurnal_amplitude(p, channel="C07", min_bins=8)
+    assert out["n_pixels"] == 20
+    assert abs(out["amplitude_k_median"] - amp) < 0.5
+    assert out["sigma_k_median"] > 0
 
 
 def test_temporal_net_forecasts_next_bt_frame():

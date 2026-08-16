@@ -1,0 +1,21 @@
+T1 temporal-anomaly: ground the diurnal-baseline argument in real 3.9um climatology
+
+The synthetic lead-time magnitude is tunable; its cause is not. Measure the real
+quantity that makes a diurnal-baseline detector beat an absolute threshold: how far
+the 3.9um brightness temperature actually swings night->day, which is what an absolute
+cut must clear and a residual detector recovers.
+
+- climatology_diurnal_amplitude(): from the on-disk per-pixel per-UTC-hour C07
+  climatology (DiurnalClimatology .npz), per-pixel amplitude = max-hour mean - min-hour
+  mean, NaN-safe over partially populated bins. Real result (GOES-18, N. California,
+  71,574 pixels): C07 diurnal amplitude 32.9 K median (p25 23.4, p90 45.5). An absolute
+  contextual threshold is thus ~33 K less sensitive to a cold-start night fire than the
+  residual detector.
+- CLI: vhagar t1-temporal --climatology data/climatology/climatology.npz prints the real
+  amplitude alongside the synthetic lead-time table.
+- Test: recovers a known injected 20 K diurnal swing from a synthetic climatology npz.
+- docs/12 "Grounded in the real 3.9 um climatology"; PROGRESS updated. Honest caveat:
+  per-hour sigma (~0.5 K) is thin (~4 samples/bin), so the amplitude (difference of
+  hourly means) is the trustworthy number, not amplitude-in-sigmas.
+
+Full suite green, ruff clean.

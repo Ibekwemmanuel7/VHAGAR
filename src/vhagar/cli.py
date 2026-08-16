@@ -972,6 +972,9 @@ def t1_temporal_cmd(
     fire_ramp_k_per_h: float = typer.Option(20.0, help="fire brightness-rise rate (K/h)"),
     fars: str = typer.Option("0.05,0.01,0.002", help="false-alarm rates to compare at"),
     seed: int = typer.Option(1),
+    climatology: Path = typer.Option(
+        None, help="optional real DiurnalClimatology .npz: report real 3.9um amplitude"
+    ),
 ) -> None:
     """T1 differentiator: temporal-anomaly early detection vs an absolute-BT threshold.
 
@@ -984,9 +987,24 @@ def t1_temporal_cmd(
     """
     from vhagar.eval.t1_temporal import (
         DiurnalForecaster,
+        climatology_diurnal_amplitude,
         early_detection_experiment,
         synthetic_bt_series,
     )
+
+    if climatology is not None:
+        a = climatology_diurnal_amplitude(climatology, channel="C07")
+        console.print(
+            f"[bold]Real 3.9um (C07) diurnal amplitude[/bold] over {a['n_pixels']:,} "
+            f"GOES pixels:\n"
+            f"  median [green]{a['amplitude_k_median']:.1f} K[/green] "
+            f"(p25 {a['amplitude_k_p25']:.1f}, p90 {a['amplitude_k_p90']:.1f}); "
+            f"per-hour sigma ~{a['sigma_k_median']:.2f} K.\n"
+            f"[dim]  That amplitude is the night sensitivity an absolute contextual\n"
+            f"  threshold sacrifices (it must sit ~one amplitude above the night baseline\n"
+            f"  to avoid daytime false alarms); the residual detector recovers it. Real\n"
+            f"  climatology grounding the synthetic lead-time demo below. docs/12.[/dim]"
+        )
 
     hours, bt, fp, onset = synthetic_bt_series(
         n_days=n_days, fire_ramp_k_per_h=fire_ramp_k_per_h, seed=seed,

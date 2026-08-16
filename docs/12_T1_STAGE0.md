@@ -165,8 +165,33 @@ min) and its mechanism. The magnitude here is synthetic and tunable (it scales w
 fire ramp rate and diurnal amplitude); the *direction and cause*, diurnal-baseline
 removal buys lead time, are the finding.
 
+### Grounded in the real 3.9 um climatology
+
+The synthetic magnitude is tunable, but the *reason* it works is a real, measurable
+quantity: how far the 3.9 um brightness temperature actually swings between night and
+day. That gap is what an absolute threshold has to clear, so it is the sensitivity a
+diurnal-baseline detector recovers. Measured on the on-disk per-pixel, per-UTC-hour C07
+(3.9 um) climatology (``DiurnalClimatology``, GOES-18, N. California, 71,574 pixels):
+
+| C07 diurnal amplitude (max-hour mean - min-hour mean) | value |
+|---|---|
+| median | **32.9 K** |
+| p25 / p90 | 23.4 / 45.5 K |
+
+So the real 3.9 um diurnal amplitude is about **33 K** (median), rising to ~46 K at the
+90th percentile. An absolute contextual threshold must sit roughly that far above each
+pixel's night baseline to avoid firing on the midday peak, meaning it is ~33 K less
+sensitive to a cold-start night fire than a residual detector that removes the diurnal
+cycle first. That is the mechanism of the synthetic lead-time table above, expressed as a
+real number rather than a chosen ``diurnal_amp``. ``vhagar t1-temporal --climatology
+data/climatology/climatology.npz`` prints it (``climatology_diurnal_amplitude``). Honest
+caveat: the per-hour sigma the climatology reports (~0.5 K) is thin, each UTC-hour bin
+holds only ~4 samples in this backfill window, so the amplitude (a difference of hourly
+means, robust to sample count) is the number to trust, not the amplitude-in-sigmas.
+
 What is built: the numpy pieces (``DiurnalForecaster``, matched-FAR calibration, the
-lead-time experiment) run and are unit-tested anywhere; the production forecaster is
+lead-time experiment, ``climatology_diurnal_amplitude``) run and are unit-tested
+anywhere; the production forecaster is
 ``models.TemporalAnomalyNet`` (a 3D-conv TCN forecasting the next BT frame, trained on
 clear-sky history, no fire labels), wired by ``train_temporal_net`` for real data. Only
 the forecaster changes; the residual / matched-FAR / lead-time protocol is identical.
