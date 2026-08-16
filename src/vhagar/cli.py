@@ -966,6 +966,53 @@ def t2_continent_out_cmd(
     )
 
 
+@app.command("t1-temporal")
+def t1_temporal_cmd(
+    n_days: int = typer.Option(4, help="length of the synthetic BT record"),
+    fire_ramp_k_per_h: float = typer.Option(20.0, help="fire brightness-rise rate (K/h)"),
+    fars: str = typer.Option("0.05,0.01,0.002", help="false-alarm rates to compare at"),
+    seed: int = typer.Option(1),
+) -> None:
+    """T1 differentiator: temporal-anomaly early detection vs an absolute-BT threshold.
+
+    Demonstrates, on a synthetic 3.9 um series with a night fire injected, that flagging
+    residual excursions against a per-pixel diurnal forecast detects the fire earlier
+    than an absolute contextual threshold, at the same false-alarm rate. This is the
+    numpy demonstration of the mechanism; the production forecaster is
+    ``TemporalAnomalyNet`` trained on real clear-sky 3.9 um cubes (train_temporal_net,
+    needs torch + a CMIP band-7 pull). See docs/12.
+    """
+    from vhagar.eval.t1_temporal import (
+        DiurnalForecaster,
+        early_detection_experiment,
+        synthetic_bt_series,
+    )
+
+    hours, bt, fp, onset = synthetic_bt_series(
+        n_days=n_days, fire_ramp_k_per_h=fire_ramp_k_per_h, seed=seed,
+    )
+    fc = DiurnalForecaster.fit(hours[:onset], bt[:, :onset], n_harmonics=3)   # clear-sky
+    console.print(
+        f"[bold]Synthetic 3.9um series[/bold]: {bt.shape[1]} steps @5min, "
+        f"night fire injected at hour {hours[onset] % 24:.0f}."
+    )
+    t = Table(title="T1 temporal anomaly vs absolute-BT threshold (equal FAR)")
+    for col in ("target FAR", "residual (min after onset)", "absolute (min)", "lead (min)"):
+        t.add_column(col, justify="right")
+    for far in [float(x) for x in fars.split(",") if x.strip()]:
+        r = early_detection_experiment(hours, bt, fp, onset, fc, target_far=far)
+        t.add_row(f"{far:.3f}", f"{r.residual_detect_min_after_onset:.0f}",
+                  f"{r.absolute_detect_min_after_onset:.0f}",
+                  f"[green]+{r.lead_minutes:.0f}[/green]" if r.lead_minutes > 0
+                  else f"{r.lead_minutes:.0f}")
+    console.print(t)
+    console.print(
+        "[dim]  Residual-against-diurnal-baseline catches the fire as soon as it lifts BT\n"
+        "  above the pixel's own night baseline; the absolute cut must wait for the global\n"
+        "  threshold. Same mechanism on real 3.9um cubes with TemporalAnomalyNet. docs/12.[/dim]"
+    )
+
+
 @app.command("t1-classify")
 def t1_classify_cmd(
     detections: Path = typer.Option(Path("data/detections/detections"), help="FDC parquet root"),

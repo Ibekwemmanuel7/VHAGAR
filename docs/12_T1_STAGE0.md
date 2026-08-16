@@ -137,6 +137,45 @@ synthetic unit test (``test_latlon_leakage_helps_on_random_and_collapses_out_of_
 confirms the framework registers a large leak when one is present, so the modest real
 number is the data's, not the tool's.
 
+## Stage-1 differentiator: temporal-anomaly early detection (`t1-temporal`)
+
+The contextual algorithms (GOES FDC, SLSTR FRP) flag a fire when its brightness
+temperature crosses an *absolute* threshold. That threshold has to sit above the midday
+diurnal peak to avoid false alarms, so a fire, especially a night fire starting cold, is
+caught late. The architecture's one learned Stage-1 component forecasts the *expected*
+per-pixel BT from recent history plus solar geometry and flags **residual** excursions;
+because the residual is measured against each pixel's own diurnal baseline, a fire stands
+out as soon as it lifts BT above that baseline, not when it crosses a global cut.
+
+``t1-temporal`` makes the mechanism concrete on a synthetic 3.9 um series with a night
+fire injected, comparing the residual detector to an absolute-BT threshold **calibrated
+to the same false-alarm rate** (the only fair comparison):
+
+| target FAR | residual detects (min after onset) | absolute detects | lead |
+|---|---|---|---|
+| 0.05 | 0 | 75 | **+75 min** |
+| 0.01 | 5 | 75 | **+70 min** |
+| 0.002 | 15 | 85 | **+70 min** |
+
+The residual detector flags the night fire within 0-15 minutes of onset while the
+absolute cut waits ~75-85 minutes for it to cross the contextual threshold, a **~70
+minute lead at equal FAR**. That reproduces the published evidence (porting a rapid-scan
+temporal algorithm to 5-min geostationary data roughly doubled mean lead time, 35 -> 65
+min) and its mechanism. The magnitude here is synthetic and tunable (it scales with the
+fire ramp rate and diurnal amplitude); the *direction and cause*, diurnal-baseline
+removal buys lead time, are the finding.
+
+What is built: the numpy pieces (``DiurnalForecaster``, matched-FAR calibration, the
+lead-time experiment) run and are unit-tested anywhere; the production forecaster is
+``models.TemporalAnomalyNet`` (a 3D-conv TCN forecasting the next BT frame, trained on
+clear-sky history, no fire labels), wired by ``train_temporal_net`` for real data. Only
+the forecaster changes; the residual / matched-FAR / lead-time protocol is identical.
+
+To run it for real, pull GOES ABI CMIP band 7 (3.9 um) at 5-min cadence over a region and
+period as a ``[T, H, W]`` cube, train ``TemporalAnomalyNet`` on the clear-sky span, and
+feed its residuals to ``early_detection_experiment`` against the FDC first-detection
+times. Needs torch and the CMIP pull; that is the one heavy piece left for this component.
+
 ## Open items
 
 - **Reference pull** is now one command (``firms-fetch`` above); it just needs the free

@@ -3,7 +3,31 @@
 Last updated: 2026-08-14. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: T1 Stage-0 completed with precision/FAR (2026-08-16)
+## Latest: T1 temporal-anomaly early detection built + demonstrated (2026-08-16)
+
+Built the T1 differentiator (Stage-1): temporal-anomaly early detection. src/vhagar/eval/
+t1_temporal.py + CLI `vhagar t1-temporal`. Forecast expected per-pixel BT from a diurnal
+harmonic (clear-sky history), flag RESIDUAL excursions; compare to an absolute-BT
+threshold calibrated to the SAME false-alarm rate. Synthetic night-fire demonstration:
+
+  target FAR   residual(min after onset)   absolute(min)   lead
+  0.05                 0                        75          +75
+  0.01                 5                        75          +70
+  0.002               15                        85          +70
+
+~70 min lead at equal FAR: residual-vs-diurnal-baseline catches the night fire as it
+lifts above its own baseline; the absolute cut must wait for the global threshold. Repro-
+duces the published "doubled lead time 35->65 min" mechanism (magnitude is synthetic/
+tunable; direction+cause is the finding). Numpy core (DiurnalForecaster, matched-FAR,
+lead-time) runs+tested anywhere; production forecaster is TemporalAnomalyNet (3D-conv TCN,
+forecast-then-residual, no fire labels), wired via train_temporal_net (torch). 5 tests.
+Full suite green, ruff clean. docs/12 "Stage-1 differentiator".
+
+Remaining heavy piece for this component (your machine): pull GOES ABI CMIP band 7 (3.9um)
+5-min cubes, train TemporalAnomalyNet on clear-sky, feed residuals to the lead-time eval
+vs FDC first-detection times.
+
+## T1 Stage-0 completed with precision/FAR (2026-08-16)
 
 Finished the T1 detection metric: added precision_far_scores() (conditioned on VIIRS
 overpass coincidence, so a fire between overpasses is not miscounted as a false alarm)
