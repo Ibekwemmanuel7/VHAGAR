@@ -3,7 +3,28 @@
 Last updated: 2026-08-14. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: T1 Stage-0 detection framework opened (2026-08-15)
+## Latest: T1 Stage-0 RAN, first real detection number (2026-08-16)
+
+First real T1 result on GOES-18 CONUS 2026-08-01..07 vs VIIRS (NOAA-20 + S-NPP, pulled
+via firms-fetch, 107k detections). Detection-level coincidence (space cell + /-30 min,
+GOES-domain restricted), 104,772 VIIRS in domain:
+  naive 2km:      POD 0.376 (median gap 2 min)
+  parallax 4km:   POD 0.499 (median gap 2 min)
+GOES FDC detects ~half of VIIRS fire pixels near-simultaneously (credible: GOES 2km
+misses small fires VIIRS 375m catches). The +0.12 POD from 2->4km cell is GEO/LEO
+geometry (footprint quantisation + terrain parallax), not model quality, the T1 twin of
+the T2 naive-baseline lesson.
+
+IMPORTANT metric fix: the first cut (event-centroid matching, huge VIIRS bbox) reported
+POD 0.047, an artefact. Caught by the same "suspicious number -> diagnose" instinct as
+the T2 reference bug. Fixes: detection-level coincidence in space+time (not event
+centroids), restrict VIIRS to GOES sector, correct POSIX time handling. New
+coincidence_scores() is the metric; CLI reports naive-2km vs parallax-4km POD.
+Precision/FAR deferred (need VIIRS swath geometry to be interpretable). 9 T1 tests, full
+suite 353 passed, 5 skipped, ruff clean. docs/12 rewritten with the real result + the
+broken-metric post-mortem.
+
+## T1 Stage-0 detection framework opened (2026-08-15)
 
 Opened the second pillar: T1 active-fire detection (GOES FDC vs VIIRS truth). Built
 src/vhagar/eval/t1_stage0.py + CLI `vhagar t1-stage0`, reusing the existing fusion
@@ -22,10 +43,16 @@ Also closed the Csb loop: a robust per-stratum threshold (median of per-fire cut
 NOT cleanly rescue Csb (+0.15) and HURTS Csa/Cfa, reconfirming the model (U-Net +0.54) is
 the answer, not a better cut.
 
-Open (docs/12): (1) VIIRS reference not pulled yet, run FirmsClient (needs FIRMS map key)
-for the FDC dates/bbox, pass --firms-csv, then POD/FAR/latency become real; (2) O(n^2)
-clusterer needs a ball-tree for a full month; (3) Stage-2 event classifier with the
-random->event-aware->spatial-block leakage story (0.985->0.767->0.627) is the next rung.
+Added `firms-fetch`: reads the FDC window (2026-08-01..08-07, CONUS+HI) from the parquet
+and pulls the matching VIIRS truth to a CSV in one command (FirmsClient.area_csv, <=10d
+chunks). fdc_window helper + test. So the runbook is now 3 commands (docs/12):
+  set FIRMS_MAP_KEY -> vhagar firms-fetch -> vhagar t1-stage0 --firms-csv viirs_truth.csv
+Full suite 351 passed, 5 skipped, ruff clean.
+
+Recommended next: RUN the firms-fetch + t1-stage0 (needs free FIRMS map key) for the
+first real POD/FAR/latency and the naive-vs-parallax FAR number. Then ball-tree for full
+month, then the Stage-2 event classifier with the random->event-aware->spatial-block
+leakage story (0.985->0.767->0.627).
 
 ## deep-model ladder RAN, inputs > architecture (2026-08-15)
 

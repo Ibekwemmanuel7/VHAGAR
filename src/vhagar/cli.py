@@ -966,6 +966,75 @@ def t2_continent_out_cmd(
     )
 
 
+@app.command("firms-fetch")
+def firms_fetch_cmd(
+    detections: Path = typer.Option(
+        Path("data/detections/detections"), help="FDC parquet root (defines the window)"
+    ),
+    out: Path = typer.Option(Path("viirs_truth.csv"), help="write the combined FIRMS CSV here"),
+    sources: str = typer.Option(
+        "viirs_noaa20_nrt,viirs_snpp_nrt", help="comma-separated FIRMS sources"
+    ),
+    map_key: str = typer.Option(None, help="FIRMS map key (or set FIRMS_MAP_KEY)"),
+    pad_deg: float = typer.Option(0.25, help="bbox padding in degrees"),
+) -> None:
+    """Pull the VIIRS reference truth for the GOES FDC window (the T1 Stage-0 truth).
+
+    Reads the dates and bbox spanned by the FDC parquet and fetches the matching VIIRS
+    active-fire detections from the FIRMS area API, in <=10-day chunks, concatenated to
+    one CSV that ``t1-stage0 --firms-csv`` consumes. Needs the network and a free FIRMS
+    map key (https://firms.modaps.eosdis.nasa.gov/api/map_key/). See docs/12.
+    """
+    from datetime import date, timedelta
+
+    from vhagar.eval.t1_stage0 import fdc_window
+    from vhagar.io.firms import FirmsClient
+
+    win = fdc_window(detections, pad_deg=pad_deg)
+    console.print(
+        f"[bold]FDC window[/bold]: {win['start_date']} to {win['end_date']} "
+        f"({win['n_days']} d), bbox {tuple(round(b, 2) for b in win['bbox'])}"
+    )
+    client = FirmsClient(map_key=map_key)
+    start = date.fromisoformat(win["start_date"])
+    end = date.fromisoformat(win["end_date"])
+    header, rows = None, []
+    for src in [s.strip() for s in sources.split(",") if s.strip()]:
+        cur = start
+        while cur <= end:
+            # FIRMS area API caps the day range at 5 per request.
+            span = min(5, (end - cur).days + 1)
+            console.print(f"  {src} {cur.isoformat()} +{span}d...", end=" ")
+            try:
+                text = client.area_csv(src, win["bbox"], day_range=span, start=cur)
+            except Exception as exc:  # noqa: BLE001
+                import contextlib
+                import urllib.error
+
+                detail = str(exc)
+                if isinstance(exc, urllib.error.HTTPError):
+                    body = ""
+                    with contextlib.suppress(Exception):
+                        body = exc.read().decode("utf-8", "replace")[:200].replace("\n", " ")
+                    detail = f"HTTP {exc.code} {exc.reason}: {body}"
+                console.print(f"[yellow]skip[/yellow] {detail}")
+                cur += timedelta(days=span)
+                continue
+            lines = [ln for ln in text.splitlines() if ln.strip()]
+            if lines:
+                if header is None:
+                    header = lines[0]
+                rows.extend(lines[1:] if lines[0] == header else lines)
+            console.print(f"[green]{max(0, len(lines) - 1)} rows[/green]")
+            cur += timedelta(days=span)
+    if header is None:
+        console.print("[red]no FIRMS rows returned[/red]")
+        raise typer.Exit(1)
+    out.write_text("\n".join([header, *rows]) + "\n")
+    console.print(f"[green]wrote {out}[/green] ({len(rows):,} VIIRS detections). "
+                  "Now: vhagar t1-stage0 --firms-csv " + str(out))
+
+
 @app.command("t1-stage0")
 def t1_stage0_cmd(
     detections: Path = typer.Option(
@@ -986,49 +1055,47 @@ def t1_stage0_cmd(
     Without a FIRMS CSV it summarises the GOES side only. See docs/12.
     """
     from vhagar.eval.t1_stage0 import (
-        events_from_detections,
+        coincidence_scores,
         firms_to_detections,
-        load_fdc_events_by_tile,
-        run_t1_stage0,
+        load_fdc_detections,
     )
     from vhagar.io.firms import parse_firms_csv
 
-    console.print(f"[bold]Clustering GOES FDC detections[/bold] under {detections}...")
-    goes = load_fdc_events_by_tile(detections, region_crs=region_crs, max_gap_hours=max_gap_hours)
-    console.print(f"  {len(goes):,} GOES fire events")
+    console.print(f"[bold]Loading GOES FDC detections[/bold] under {detections}...")
+    goes = load_fdc_detections(detections, region_crs=region_crs)
+    console.print(f"  {len(goes):,} GOES detections")
     if firms_csv is None:
         console.print(
-            "[yellow]No FIRMS truth given[/yellow]: pass --firms-csv <viirs.csv> to score "
-            "POD/FAR/latency. Pull it with the FIRMS area API (io.firms.FirmsClient) for the "
-            "same dates/bbox as the FDC window."
+            "[yellow]No FIRMS truth given[/yellow]: pass --firms-csv <viirs.csv> to score POD. "
+            "Pull it with `vhagar firms-fetch` (FIRMS area API, free map key)."
         )
         return
 
     truth_recs = parse_firms_csv(firms_csv.read_text())
-    truth_dets = firms_to_detections(truth_recs, region_crs=region_crs)
-    truth = events_from_detections(truth_dets, max_gap_hours=max_gap_hours)
-    console.print(f"  {len(truth):,} VIIRS truth events from {len(truth_recs):,} FIRMS records")
+    viirs = firms_to_detections(truth_recs, region_crs=region_crs)
+    console.print(f"  {len(viirs):,} VIIRS detections from {len(truth_recs):,} FIRMS records")
 
-    r = run_t1_stage0(goes, truth)
-    aw, nv = r["parallax_aware"], r["naive_2km"]
-    t = Table(title="T1 Stage-0: GOES FDC vs VIIRS (event level)")
-    for col in ("matching", "POD", "FAR", "precision", "F1", "TP", "FP", "FN"):
+    # Detection-level coincidence (space cell + time window, restricted to the GOES
+    # domain). Naive 2 km vs parallax-scale 4 km isolates the GEO/LEO geometry effect.
+    naive = coincidence_scores(goes, viirs, cell_m=2_000.0, window_min=30.0)
+    par = coincidence_scores(goes, viirs, cell_m=4_000.0, window_min=30.0)
+    t = Table(title="T1 Stage-0: GOES FDC vs VIIRS POD (detection coincidence, +/-30 min)")
+    for col in ("matching", "cell", "POD", "TP", "VIIRS in domain", "median gap (min)"):
         t.add_column(col, justify="right")
-    for name, s in (("parallax-aware", aw), ("naive 2 km", nv)):
-        t.add_row(name, f"{s['pod']:.3f}", f"{s['far']:.3f}", f"{s['precision']:.3f}",
-                  f"{s['f1']:.3f}", str(s["tp"]), str(s["fp"]), str(s["fn"]))
+    for name, s in (("naive", naive), ("parallax-aware", par)):
+        t.add_row(name, f"{s['cell_m'] / 1000:.0f} km", f"{s['pod']:.3f}", str(s["tp"]),
+                  str(s["n_viirs"]), f"{s['median_gap_min']:.0f}")
     console.print(t)
-    lat = r["latency"]
-    if lat.get("n"):
-        console.print(
-            f"  [bold]latency[/bold]: median lead {lat['median_lead_min']:+.0f} min "
-            f"(IQR {lat['p25_lead_min']:+.0f}..{lat['p75_lead_min']:+.0f}), "
-            f"GOES earlier on {100 * lat['frac_earlier']:.0f}% of matched events"
-        )
     console.print(
-        f"  [bold]FAR from geometry[/bold]: naive 2 km {nv['far']:.2f} -> parallax-aware "
-        f"{aw['far']:.2f} (a {r['far_reduction']:+.2f} change that is footprint + terrain "
-        "parallax, not model error). See docs/12."
+        f"  [bold]geometry gain[/bold]: POD {naive['pod']:.3f} (2 km) -> {par['pod']:.3f} "
+        f"(4 km), +{par['pod'] - naive['pod']:.3f} recovered by matching at the GEO/LEO "
+        "footprint+parallax scale, not model quality. GOES sees the fire a median "
+        f"{par['median_gap_min']:.0f} min from the VIIRS overpass."
+    )
+    console.print(
+        "[dim]  POD is the clean metric here. Precision/FAR need the VIIRS swath geometry to\n"
+        "  be interpretable (a GOES detection with no VIIRS nearby may be a real fire between\n"
+        "  overpasses, not a false alarm), so they are deferred to Stage-2. See docs/12.[/dim]"
     )
 
 

@@ -94,13 +94,29 @@ class FirmsClient:
     ) -> str:
         src = FIRMS_SOURCES.get(source, source)
         if not 1 <= day_range <= 10:
-            raise ValueError("day_range must be 1..10 (FIRMS area API limit)")
+            raise ValueError("day_range must be 1..10")
         west, south, east, north = bbox
         area = f"{west},{south},{east},{north}"
         url = f"{BASE_URL}/{self.map_key}/{src}/{area}/{day_range}"
         if start is not None:
             url += f"/{start.isoformat()}"
         return url
+
+    def area_csv(
+        self,
+        source: str,
+        bbox: tuple[float, float, float, float],
+        day_range: int = 1,
+        start: date | None = None,
+    ) -> str:
+        """Raw FIRMS CSV text for a bbox/day-range. Kept separate from :meth:`area`
+        so a caller can persist exactly what FIRMS returned and re-parse it later
+        with :func:`parse_firms_csv`, no lossy round-trip through the dataclass."""
+        import urllib.request
+
+        url = self._url(source, bbox, day_range, start)
+        with urllib.request.urlopen(url, timeout=self.timeout) as resp:  # noqa: S310
+            return resp.read().decode("utf-8")
 
     def area(
         self,
@@ -110,12 +126,7 @@ class FirmsClient:
         start: date | None = None,
     ) -> list[FirmsRecord]:
         """Fetch detections within a bounding box (west, south, east, north)."""
-        import urllib.request
-
-        url = self._url(source, bbox, day_range, start)
-        with urllib.request.urlopen(url, timeout=self.timeout) as resp:  # noqa: S310
-            text = resp.read().decode("utf-8")
-        return parse_firms_csv(text)
+        return parse_firms_csv(self.area_csv(source, bbox, day_range, start))
 
 
 def parse_firms_csv(text: str) -> list[FirmsRecord]:

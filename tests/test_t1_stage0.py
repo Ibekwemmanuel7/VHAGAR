@@ -67,6 +67,55 @@ def test_latency_reports_positive_lead_when_goes_is_earlier():
     assert lat["frac_earlier"] == 1.0
 
 
+def _det(x, y, when=T0, sensor="goes"):
+    return Detection(sensor=sensor, x=x, y=y, when=when)
+
+
+def test_coincidence_pod_needs_space_and_time_and_shows_the_parallax_gain():
+    from datetime import timedelta
+
+    from vhagar.eval.t1_stage0 import coincidence_scores
+
+    viirs = [_det(0, 0, T0, sensor="viirs")]
+    # GOES 5 km away, 2 min later: a 2 km cell (+/-1 neighbour) can't reach it, a 4 km
+    # cell can. This is the footprint+parallax offset the architecture warns about.
+    goes = [_det(5_000, 0, T0 + timedelta(minutes=2))]
+    near = coincidence_scores(goes, viirs, cell_m=2_000.0, window_min=30.0, restrict_domain=False)
+    far = coincidence_scores(goes, viirs, cell_m=4_000.0, window_min=30.0, restrict_domain=False)
+    assert near["pod"] == 0.0                       # 2 km cell misses the offset fire
+    assert far["pod"] == 1.0                        # 4 km cell recovers it (geometry, not skill)
+    assert far["median_gap_min"] == 2.0
+
+
+def test_coincidence_pod_respects_the_time_window():
+    from datetime import timedelta
+
+    from vhagar.eval.t1_stage0 import coincidence_scores
+
+    viirs = [_det(0, 0, T0, sensor="viirs")]
+    goes = [_det(500, 0, T0 + timedelta(minutes=90))]   # same place, 90 min later
+    s = coincidence_scores(goes, viirs, cell_m=4_000.0, window_min=30.0, restrict_domain=False)
+    assert s["pod"] == 0.0                          # outside the +/-30 min window
+
+
+def test_fdc_window_reads_dates_and_padded_bbox(tmp_path):
+    import pandas as pd
+
+    from vhagar.eval.t1_stage0 import fdc_window
+
+    d = tmp_path / "detections" / "year=2026" / "tile=conus_x1_y1"
+    d.mkdir(parents=True)
+    pd.DataFrame({
+        "t": pd.to_datetime(["2026-08-01T12:00", "2026-08-03T18:00"]),
+        "lon": [-120.0, -118.0], "lat": [38.0, 40.0],
+    }).to_parquet(d / "part-20260801.parquet")
+    w = fdc_window(tmp_path / "detections", pad_deg=0.5)
+    assert w["start_date"] == "2026-08-01" and w["end_date"] == "2026-08-03"
+    assert w["n_days"] == 3 and w["n_detections"] == 2
+    west, south, east, north = w["bbox"]
+    assert round(west, 2) == -120.5 and round(north, 2) == 40.5   # padded
+
+
 def test_run_reports_far_reduction_from_parallax():
     truth = [_event("t", 0, 0, sensor="viirs")]
     pred = [_event("p", 3_000, 0, vza=48.0)]
