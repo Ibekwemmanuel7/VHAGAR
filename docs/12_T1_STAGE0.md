@@ -86,6 +86,40 @@ pulls the matching VIIRS in <=10-day chunks; ``t1-stage0`` then reports the para
 aware vs naive-2 km table above. The FDC window is one week, so the ball-tree is not
 needed for this first run; per-tile clustering handles it.
 
+## Stage-2 preview: does raw lat/lon leak? (`t1-classify`)
+
+The architecture's central T1 warning: in a published FIRMS classification, raw
+coordinates gave ~89% of a classifier's gain while *harming* out-of-region transfer,
+F1 0.985 (random) -> 0.767 (event-aware) -> 0.627 (5-degree block). ``t1-classify``
+reproduces the phenomenon on our GOES-18 FDC + VIIRS week: each GOES detection is a
+sample, labelled 1 when VIIRS coincides with it in space and time, and a gradient-
+boosted classifier is trained with and without raw lon/lat under three splits.
+
+| split | physical F1 | + lat/lon | lat/lon gain |
+|---|---|---|---|
+| random | 0.767 | 0.790 | +0.023 |
+| cell-grouped (event-aware) | 0.752 | 0.778 | +0.026 |
+| 5-degree spatial block | 0.642 | **0.602** | **-0.040** |
+
+Two things reproduce, qualitatively:
+
+- **The generalisation gap.** F1 falls from 0.767 (random) to 0.642 (spatial block),
+  the same shape as the published 0.985 -> 0.627: a classifier that looks good when it
+  can see nearby locations in training is worse when whole regions are held out.
+- **Raw lon/lat leaks.** Its gain is positive in-region (+0.03) and turns **negative**
+  out-of-region (-0.04): the coordinates memorise where fires are confirmed, which helps
+  on a random split and *hurts* transfer to a new 5-degree block. That is precisely why
+  production T1 features (``fusion.event_features``) exclude raw coordinates.
+
+Honest caveat on magnitude. Our effect (a ~0.07 swing in the lat/lon gain) is far
+smaller than the published 89%-of-gain, because one week of CONUS FDC with a VIIRS-
+coincidence label is a weak, timing-influenced proxy (VIIRS-confirmed rate is only 3%),
+not the balanced, multi-region wildfire/non-wildfire dataset the published study used.
+The *direction* is the finding; the magnitude needs more data and a cleaner label. A
+synthetic unit test (``test_latlon_leakage_helps_on_random_and_collapses_out_of_region``)
+confirms the framework registers a large leak when one is present, so the modest real
+number is the data's, not the tool's.
+
 ## Open items
 
 - **Reference pull** is now one command (``firms-fetch`` above); it just needs the free

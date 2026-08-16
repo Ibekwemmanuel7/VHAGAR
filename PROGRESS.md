@@ -3,7 +3,30 @@
 Last updated: 2026-08-14. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: T1 Stage-0 RAN, first real detection number (2026-08-16)
+## Latest: T1 Stage-2 preview, lat/lon leakage demonstrated (2026-08-16)
+
+Built the Stage-2 event-classifier leakage experiment (src/vhagar/eval/t1_classifier.py,
+CLI `vhagar t1-classify`), reproducing the architecture's central T1 warning on our data.
+Each GOES detection labelled by VIIRS coincidence; gradient-boosted classifier (sklearn)
+trained with vs without raw lon/lat under random / cell-grouped / 5-deg-block splits:
+
+  split               physical  +lat/lon   gain
+  random                 0.767    0.790   +0.023
+  cell_grouped           0.752    0.778   +0.026
+  spatial_block_5deg     0.642    0.602   -0.040
+
+Two findings reproduce qualitatively: (1) F1 falls random->spatial-block (0.767->0.642),
+same shape as the published 0.985->0.627 generalisation gap; (2) raw lon/lat gain is
+POSITIVE in-region (+0.03) and NEGATIVE out-of-region (-0.04), the leak, which is why
+production features exclude coordinates. Honest caveat: magnitude is far smaller than the
+published 89%-of-gain because 1 week of CONUS FDC + a VIIRS-coincidence label (3% positive,
+timing-influenced) is a weak proxy, not a balanced multi-region wildfire/non-wildfire set.
+A synthetic test confirms the framework registers a LARGE leak when present, so the modest
+real number is the data's, not the tool's. Tried a persistence (flare-vs-fire) label too;
+too few persistent sources in 1 week (4 cells) to balance. Installed scikit-learn (sandbox).
+docs/12 has the Stage-2 preview. Full suite green.
+
+## T1 Stage-0 RAN, first real detection number (2026-08-16)
 
 First real T1 result on GOES-18 CONUS 2026-08-01..07 vs VIIRS (NOAA-20 + S-NPP, pulled
 via firms-fetch, 107k detections). Detection-level coincidence (space cell + /-30 min,

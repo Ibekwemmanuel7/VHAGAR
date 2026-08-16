@@ -966,6 +966,67 @@ def t2_continent_out_cmd(
     )
 
 
+@app.command("t1-classify")
+def t1_classify_cmd(
+    detections: Path = typer.Option(Path("data/detections/detections"), help="FDC parquet root"),
+    firms_csv: Path = typer.Option(..., exists=True, help="VIIRS FIRMS CSV (labels)"),
+    thin_deg: float = typer.Option(0.02, help="spatial thinning cell for speed"),
+    thin_minutes: int = typer.Option(60, help="temporal thinning bin"),
+    folds: int = typer.Option(5),
+) -> None:
+    """T1 Stage-2 preview: does raw lat/lon leak in a GOES fire-event classifier?
+
+    Labels each GOES detection by VIIRS coincidence, trains a gradient-boosted
+    classifier with and without raw lon/lat, and reports F1 under random, cell-grouped
+    (event-aware), and 5-degree spatial-block splits. If lon/lat lifts the random-split
+    F1 but that lift turns negative on the spatial block, the coordinates were
+    memorising geography, not fire physics, the architecture's warning, on our data.
+    Needs scikit-learn. See docs/12.
+    """
+    import glob as _glob
+
+    import numpy as np
+    import pandas as pd
+
+    from vhagar.eval.t1_classifier import build_samples, evaluate_leakage
+    from vhagar.io.firms import parse_firms_csv
+
+    files = sorted(_glob.glob(f"{detections}/**/*.parquet", recursive=True))
+    df = pd.concat((pd.read_parquet(f) for f in files), ignore_index=True)
+    df["t"] = pd.to_datetime(df["t"])
+    kl = (df["lon"] / thin_deg).round().astype("int64")
+    ka = (df["lat"] / thin_deg).round().astype("int64")
+    kt = df["t"].astype("int64") // (thin_minutes * 60 * 1_000_000_000)
+    df = df.loc[~pd.DataFrame({"a": kl, "b": ka, "c": kt}).duplicated()].reset_index(drop=True)
+    recs = parse_firms_csv(firms_csv.read_text())
+    vll = np.array([[r.longitude, r.latitude] for r in recs])
+    vt = np.array([r.acq_datetime.timestamp() for r in recs])
+    console.print(f"[bold]Labelling[/bold] {len(df):,} thinned GOES detections by VIIRS coincidence...")
+    s = build_samples(df, vll, vt)
+    console.print(f"  {len(s.y):,} samples, VIIRS-confirmed rate {s.y.mean():.3f}")
+    try:
+        r = evaluate_leakage(s, n_folds=folds)
+    except ImportError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    t = Table(title="T1 lat/lon leakage: classifier F1 across leakage-proof splits")
+    for col in ("split", "physical", "+ lat/lon", "lat/lon gain"):
+        t.add_column(col, justify="right")
+    order = ["random", "cell_grouped", "spatial_block_5deg"]
+    for k in order:
+        vv = r[k]
+        g = vv["latlon_gain"]
+        t.add_row(k, f"{vv['physical']:.3f}", f"{vv['with_latlon']:.3f}",
+                  f"[red]{g:+.3f}[/red]" if g < 0 else f"[green]{g:+.3f}[/green]")
+    console.print(t)
+    console.print(
+        "[dim]  F1 falling from random -> spatial-block is the honest generalisation gap;\n"
+        "  a lat/lon gain that is positive in-region and negative out-of-region is the\n"
+        "  leak. Production T1 features exclude raw coordinates by construction. docs/12.[/dim]"
+    )
+
+
 @app.command("firms-fetch")
 def firms_fetch_cmd(
     detections: Path = typer.Option(
