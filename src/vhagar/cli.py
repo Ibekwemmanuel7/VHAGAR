@@ -653,6 +653,327 @@ def climatology_backfill_cmd(
     )
 
 
+@app.command("t2-prithvi-build")
+def t2_prithvi_build_cmd(
+    registry: Path = typer.Option(..., exists=True, help="registry Parquet from 'labels build'"),
+    mosaic: Path = typer.Option(..., exists=True, help="MTBS thematic severity GeoTIFF (reference)"),
+    region: str = typer.Option("conus"),
+    year: int = typer.Option(2021, help="fire year"),
+    min_area_ha: float = typer.Option(2000.0, help="only fires at least this large"),
+    max_fires: int = typer.Option(20, help="cap the number of fires (imagery is the cost)"),
+    select: str = typer.Option("size", help="fire selection: largest | size (size-stratified)"),
+    max_cloud: float = typer.Option(60.0, help="max scene cloud cover percent"),
+    max_scenes: int = typer.Option(12, help="least-cloudy post-fire scenes per window"),
+    res_m: float = typer.Option(30.0, help="analysis resolution; 30 m is Prithvi's native"),
+    cache_dir: Path = typer.Option(Path("data/t2_prithvi"), help="cache six-band samples here"),
+) -> None:
+    """Build the six-band Prithvi dataset: the multi-band re-pull for the T2 fine-tune.
+
+    Selects fires and pulls the six-band post-fire Sentinel-2 surface-reflectance composite
+    (Blue/Green/Red/narrow-NIR/SWIR1/SWIR2, Prithvi's band order) at 30 m, paired with the
+    MTBS burned mask on the identical grid, and caches each as a T2Sample ``.npz``. This is
+    the input the Prithvi-EO-2.0 fine-tune needs; see docs/13 for the terratorch runbook.
+    Needs an open network. The fold split and skill-vs-RBR scoring reuse the same leakage-
+    proof machinery as t2-unet, so the fine-tune is a fair head-to-head.
+    """
+    from vhagar.datasets.t2_optical import build_prithvi_sample, select_fires
+    from vhagar.labels.registry import EventRegistry
+
+    reg = EventRegistry.from_parquet(registry)
+    candidates = [
+        r for r in reg
+        if r.region == region and r.ignition_date and r.ignition_date.year == year
+        and (r.area_ha or 0) >= min_area_ha and r.tile_ids
+    ]
+    fires = select_fires(candidates, max_fires, strategy=select)
+    if len(fires) < 3:
+        console.print(f"[red]only {len(fires)} fires match; need at least 3[/red]")
+        raise typer.Exit(1)
+    console.print(f"[bold]Building six-band Prithvi samples for {len(fires)} {region} {year} "
+                  f"fires[/bold] (>= {min_area_ha:g} ha) at {res_m:g} m.\n")
+
+    built = 0
+    for i, rec in enumerate(fires, 1):
+        console.print(f"  [{i}/{len(fires)}] {rec.event_id} ({(rec.area_ha or 0):,.0f} ha)...",
+                      end=" ")
+        try:
+            s = build_prithvi_sample(
+                rec, mosaic, max_cloud=max_cloud, max_scenes=max_scenes, res_m=res_m,
+                cache_dir=cache_dir,
+            )
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[yellow]skip[/yellow] ({type(exc).__name__})")
+            continue
+        bf = f"{100 * s.burned_fraction:.0f}% burned" if s.n_valid else "no valid px"
+        console.print(f"[green]ok[/green] ({s.features.shape[0]}-band, {s.n_valid:,} valid px, {bf})")
+        built += 1
+    console.print(f"\n[green]{built} six-band samples cached to {cache_dir}[/green]. "
+                  "Next: export terratorch chips + fine-tune Prithvi-EO-2.0 (GPU). See docs/13.")
+
+
+def _load_prithvi_cache(cache_dir: Path) -> dict:
+    """Load cached six-band Prithvi samples (``*p6.npz``) keyed by event id."""
+    import glob as _glob
+
+    from vhagar.datasets.burned_area import T2Sample
+
+    out = {}
+    for p in sorted(_glob.glob(f"{cache_dir}/*p6.npz")):
+        s = T2Sample.load(p)
+        out[s.event_id] = s
+    return out
+
+
+@app.command("t2-prithvi-export")
+def t2_prithvi_export_cmd(
+    cache_dir: Path = typer.Option(Path("data/t2_prithvi"), exists=True, help="six-band sample cache"),
+    out_dir: Path = typer.Option(Path("data/t2_prithvi_chips"), help="terratorch chip dataset out"),
+    chip: int = typer.Option(224, help="chip size (Prithvi img size)"),
+    val_frac: float = typer.Option(0.15), test_frac: float = typer.Option(0.15),
+    seed: int = typer.Option(0),
+    burn_balance: bool = typer.Option(
+        False, "--burn-balance",
+        help="rebalance TRAIN chips toward burned areas (fixes 'predicts all unburned')",
+    ),
+    max_bg_ratio: float = typer.Option(1.0, help="burn-balance: max background chips per burn chip"),
+) -> None:
+    """Export a terratorch-ready chip dataset from the six-band samples, split by fire.
+
+    Partitions whole fires into train/val/test (leakage-proof), tiles each into paired
+    six-band image / signed-label (0/1/-1) GeoTIFF chips, and writes them under
+    ``out_dir/{split}/{images,labels}`` with a ``_split.json``. Point the terratorch
+    datamodule here. Needs rasterio. See docs/13.
+    """
+    from vhagar.eval.t2_prithvi import export_prithvi_chips
+
+    samples = _load_prithvi_cache(cache_dir)
+    if len(samples) < 3:
+        console.print(f"[red]only {len(samples)} cached six-band samples; run t2-prithvi-build[/red]")
+        raise typer.Exit(1)
+    counts = export_prithvi_chips(
+        samples, out_dir, chip=chip, val_frac=val_frac, test_frac=test_frac, seed=seed,
+        burn_balance=burn_balance, max_bg_ratio=max_bg_ratio,
+    )
+    console.print(f"[green]exported chips[/green] to {out_dir}: "
+                  + ", ".join(f"{k}={v}" for k, v in counts.items()))
+    console.print("Next: terratorch fit -c prithvi_burnscars_vhagar.yaml (GPU). See docs/13.")
+
+
+@app.command("t2-prithvi-score")
+def t2_prithvi_score_cmd(
+    cache_dir: Path = typer.Option(Path("data/t2_prithvi"), exists=True, help="six-band sample cache"),
+    pred_dir: Path = typer.Option(..., exists=True, help="predicted-mask GeoTIFFs"),
+    chips_manifest: Path = typer.Option(
+        None, help="chips _chips.json to stitch PER-CHIP preds ({stem}_*.tif) into per-fire masks"
+    ),
+) -> None:
+    """Score Prithvi predictions with the SAME skill-over-naive metric as RBR / U-Net.
+
+    Two input modes. Default: one predicted mask per fire as ``{event_id}.tif`` (``:``/``/``
+    replaced by ``_``). With ``--chips-manifest`` pointing at the export's ``_chips.json``:
+    ``pred_dir`` holds terratorch's per-chip predictions named by chip stem, and they are
+    stitched back into per-fire masks first. Either way, F1/IoU and skill over the predict-
+    all-burned baseline are scored on the identical valid pixels and averaged. Compare the
+    mean to t2-unet / t2-stage0 on the same fires: the honest head-to-head. See docs/13.
+    """
+    import glob as _glob
+    import json as _json
+
+    import rasterio
+
+    from vhagar.eval.t2_prithvi import score_masks, stitch_chip_predictions, summarise_scores
+
+    samples = _load_prithvi_cache(cache_dir)
+    if chips_manifest is not None:
+        manifest = _json.loads(chips_manifest.read_text(encoding="utf-8"))
+        pred_by_stem = {}
+        for p in sorted(_glob.glob(f"{pred_dir}/*.tif")):
+            stem = Path(p).stem
+            # tolerate terratorch suffixes like "{stem}_pred" / "{stem}_merged"
+            key = stem if stem in manifest else stem.rsplit("_", 1)[0]
+            if key not in manifest:
+                continue
+            with rasterio.open(p) as src:
+                pred_by_stem[key] = src.read(1)
+        matched = stitch_chip_predictions(pred_by_stem, manifest)
+    else:
+        # one mask per fire, keyed by the underscored event id
+        stems = {e.replace(":", "_").replace("/", "_"): e for e in samples}
+        matched = {}
+        for p in sorted(_glob.glob(f"{pred_dir}/*.tif")):
+            eid = stems.get(Path(p).stem)
+            if eid is None:
+                continue
+            with rasterio.open(p) as src:
+                matched[eid] = src.read(1)
+    scores = score_masks(matched, samples)
+    if not scores:
+        console.print("[yellow]no predictions matched cached fires; check pred filenames "
+                      "({event_id}.tif with ':' and '/' replaced by '_').[/yellow]")
+        raise typer.Exit(1)
+    summ = summarise_scores(scores)
+    t = Table(title="T2 Prithvi predictions vs MTBS (skill over naive, same metric as RBR/U-Net)")
+    for col in ("held out", "F1", "IoU", "naive F1", "skill"):
+        t.add_column(col, justify="right")
+    for s in scores:
+        sk = f"{s.skill_f1:+.3f}"
+        t.add_row(s.event_id[:22], f"{s.f1:.3f}", f"{s.iou:.3f}", f"{s.naive_f1:.3f}",
+                  f"[green]{sk}[/green]" if s.skill_f1 > 0 else f"[red]{sk}[/red]")
+    console.print(t)
+    console.print(f"[bold]mean skill {summ['skill_mean']:+.3f}[/bold] over {summ['fires']} fires "
+                  f"({summ['fires_positive_skill']} positive). Compare to U-Net +0.54 on the same fires.")
+
+
+@app.command("t2-prithvi-build-emsr")
+def t2_prithvi_build_emsr_cmd(
+    emsr_manifest: Path = typer.Option(Path("emsr.csv"), exists=True,
+                                       help="CSV: activation_id,delineation_path,event_date"),
+    max_cloud: float = typer.Option(60.0), max_scenes: int = typer.Option(12),
+    res_m: float = typer.Option(30.0, help="30 m is Prithvi's native resolution"),
+    cache_dir: Path = typer.Option(Path("data/t2_prithvi_emsr"), help="cache European six-band samples"),
+) -> None:
+    """Build six-band Prithvi samples for the European (Copernicus EMS) fires, for the
+    leave-one-continent-out transfer test. Same as t2-prithvi-build but the reference is each
+    fire's EMS burnt-area delineation instead of MTBS. Needs the open Sentinel-2 network. See docs/13.
+    """
+    import csv as _csv
+
+    from vhagar.datasets.t2_optical import build_prithvi_sample, read_emsr_reference_on_grid
+    from vhagar.labels.ingest import read_emsr
+
+    rows = list(_csv.DictReader(emsr_manifest.open(encoding="utf-8")))
+    console.print(f"[bold]Building six-band Prithvi samples for {len(rows)} EMS fires[/bold] at {res_m:g} m.\n")
+    built = 0
+    for row in rows:
+        path = row["delineation_path"]
+        aid = row.get("activation_id") or Path(path).stem
+        console.print(f"  {aid}...", end=" ")
+        try:
+            rec = read_emsr(path, row["event_date"], activation_id=aid)
+            ref = lambda grid, p=path: read_emsr_reference_on_grid(p, grid)  # noqa: E731
+            s = build_prithvi_sample(rec, ref, max_cloud=max_cloud, max_scenes=max_scenes,
+                                     res_m=res_m, cache_dir=cache_dir)
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[yellow]skip[/yellow] ({type(exc).__name__})")
+            continue
+        bf = f"{100 * s.burned_fraction:.0f}% burned" if s.n_valid else "no valid px"
+        console.print(f"[green]ok[/green] ({s.features.shape[0]}-band, {s.n_valid:,} px, {bf})")
+        built += 1
+    console.print(f"\n[green]{built} European six-band samples cached to {cache_dir}[/green]. "
+                  "Next: t2-prithvi-export-infer, predict with the CONUS checkpoint, t2-prithvi-transfer.")
+
+
+@app.command("t2-prithvi-export-infer")
+def t2_prithvi_export_infer_cmd(
+    cache_dir: Path = typer.Option(..., exists=True, help="six-band sample cache to chip (e.g. EMSR)"),
+    out_dir: Path = typer.Option(..., help="terratorch chip dataset out (all fires, no split)"),
+    chip: int = typer.Option(224),
+) -> None:
+    """Chip every sample into one flat inference dataset (no train/val/test split).
+
+    For predicting a held-out cohort (the European fires) with a model trained elsewhere.
+    Writes ``out_dir/data`` + ``out_dir/splits/all.txt`` + ``out_dir/_chips.json``. See docs/13.
+    """
+    from vhagar.eval.t2_prithvi import export_inference_chips
+
+    samples = _load_prithvi_cache(cache_dir)
+    if not samples:
+        console.print(f"[red]no cached samples in {cache_dir}[/red]")
+        raise typer.Exit(1)
+    n = export_inference_chips(samples, out_dir, chip=chip)
+    console.print(f"[green]exported {n} inference chips[/green] to {out_dir} "
+                  f"({len(samples)} fires). Predict these with the CONUS checkpoint in Colab.")
+
+
+@app.command("t2-prithvi-transfer")
+def t2_prithvi_transfer_cmd(
+    emsr_cache: Path = typer.Option(Path("data/t2_prithvi_emsr"), exists=True, help="European six-band samples"),
+    pred_dir: Path = typer.Option(..., exists=True, help="European per-chip predictions from Colab"),
+    chips_manifest: Path = typer.Option(..., exists=True, help="_chips.json from t2-prithvi-export-infer"),
+    conus_cache: Path = typer.Option(Path("data/t2_prithvi"), exists=True, help="CONUS samples (NBR baseline train)"),
+) -> None:
+    """Leave-one-continent-out transfer: CONUS-trained Prithvi vs an NBR threshold, on European fires.
+
+    Stitches the European per-chip Prithvi predictions into per-fire masks, scores them against
+    the EMS delineations (skill over naive), and compares to a post-fire NBR threshold *tuned on
+    CONUS and applied to Europe*, the spectral-cut analogue of the same transfer. Does the
+    foundation model's pretraining generalise across continents better than a threshold? See docs/13.
+    """
+    import glob as _glob
+    import json as _json
+
+    import rasterio
+
+    from vhagar.eval.t2_prithvi import (
+        nbr_threshold_transfer,
+        score_masks,
+        stitch_chip_predictions,
+        summarise_scores,
+    )
+
+    eu = _load_prithvi_cache(emsr_cache)
+    conus = _load_prithvi_cache(conus_cache)
+    manifest = _json.loads(chips_manifest.read_text(encoding="utf-8"))
+    pred_by_stem = {}
+    for p in sorted(_glob.glob(f"{pred_dir}/*.tif")):
+        stem = Path(p).stem
+        key = stem if stem in manifest else stem.rsplit("_", 1)[0]
+        if key not in manifest:
+            continue
+        with rasterio.open(p) as src:
+            pred_by_stem[key] = src.read(1)
+    prithvi = score_masks(stitch_chip_predictions(pred_by_stem, manifest), eu)
+    nbr, thr = nbr_threshold_transfer(list(conus.values()), list(eu.values()))
+    nbr_by = {s.event_id: s for s in nbr}
+
+    t = Table(title="T2 leave-one-continent-out: CONUS-trained Prithvi vs NBR threshold on EU fires")
+    for col in ("EU fire", "Prithvi skill", "NBR skill", "Prithvi - NBR"):
+        t.add_column(col, justify="right")
+    for s in prithvi:
+        n = nbr_by.get(s.event_id)
+        d = s.skill_f1 - (n.skill_f1 if n else 0.0)
+        t.add_row(s.event_id[:22], f"{s.skill_f1:+.3f}", f"{n.skill_f1:+.3f}" if n else "n/a",
+                  f"[green]{d:+.3f}[/green]" if d > 0 else f"[red]{d:+.3f}[/red]")
+    console.print(t)
+    wins = sum(1 for s in prithvi if s.skill_f1 > (nbr_by[s.event_id].skill_f1 if s.event_id in nbr_by else 0.0))
+    ps, ns = summarise_scores(prithvi), summarise_scores(nbr)
+    console.print(f"[bold]Prithvi mean skill {ps['skill_mean']:+.3f}[/bold] vs "
+                  f"NBR-threshold {ns['skill_mean']:+.3f} over {ps['fires']} European fires "
+                  f"(Prithvi wins {wins}/{len(prithvi)}; NBR cut {thr:.3f} tuned on CONUS).")
+
+
+@app.command("t2-prithvi-baseline")
+def t2_prithvi_baseline_cmd(
+    cache_dir: Path = typer.Option(Path("data/t2_prithvi"), exists=True, help="six-band sample cache"),
+    seed: int = typer.Option(0, help="split seed (must match the export used for Prithvi)"),
+) -> None:
+    """Same-fire baseline: a post-fire NBR threshold scored like Prithvi, on the same test fires.
+
+    Fits one NBR cut on the train fires and scores the identical test fires with the same
+    skill-over-naive metric, so the number is directly comparable to `t2-prithvi-score`: does
+    the foundation model beat a pointwise spectral threshold on these exact fires? Pure numpy,
+    no GPU. See docs/13.
+    """
+    from vhagar.eval.t2_prithvi import nbr_threshold_baseline, summarise_scores
+
+    samples = _load_prithvi_cache(cache_dir)
+    if len(samples) < 3:
+        console.print(f"[red]only {len(samples)} cached six-band samples; run t2-prithvi-build[/red]")
+        raise typer.Exit(1)
+    scores, thr = nbr_threshold_baseline(samples, seed=seed)
+    t = Table(title=f"T2 post-NBR threshold baseline vs MTBS (same test fires, thr={thr:.3f})")
+    for col in ("held out", "F1", "IoU", "naive F1", "skill"):
+        t.add_column(col, justify="right")
+    for s in scores:
+        sk = f"{s.skill_f1:+.3f}"
+        t.add_row(s.event_id[:22], f"{s.f1:.3f}", f"{s.iou:.3f}", f"{s.naive_f1:.3f}",
+                  f"[green]{sk}[/green]" if s.skill_f1 > 0 else f"[red]{sk}[/red]")
+    console.print(t)
+    su = summarise_scores(scores)
+    console.print(f"[bold]NBR-threshold mean skill {su['skill_mean']:+.3f}[/bold] over {su['fires']} "
+                  f"fires. Compare to t2-prithvi-score (the deep model) on the same fires.")
+
+
 @app.command("t2-stage0")
 def t2_stage0_cmd(
     registry: Path = typer.Option(..., exists=True, help="registry Parquet from 'labels build'"),
@@ -1091,17 +1412,37 @@ def t1_temporal_real_cmd(
     fars: str = typer.Option("0.05,0.01,0.002", help="false-alarm rates to compare at"),
     clear_frac: float = typer.Option(0.6, help="leading fraction of frames used as clear-sky baseline"),
     n_bins: int = typer.Option(24, help="diurnal bins for the baseline"),
+    far_bins: int = typer.Option(
+        1, help="time-of-day bins for the FAR threshold; >1 calibrates night separately"
+    ),
+    min_consec: int = typer.Option(
+        3, help="consecutive exceedances to confirm a detection (filters pre-fire blips)"
+    ),
+    learned: bool = typer.Option(
+        False, "--learned/--baseline",
+        help="use the learned TemporalAnomalyNet forecaster (needs torch) vs the hourly mean",
+    ),
+    window: int = typer.Option(6, help="learned: past frames the forecaster sees (6 = 30 min)"),
+    epochs: int = typer.Option(10, help="learned: training epochs on the clear-sky span"),
+    no_solar: bool = typer.Option(False, "--no-solar", help="learned: drop the solar-zenith covariate"),
 ) -> None:
-    """Real lead time: residual-vs-diurnal-baseline early detection timed against GOES FDC.
+    """Real lead time: residual-vs-forecast early detection timed against GOES FDC.
 
-    Loads a pulled 3.9um cube, fits the NaN-safe per-pixel diurnal baseline on the leading
-    clear-sky fraction, and for every pixel FDC eventually flags, measures how many minutes
-    earlier the residual crossed a matched-FAR threshold than FDC's first detection. The
-    threshold is calibrated on fire-free pixels, so residual and FDC are compared at equal
-    false-alarm rate. This is the synthetic +70min demo, re-run on real data. See docs/12.
+    Loads a pulled 3.9um cube, builds an expected-BT forecast on the leading clear-sky
+    fraction, and for every pixel FDC eventually flags, measures how many minutes earlier
+    the residual persistently crossed a matched-FAR threshold than FDC's first detection.
+    The threshold is calibrated on fire-free pixels (equal false-alarm rate); ``--far-bins``
+    calibrates night separately; ``--min-consec`` requires confirmation. Default forecaster
+    is the NaN-safe hourly diurnal mean; ``--learned`` trains ``TemporalAnomalyNet`` (with a
+    solar-zenith covariate) instead, the state-of-the-art path. See docs/12.
     """
     from vhagar.archive.temporal_cube import fdc_first_detection_grid, load_bt_cube
-    from vhagar.eval.t1_temporal import HourlyBaselineForecaster, real_lead_experiment
+    from vhagar.eval.t1_temporal import (
+        HourlyBaselineForecaster,
+        baseline_contamination,
+        learned_residuals,
+        real_lead_experiment,
+    )
 
     cube = load_bt_cube(cube_path)
     T, H, W = cube.shape
@@ -1113,23 +1454,59 @@ def t1_temporal_real_cmd(
 
     bt2d = cube.bt.reshape(T, H * W).T                       # [n_pixels, T]
     clear = np.zeros(T, dtype=bool)
-    clear[: max(1, int(clear_frac * T))] = True
-    fc = HourlyBaselineForecaster.fit(hours, bt2d, n_bins=n_bins, clear_mask=clear)
-    resid = fc.residual(hours, bt2d)
+    clear_end = max(1, int(clear_frac * T))
+    clear[:clear_end] = True
+    if learned:
+        from vhagar.archive.temporal_cube import solar_zenith_cube
+        cov = None
+        if not no_solar:
+            zen = solar_zenith_cube(cube.lat, cube.lon, cube.times)   # [T,H,W] degrees
+            cov = np.cos(np.radians(zen))[:, None]                    # [T,1,H,W] insolation factor
+        forecaster_label = f"learned TemporalAnomalyNet (window {window}, {epochs} epochs" \
+                           f"{', +solar' if not no_solar else ''})"
+        with console.status(f"training {forecaster_label} on {clear_end} clear frames..."):
+            resid = learned_residuals(cube.bt, clear_end, window=window, epochs=epochs,
+                                      covariates=cov)
+    else:
+        forecaster_label = f"hourly diurnal mean ({n_bins} bins)"
+        fc = HourlyBaselineForecaster.fit(hours, bt2d, n_bins=n_bins, clear_mask=clear)
+        resid = fc.residual(hours, bt2d)
 
     first_idx = fdc_first_detection_grid(detections, bbox, cube.times, cube.lat, cube.lon)
     n_fire = int((first_idx >= 0).sum())
-    console.print(f"FDC flags {n_fire} of {H * W} cube pixels in window.")
+    console.print(f"FDC flags {n_fire} of {H * W} cube pixels in window. "
+                  f"Forecaster: [bold]{forecaster_label}[/bold].")
     if n_fire == 0:
         console.print("[yellow]No FDC detections landed in this cube; pick a box/window with "
                       "a known fire to measure lead time.[/yellow]")
         return
 
-    t = Table(title="T1 residual detector vs GOES FDC first detection (real cube, equal FAR)")
+    # Honesty guard: the diurnal baseline is only a clean reference if it is fit on
+    # fire-free frames. If a fire ignites inside the clear window, its hot BT contaminates
+    # its own baseline and the lead-time table is meaningless (inflated at loose FAR,
+    # negative at strict). Refuse to present the table in that case.
+    contam = baseline_contamination(first_idx.ravel(), clear)
+    if contam > 0.2:
+        last_clear = cube.times[int(np.flatnonzero(clear)[-1])]
+        console.print(
+            f"[red]Baseline contaminated:[/red] {contam:.0%} of fire pixels are already "
+            f"flagged by FDC within the clear-sky window (ends {last_clear:%m-%d %H:%M} UTC).\n"
+            "[yellow]The diurnal baseline is fit on the fire's own hot BT, so the lead-time\n"
+            "numbers below would be an artefact, not a real lead. Re-pull a window whose\n"
+            "leading span is genuinely pre-ignition, or lower --clear-frac so the baseline\n"
+            "ends before the fire starts.[/yellow]"
+        )
+
+    thr_kind = f"{far_bins} time-of-day bins" if far_bins > 1 else "one global threshold"
+    fc_kind = "learned" if learned else "hourly-mean"
+    t = Table(title=f"T1 {fc_kind} residual vs GOES FDC first detection "
+                    f"(real cube, equal FAR, {thr_kind}, {min_consec}-frame confirm)")
     for col in ("target FAR", "fire pixels", "residual led", "median lead (min)", "IQR"):
         t.add_column(col, justify="right")
     for far in [float(x) for x in fars.split(",") if x.strip()]:
-        r = real_lead_experiment(resid, first_idx.ravel(), target_far=far)
+        r = real_lead_experiment(resid, first_idx.ravel(), target_far=far,
+                                 hours=hours, far_bins=far_bins, min_consec=min_consec,
+                                 eval_start=clear_end)
         t.add_row(
             f"{far:.3f}", f"{r.n_fire_pixels}",
             f"{r.frac_residual_led:.0%}",
@@ -1139,9 +1516,202 @@ def t1_temporal_real_cmd(
         )
     console.print(t)
     console.print(
-        "[dim]  Positive lead: the residual crossed its matched-FAR threshold before FDC's\n"
-        "  first detection on that pixel. Baseline is the NaN-safe per-pixel diurnal mean;\n"
-        "  swap in TemporalAnomalyNet residuals for the learned forecaster. docs/12.[/dim]"
+        "[dim]  Positive lead: the residual persistently crossed its matched-FAR threshold\n"
+        "  before FDC's first detection on that pixel. --learned trains TemporalAnomalyNet\n"
+        "  with a solar covariate in place of the hourly mean. docs/12.[/dim]"
+    )
+    if far_bins <= 1:
+        console.print(
+            "[dim]  A single global threshold is set by daytime residual variance and can\n"
+            "  desensitise a night fire; try --far-bins 6 to calibrate night separately.[/dim]"
+        )
+
+
+@app.command("t1-cohort-select")
+def t1_cohort_select_cmd(
+    detections: Path = typer.Option(Path("data/detections/detections"), help="FDC parquet root"),
+    out: Path = typer.Option(Path("cohort/cohort.json"), help="cohort spec JSON to write"),
+    per_stratum: int = typer.Option(3, help="fires to keep per stratum"),
+    box_deg: float = typer.Option(0.35, help="cube box size in degrees"),
+) -> None:
+    """Select a stratified cohort of fires to test the temporal detector properly (n>1).
+
+    A single fire cannot answer whether the residual detector beats FDC; its edge is
+    specifically the cold-start night fire an absolute threshold is slowest on. This
+    clusters the FDC parquet into fires, classifies each by ignition local-solar-time and
+    early ramp, and picks ``night_coldstart`` fires (the edge) plus ``day`` controls,
+    writing a spec of ready-to-pull cube windows and printing the pull commands. See docs/12.
+    """
+    import json as _json
+
+    from vhagar.archive.temporal_cube import select_fire_cohort
+
+    specs = select_fire_cohort(detections, box_deg=box_deg, per_stratum=per_stratum)
+    if not specs:
+        console.print("[yellow]No fires met the cohort criteria (baseline + detections).[/yellow]")
+        raise typer.Exit(1)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(_json.dumps([s.to_json() for s in specs], indent=2), encoding="utf-8")
+
+    tbl = Table(title="Stratified fire cohort for the temporal lead-time test")
+    for col in ("name", "stratum", "lat", "lon", "local hr", "ramp MW/h", "dets", "clear_frac"):
+        tbl.add_column(col, justify="right")
+    for s in specs:
+        tbl.add_row(s.name, s.stratum, f"{s.lat}", f"{s.lon}", f"{s.local_solar_hour}",
+                    f"{s.ramp_slope_mw_per_h:.0f}", f"{s.n_detections}", f"{s.clear_frac}")
+    console.print(tbl)
+    console.print(f"[green]Wrote {len(specs)} specs to {out}.[/green] Pull each cube (needs S3):")
+    for s in specs:
+        console.print(f"  {s.pull_command(cube_dir=str(out.parent))}")
+    console.print(
+        "\nThen score the whole cohort:\n"
+        f"  vhagar t1-temporal-cohort --spec {out} "
+        "--detections data\\detections\\detections --far 0.01 --far-bins 6 --min-consec 3"
+    )
+
+
+@app.command("t1-cohort-pull")
+def t1_cohort_pull_cmd(
+    spec: Path = typer.Option(Path("cohort/cohort.json"), exists=True, help="cohort spec JSON"),
+    workers: int = typer.Option(8, help="concurrent frame reads per cube"),
+    refetch: bool = typer.Option(False, "--refetch", help="re-pull cubes already on disk"),
+) -> None:
+    """Pull every cube in a cohort spec in one command (resumable). Needs S3.
+
+    Runs the per-fire ``t1-pull-cube`` for you over the whole spec, skipping cubes already on
+    disk unless ``--refetch``. Then score with ``t1-temporal-cohort``. See docs/12.
+    """
+    from vhagar.archive.temporal_cube import cohort_pull
+
+    def _prog(i, n, name, status):
+        colour = {"ok": "green", "skip": "dim", "fail": "red"}.get(status, "white")
+        console.print(f"  [{i}/{n}] [{colour}]{status}[/{colour}] {name}")
+
+    with console.status("pulling cohort cubes from S3..."):
+        res = cohort_pull(spec, workers=workers, only_missing=not refetch, progress=_prog)
+    console.print(f"[green]pulled {len(res['pulled'])}[/green], skipped {len(res['skipped'])}"
+                  f", failed {len(res['failed'])}.")
+    for f in res["failed"]:
+        console.print(f"  [red]{f}[/red]")
+    console.print(
+        f"\nScore the cohort:\n  vhagar t1-temporal-cohort --spec {spec} "
+        "--detections data\\detections\\detections --far 0.01 --far-bins 6 --min-consec 3"
+    )
+
+
+@app.command("t1-temporal-cohort")
+def t1_temporal_cohort_cmd(
+    spec: Path = typer.Option(..., exists=True, help="cohort spec JSON from t1-cohort-select"),
+    detections: Path = typer.Option(Path("data/detections/detections"), help="FDC parquet root"),
+    far: float = typer.Option(0.01, help="single false-alarm rate to compare at"),
+    far_bins: int = typer.Option(6, help="time-of-day bins for the FAR threshold"),
+    min_consec: int = typer.Option(3, help="consecutive exceedances to confirm a detection"),
+    learned: bool = typer.Option(False, "--learned/--baseline", help="learned forecaster (torch)"),
+    epochs: int = typer.Option(15, help="learned: training epochs"),
+    window: int = typer.Option(6, help="learned: forecaster window"),
+) -> None:
+    """Score the whole fire cohort and aggregate lead over FDC per stratum.
+
+    For each fire in the spec (whose cube must already be pulled), builds the residual (hourly
+    mean or ``--learned`` TemporalAnomalyNet), runs the matched-FAR / far-bins / persistence
+    lead-time eval vs FDC, then aggregates by stratum. The scientific read: does the residual
+    detector lead FDC on ``night_coldstart`` fires (its theoretical edge) more than on ``day``
+    controls? A single fire cannot say; a stratified cohort can. See docs/12.
+    """
+    import json as _json
+
+    from vhagar.archive.temporal_cube import (
+        fdc_first_detection_grid,
+        load_bt_cube,
+        solar_zenith_cube,
+    )
+    from vhagar.eval.t1_temporal import (
+        HourlyBaselineForecaster,
+        baseline_contamination,
+        cohort_lead_summary,
+        learned_residuals,
+        real_lead_experiment,
+    )
+
+    specs = _json.loads(spec.read_text(encoding="utf-8"))
+    per_fire = []
+    skipped = []
+    for s in specs:
+        cube_path = spec.parent / f"{s['name']}.npz"
+        if not cube_path.exists():
+            skipped.append(s["name"])
+            continue
+        cube = load_bt_cube(cube_path)
+        T, H, W = cube.shape
+        hours = cube.hours_of_day()
+        bbox = (float(cube.lon.min()), float(cube.lat.min()),
+                float(cube.lon.max()), float(cube.lat.max()))
+        clear = np.zeros(T, dtype=bool)
+        clear_end = max(1, int(float(s["clear_frac"]) * T))
+        clear[:clear_end] = True
+        bt2d = cube.bt.reshape(T, H * W).T
+        if learned:
+            zen = solar_zenith_cube(cube.lat, cube.lon, cube.times)
+            cov = np.cos(np.radians(zen))[:, None]
+            resid = learned_residuals(cube.bt, clear_end, window=window, epochs=epochs,
+                                      covariates=cov)
+        else:
+            fc = HourlyBaselineForecaster.fit(hours, bt2d, clear_mask=clear)
+            resid = fc.residual(hours, bt2d)
+        first_idx = fdc_first_detection_grid(detections, bbox, cube.times, cube.lat, cube.lon)
+        if int((first_idx >= 0).sum()) == 0:
+            skipped.append(s["name"] + " (no FDC in box)")
+            continue
+        contam = baseline_contamination(first_idx.ravel(), clear)
+        if contam > 0.2:
+            skipped.append(s["name"] + f" (baseline {contam:.0%} contaminated)")
+            continue
+        r = real_lead_experiment(resid, first_idx.ravel(), target_far=far, hours=hours,
+                                 far_bins=far_bins, min_consec=min_consec,
+                                 eval_start=clear_end)
+        per_fire.append((s["stratum"], r))
+        if r.n_fire_pixels == 0:
+            console.print(f"  {s['name']}: [red]no detection[/red] "
+                          f"(0/{r.n_fire_pixels_total} fire px flagged in held-out window)")
+        else:
+            console.print(f"  {s['name']}: detected {r.n_fire_pixels}/{r.n_fire_pixels_total} px, "
+                          f"median lead {r.median_lead_min:+.0f} min")
+
+    if not per_fire:
+        console.print("[yellow]No cube scored. Pull the cohort cubes first "
+                      f"(t1-cohort-select). Skipped: {skipped}[/yellow]")
+        raise typer.Exit(1)
+
+    summary = cohort_lead_summary(per_fire)
+    fc_kind = "learned" if learned else "hourly-mean"
+    tbl = Table(title=f"T1 {fc_kind} residual vs FDC by stratum "
+                      f"(FAR {far}, {far_bins} bins, {min_consec}-confirm)")
+    for col in ("stratum", "fires", "detection rate", "fires led", "median lead (det)",
+                "pooled px lead", "px led"):
+        tbl.add_column(col, justify="right")
+
+    def _lead(x):
+        if x != x:                                    # NaN: nothing detected
+            return "[dim]n/a[/dim]"
+        return f"[green]+{x:.0f}[/green]" if x > 0 else f"{x:.0f}"
+
+    for stratum in ("night_coldstart", "day"):
+        if stratum not in summary:
+            continue
+        v = summary[stratum]
+        tbl.add_row(
+            stratum, f"{v['n_fires']:.0f}",
+            f"{v['detection_rate']:.0%} px ({v['frac_fires_detected']:.0%} fires)",
+            f"{v['frac_fires_led']:.0%}",
+            _lead(v["median_fire_lead_min"]), _lead(v["pooled_pixel_median_lead_min"]),
+            f"{v['pooled_pixel_frac_led']:.0%}",
+        )
+    console.print(tbl)
+    if skipped:
+        console.print(f"[dim]  skipped: {', '.join(skipped)}[/dim]")
+    console.print(
+        "[dim]  The scientific read: a residual detector should lead FDC on night_coldstart\n"
+        "  fires (an absolute threshold is slowest there) more than on day controls. docs/12.[/dim]"
     )
 
 

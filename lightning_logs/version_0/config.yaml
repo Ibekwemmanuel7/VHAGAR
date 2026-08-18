@@ -1,0 +1,175 @@
+# lightning.pytorch==2.6.5
+seed_everything: 2
+trainer:
+  accelerator: auto
+  strategy: auto
+  devices: auto
+  num_nodes: 1
+  precision: bf16-mixed
+  logger: true
+  callbacks:
+  - class_path: lightning.pytorch.callbacks.EarlyStopping
+    init_args:
+      monitor: val/loss
+      min_delta: 0.0
+      patience: 15
+      verbose: false
+      mode: min
+      strict: true
+      check_finite: true
+      log_rank_zero_only: false
+  - class_path: lightning.pytorch.callbacks.LearningRateMonitor
+    init_args:
+      logging_interval: epoch
+      log_momentum: false
+      log_weight_decay: false
+  fast_dev_run: false
+  max_epochs: 100
+  max_steps: -1
+  overfit_batches: 0.0
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 1
+  enable_progress_bar: true
+  accumulate_grad_batches: 1
+  inference_mode: true
+  use_distributed_sampler: true
+  detect_anomaly: false
+  barebones: false
+  sync_batchnorm: false
+  reload_dataloaders_every_n_epochs: 0
+  enable_autolog_hparams: true
+model:
+  class_path: terratorch.tasks.SemanticSegmentationTask
+  init_args:
+    model_args:
+      backbone: prithvi_eo_v2_300
+      backbone_pretrained: true
+      backbone_bands:
+      - BLUE
+      - GREEN
+      - RED
+      - NIR_NARROW
+      - SWIR_1
+      - SWIR_2
+      necks:
+      - name: SelectIndices
+        indices:
+        - 5
+        - 11
+        - 17
+        - 23
+      - name: ReshapeTokensToImage
+      - name: LearnedInterpolateToPyramidal
+      decoder: UNetDecoder
+      decoder_channels:
+      - 512
+      - 256
+      - 128
+      - 64
+      num_classes: 2
+    model_factory: EncoderDecoderFactory
+    loss: ce
+    ignore_index: -1
+    lr: 0.001
+    freeze_backbone: false
+    freeze_decoder: false
+    freeze_head: false
+    plot_on_val: false
+    class_names:
+    - Not burned
+    - Burn scar
+    output_on_inference: prediction
+    output_most_probable: true
+    tiled_inference_on_testing: false
+    tiled_inference_on_validation: false
+data:
+  class_path: terratorch.datamodules.GenericNonGeoSegmentationDataModule
+  init_args:
+    batch_size: 8
+    num_workers: 8
+    num_classes: 2
+    train_data_root: data\t2_prithvi_chips\data
+    val_data_root: data\t2_prithvi_chips\data
+    test_data_root: data\t2_prithvi_chips\data
+    img_grep: '*_merged.tif'
+    label_grep: '*.mask.tif'
+    means:
+    - 0.049771
+    - 0.068685
+    - 0.076481
+    - 0.214572
+    - 0.204851
+    - 0.146201
+    stds:
+    - 0.031063
+    - 0.036317
+    - 0.049595
+    - 0.085017
+    - 0.094316
+    - 0.082628
+    train_split: data\t2_prithvi_chips\splits\train.txt
+    val_split: data\t2_prithvi_chips\splits\val.txt
+    test_split: data\t2_prithvi_chips\splits\test.txt
+    ignore_split_file_extensions: true
+    allow_substring_split_file: true
+    dataset_bands:
+    - BLUE
+    - GREEN
+    - RED
+    - NIR_NARROW
+    - SWIR_1
+    - SWIR_2
+    output_bands:
+    - BLUE
+    - GREEN
+    - RED
+    - NIR_NARROW
+    - SWIR_1
+    - SWIR_2
+    constant_scale: 1.0
+    rgb_indices:
+    - 2
+    - 1
+    - 0
+    train_transform:
+    - class_path: albumentations.D4
+    - class_path: ToTensorV2
+    test_transform:
+    - class_path: ToTensorV2
+    expand_temporal_dimension: false
+    reduce_zero_label: false
+    no_data_replace: 0.0
+    no_label_replace: -1
+    embedding_input: false
+    pca_step: 4
+    drop_last: true
+    pin_memory: false
+    check_stackability: true
+    return_georeference: false
+out_dtype: int16
+deploy_config_file: true
+optimizer:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 0.0001
+    betas:
+    - 0.9
+    - 0.999
+    eps: 1.0e-08
+    weight_decay: 0.01
+    amsgrad: false
+    maximize: false
+    capturable: false
+    differentiable: false
+lr_scheduler:
+  class_path: lightning.pytorch.cli.ReduceLROnPlateau
+  init_args:
+    monitor: val/loss
+    mode: min
+    factor: 0.5
+    patience: 4
+    threshold: 0.0001
+    threshold_mode: rel
+    cooldown: 0
+    min_lr: 0.0
+    eps: 1.0e-08

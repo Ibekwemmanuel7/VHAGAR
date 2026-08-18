@@ -1,0 +1,116 @@
+[
+  {
+    "name": "night_coldstart_28n_112w_08050712",
+    "lon": -111.55,
+    "lat": 28.49,
+    "ignition_utc": "2026-08-05T07:12:35.981091+00:00",
+    "local_solar_hour": 23.8,
+    "stratum": "night_coldstart",
+    "ramp_slope_mw_per_h": 0.0,
+    "n_detections": 418,
+    "bbox": [
+      -111.73,
+      28.31,
+      -111.38,
+      28.66
+    ],
+    "pull_start": "2026-08-04T01:12:35.981091+00:00",
+    "pull_end": "2026-08-05T15:12:35.981091+00:00",
+    "clear_frac": 0.711
+  },
+  {
+    "name": "night_coldstart_29n_112w_08050642",
+    "lon": -112.01,
+    "lat": 28.99,
+    "ignition_utc": "2026-08-05T06:42:35.986182+00:00",
+    "local_solar_hour": 23.2,
+    "stratum": "night_coldstart",
+    "ramp_slope_mw_per_h": 0.0,
+    "n_detections": 382,
+    "bbox": [
+      -112.18,
+      28.81,
+      -111.83,
+      29.16
+    ],
+    "pull_start": "2026-08-04T00:37:35.980877+00:00",
+    "pull_end": "2026-08-05T14:37:35.980877+00:00",
+    "clear_frac": 0.711
+  },
+  {
+    "name": "night_coldstart_29n_112w_08050712",
+    "lon": -111.69,
+    "lat": 28.55,
+    "ignition_utc": "2026-08-05T07:12:35.981091+00:00",
+    "local_solar_hour": 23.8,
+    "stratum": "night_coldstart",
+    "ramp_slope_mw_per_h": 0.0,
+    "n_detections": 378,
+    "bbox": [
+      -111.86,
+      28.37,
+      -111.51,
+      28.72
+    ],
+    "pull_start": "2026-08-04T01:02:35.981478+00:00",
+    "pull_end": "2026-08-05T15:02:35.981478+00:00",
+    "clear_frac": 0.711
+  },
+  {
+    "name": "day_46n_107w_08031347",
+    "lon": -106.75,
+    "lat": 45.74,
+    "ignition_utc": "2026-08-03T13:47:38.353063+00:00",
+    "local_solar_hour": 6.7,
+    "stratum": "day",
+    "ramp_slope_mw_per_h": 0.0,
+    "n_detections": 368,
+    "bbox": [
+      -106.92,
+      45.56,
+      -106.57,
+      45.91
+    ],
+    "pull_start": "2026-08-02T07:47:38.353063+00:00",
+    "pull_end": "2026-08-03T21:47:38.353063+00:00",
+    "clear_frac": 0.711
+  },
+  {
+    "name": "day_43n_122w_08041932",
+    "lon": -122.2,
+    "lat": 43.07,
+    "ignition_utc": "2026-08-04T19:32:36.025203+00:00",
+    "local_solar_hour": 11.4,
+    "stratum": "day",
+    "ramp_slope_mw_per_h": 0.0,
+    "n_detections": 150,
+    "bbox": [
+      -122.37,
+      42.89,
+      -122.02,
+      43.24
+    ],
+    "pull_start": "2026-08-03T13:32:36.025203+00:00",
+    "pull_end": "2026-08-05T03:32:36.025203+00:00",
+    "clear_frac": 0.711
+  },
+  {
+    "name": "day_33n_111w_08040152",
+    "lon": -110.75,
+    "lat": 32.97,
+    "ignition_utc": "2026-08-04T01:52:35.806978+00:00",
+    "local_solar_hour": 18.5,
+    "stratum": "day",
+    "ramp_slope_mw_per_h": 0.0,
+    "n_detections": 138,
+    "bbox": [
+      -110.92,
+      32.79,
+      -110.57,
+      33.14
+    ],
+    "pull_start": "2026-08-02T19:52:35.806978+00:00",
+    "pull_end": "2026-08-04T09:52:35.806978+00:00",
+    "clear_frac": 0.711
+  }
+]

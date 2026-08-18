@@ -28,3 +28,10 @@ koppen_extract/
 koppen_geiger_tif.zip
 emsr_candidates.csv
 emsr_full.csv
+
+# Large data artifacts: never belong in git (GitHub rejects >100MB). Keep on disk.
+*.zip
+*.npz
+*.parquet
+viirs_truth.csv
+serve/.cache/

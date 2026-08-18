@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
@@ -10,6 +10,7 @@ import pytest
 from vhagar.eval.t1_temporal import (
     DiurnalForecaster,
     HourlyBaselineForecaster,
+    baseline_contamination,
     calibrate_threshold_to_far,
     climatology_diurnal_amplitude,
     early_detection_experiment,
@@ -104,6 +105,76 @@ def test_real_lead_experiment_residual_leads_fdc():
     assert r.frac_residual_led >= 0.8
 
 
+def test_eval_start_ignores_detections_in_the_baseline_window():
+    # A fire pixel whose residual is sustained-high from frame 20 (inside the baseline the
+    # forecaster was fit on) and stays high. Without a train/test split the "detection" is
+    # frame 20 (pre-fire, a false lead); with eval_start=60 it is measured on held-out
+    # frames only, so detection is at 60 and the lead is honest.
+    T, P = 120, 30
+    resid = np.zeros((P, T))
+    fp = 0
+    resid[fp, 20:] = 50.0                     # sustained high from deep in the baseline
+    first_idx = np.full(P, -1, dtype=np.int64)
+    first_idx[fp] = 70                         # FDC flags at frame 70
+    naive = real_lead_experiment(resid, first_idx, target_far=0.01, min_consec=3, eval_start=0)
+    split = real_lead_experiment(resid, first_idx, target_far=0.01, min_consec=3, eval_start=60)
+    assert naive.median_lead_min == (70 - 22) * 5     # detected at end of first 3-run (22)
+    assert split.median_lead_min == (70 - 62) * 5     # first 3-run in held-out period (62)
+
+
+def test_persistence_filters_a_pre_fire_false_blip():
+    # One fire pixel. A single isolated pre-fire spike would fake a huge lead; the real
+    # fire is a sustained ramp. min_consec=3 must ignore the blip and detect the ramp.
+    T, P = 120, 40
+    resid = np.zeros((P, T))
+    fp = 0
+    resid[fp, 10] = 100.0                    # isolated pre-fire blip at frame 10
+    resid[fp, 70:] = 100.0                   # sustained fire ramp from frame 70
+    first_idx = np.full(P, -1, dtype=np.int64)
+    first_idx[fp] = 78                        # FDC confirms at frame 78
+    naive = real_lead_experiment(resid, first_idx, target_far=0.01, cadence_min=5, min_consec=1)
+    persist = real_lead_experiment(resid, first_idx, target_far=0.01, cadence_min=5, min_consec=3)
+    # first-exceedance is fooled by the blip (detects at 10 -> lead (78-10)*5=340);
+    # persistence detects the real ramp end (frame 72 -> lead (78-72)*5=30)
+    assert naive.median_lead_min == (78 - 10) * 5
+    assert persist.median_lead_min == (78 - 72) * 5
+
+
+def test_per_hour_threshold_recovers_night_sensitivity():
+    # Residuals with big daytime variance and quiet nights; a night fire is a modest
+    # excursion that a global threshold (set by daytime) misses but a night-specific
+    # threshold catches.
+    rng = np.random.default_rng(0)
+    T, P = 240, 200                                   # 20h @5min, 200 pixels
+    hours = (np.arange(T) * 5 / 60.0) % 24
+    day = ((hours >= 8) & (hours <= 20))
+    resid = np.where(day[None, :], rng.normal(0, 4.0, (P, T)), rng.normal(0, 0.5, (P, T)))
+    first_idx = np.full(P, -1, dtype=np.int64)
+    # one night fire: a +3 K excursion (huge for night, invisible against daytime sigma 4)
+    night_frame = int(np.flatnonzero(~day)[5])
+    fp = 0
+    resid[fp, night_frame:] += 3.0
+    first_idx[fp] = night_frame + 6                    # FDC flags it 30 min later
+    glob = real_lead_experiment(resid, first_idx, target_far=0.01, far_bins=1, hours=hours)
+    perh = real_lead_experiment(resid, first_idx, target_far=0.01, far_bins=6, hours=hours)
+    # the per-time-of-day threshold detects (and leads); the global one is desensitised
+    assert perh.median_lead_min > glob.median_lead_min
+
+
+def test_baseline_contamination_flags_early_ignition():
+    T, P = 100, 20
+    clear = np.arange(T) < 60                       # first 60 frames used as baseline
+    first_idx = np.full(P, -1, dtype=np.int64)
+    first_idx[:5] = 30                              # ignite inside the clear window
+    first_idx[5:8] = 80                             # ignite after it (clean)
+    # 5 of 8 fire pixels contaminated
+    assert abs(baseline_contamination(first_idx, clear) - 5 / 8) < 1e-9
+    # all-clean case
+    first_idx2 = np.full(P, -1, dtype=np.int64)
+    first_idx2[:4] = 80
+    assert baseline_contamination(first_idx2, clear) == 0.0
+
+
 def test_assemble_cube_drops_mismatched_grid():
     from vhagar.archive.temporal_cube import assemble_cube
     from vhagar.io.cmip_reader import CMIPChannel
@@ -140,6 +211,89 @@ def test_solar_zenith_cube_is_small_at_local_noon():
     assert float(z[0, 0, 0]) < 25.0
 
 
+def test_cohort_lead_summary_aggregates_by_stratum():
+    from vhagar.eval.t1_temporal import RealLeadResult, cohort_lead_summary
+
+    def _r(lead, npx=10):                              # a fire the residual detected
+        return RealLeadResult(npx, npx, 1.0, 0, 0.0, lead, lead, lead, 0.01, 1.0,
+                              leads_min=tuple([lead]) * npx)
+
+    def _miss(npx=10):                                 # a fire the residual never detected
+        return RealLeadResult(0, npx, 0.0, 0, 0.0, float("nan"), float("nan"),
+                              float("nan"), 0.01, 1.0)
+
+    per_fire = [
+        ("night_coldstart", _r(+30)), ("night_coldstart", _r(+10)),
+        ("night_coldstart", _r(-5)), ("day", _r(-40)), ("day", _r(-60)),
+    ]
+    s = cohort_lead_summary(per_fire)
+    assert s["night_coldstart"]["n_fires"] == 3
+    assert abs(s["night_coldstart"]["frac_fires_led"] - 2 / 3) < 1e-9
+    assert s["night_coldstart"]["median_fire_lead_min"] == 10
+    assert s["night_coldstart"]["detection_rate"] == 1.0
+    assert s["night_coldstart"]["pooled_pixel_median_lead_min"] == 10
+    assert abs(s["night_coldstart"]["pooled_pixel_frac_led"] - 2 / 3) < 1e-9
+    assert s["day"]["frac_fires_led"] == 0.0
+
+    # a non-detecting fire must count as not-led and lower the detection rate, NOT show as 0
+    s2 = cohort_lead_summary([("night_coldstart", _r(+30, npx=10)),
+                              ("night_coldstart", _miss(npx=30))])
+    assert s2["night_coldstart"]["detection_rate"] == 10 / 40      # 10 of 40 fire px detected
+    assert s2["night_coldstart"]["frac_fires_detected"] == 0.5
+    assert s2["night_coldstart"]["frac_fires_led"] == 0.5          # miss is not a lead
+    assert s2["night_coldstart"]["pooled_pixel_median_lead_min"] == 30   # miss excluded
+
+
+def test_select_fire_cohort_stratifies_night_and_day(tmp_path):
+    pd = pytest.importorskip("pandas")
+    from vhagar.archive.temporal_cube import select_fire_cohort
+
+    rows = []
+    # night fire near lon -115 (LST offset ~ -7.7h): ignite 11:00 UTC -> LST ~3.3 (night)
+    ign_n = datetime(2026, 8, 3, 11, 0, tzinfo=UTC)
+    for i in range(60):
+        rows.append({"lon": -115.0, "lat": 31.0,
+                     "t": ign_n + timedelta(minutes=2 * i), "frp_mw": 50.0 + i})
+    # day fire near lon -120: ignite 21:00 UTC -> LST ~13 (day)
+    ign_d = datetime(2026, 8, 3, 21, 0, tzinfo=UTC)
+    for i in range(60):
+        rows.append({"lon": -120.0, "lat": 40.0,
+                     "t": ign_d + timedelta(minutes=2 * i), "frp_mw": 100.0 + 5 * i})
+    root = tmp_path / "det" / "day=1"
+    root.mkdir(parents=True)
+    pd.DataFrame(rows).to_parquet(root / "p.parquet")
+
+    specs = select_fire_cohort(tmp_path / "det", data_start=datetime(2026, 8, 1, tzinfo=UTC))
+    strata = {s.stratum for s in specs}
+    assert strata == {"night_coldstart", "day"}
+    night = next(s for s in specs if s.stratum == "night_coldstart")
+    # clear window ends before ignition (baseline not contaminated)
+    assert night.pull_start < night.ignition_utc < night.pull_end
+    assert 5.0 <= night.local_solar_hour < 6.0 or night.local_solar_hour < 6.0
+    assert night.bbox[0] < night.lon < night.bbox[2]
+
+
+def test_cohort_pull_skips_existing_cubes_without_s3(tmp_path):
+    import json
+
+    from vhagar.archive.temporal_cube import cohort_pull
+
+    spec = [
+        {"name": "fireA", "bbox": [-112.0, 38.0, -111.6, 38.4],
+         "pull_start": "2026-08-02T00:00:00+00:00", "pull_end": "2026-08-02T12:00:00+00:00"},
+        {"name": "fireB", "bbox": [-120.0, 40.0, -119.6, 40.4],
+         "pull_start": "2026-08-03T00:00:00+00:00", "pull_end": "2026-08-03T12:00:00+00:00"},
+    ]
+    spec_path = tmp_path / "cohort.json"
+    spec_path.write_text(json.dumps(spec), encoding="utf-8")
+    # both cubes already exist -> nothing is pulled, no S3 is touched
+    (tmp_path / "fireA.npz").write_bytes(b"x")
+    (tmp_path / "fireB.npz").write_bytes(b"x")
+    res = cohort_pull(spec_path, only_missing=True)
+    assert set(res["skipped"]) == {"fireA", "fireB"}
+    assert res["pulled"] == [] and res["failed"] == []
+
+
 def test_temporal_net_forecasts_next_bt_frame():
     pytest.importorskip("torch")
     from vhagar.eval.t1_temporal import train_temporal_net
@@ -151,3 +305,24 @@ def test_temporal_net_forecasts_next_bt_frame():
     with torch.no_grad():
         out = model(torch.zeros(1, 4, 1, 8, 8))
     assert tuple(out.shape) == (1, 1, 8, 8)
+
+
+def test_learned_residuals_are_nan_safe_and_feed_the_experiment():
+    pytest.importorskip("torch")
+    from vhagar.eval.t1_temporal import learned_residuals, real_lead_experiment
+
+    rng = np.random.default_rng(0)
+    T, H, W = 30, 6, 6
+    cube = rng.normal(285, 2, size=(T, H, W)).astype("float32")
+    cube[5, 0, 0] = np.nan                                   # a cloud hole in the input
+    solar = np.cos(np.radians(rng.uniform(20, 70, (T, 1, H, W)))).astype("float32")
+    resid = learned_residuals(cube, clear_end=20, window=4, epochs=1, covariates=solar)
+    assert resid.shape == (H * W, T)
+    # first `window` frames have no forecast -> NaN; later frames are finite (bar the hole)
+    assert np.isnan(resid[:, :4]).all()
+    assert np.isfinite(resid[:, 10]).mean() > 0.9
+    # residuals drop straight into the same matched-FAR / persistence protocol
+    first_idx = np.full(H * W, -1, dtype=np.int64)
+    first_idx[0] = 25
+    r = real_lead_experiment(resid, first_idx, target_far=0.05, min_consec=2)
+    assert r.n_fire_pixels >= 0

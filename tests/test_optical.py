@@ -11,11 +11,13 @@ import numpy as np
 import pytest
 
 from vhagar.io.optical import (
+    PRITHVI_BAND_ASSETS,
     SCL_KEEP,
     composite_nbr,
     mean_composite,
     rbr_from_windows,
     scl_valid_mask,
+    stream_band_composite,
     stream_nbr,
 )
 from vhagar.labels.registry import FireEventRecord, LabelSource
@@ -79,6 +81,48 @@ def test_rbr_separates_burned_from_unburned():
     r = rbr_from_windows(pre_nir, pre_swir, scl, post_nir, post_swir, scl)
     assert r[0, 1] > r[0, 0]        # burned column has the larger RBR
     assert r[0, 0] == pytest.approx(0.0, abs=1e-9)   # unburned: no change
+
+
+def test_stream_band_composite_masks_clouds_and_scales_reflectance():
+    assert len(PRITHVI_BAND_ASSETS) == 6
+    # two scenes, 1x2 grid, 6 bands. Right pixel is cloudy in scene 2 only.
+    def scene(dn, scl):
+        return ([np.full((1, 2), float(dn + b)) for b in range(6)], np.array(scl))
+
+    scenes = [scene(1000, [[4, 4]]), scene(3000, [[4, 9]])]   # scene2 right pixel cloud
+    out = stream_band_composite(scenes, (1, 2), n_bands=6)
+    assert out.shape == (6, 1, 2)
+    # band 0 left pixel: mean(1000, 3000)/10000 = 0.2; right pixel: only scene1 -> 1000/10000
+    assert out[0, 0, 0] == pytest.approx(0.2)
+    assert out[0, 0, 1] == pytest.approx(0.1)
+    # band 5 carries its +5 offset; reflectance scaled
+    assert out[5, 0, 0] == pytest.approx((1005 + 3005) / 2 / 10000)
+
+
+def test_build_prithvi_sample_stacks_six_bands_against_mtbs(tmp_path):
+    from vhagar.datasets.t2_optical import build_prithvi_sample
+
+    rec = _fire(area_ha=10_000.0)
+
+    def fake_bands6(bbox, ign_iso, grid, max_cloud, max_scenes):
+        H, W = grid.shape
+        b = np.tile(np.linspace(0.05, 0.4, 6)[:, None, None], (1, H, W)).astype("float32")
+        b[:, 0, 0] = np.nan                       # one all-cloud pixel -> invalid
+        return b
+
+    def fake_reference(grid):
+        H, W = grid.shape
+        burned = np.zeros((H, W), bool)
+        burned[: H // 2] = True
+        return burned, np.ones((H, W), bool)
+
+    s = build_prithvi_sample(rec, fake_reference, bands6_fn=fake_bands6, cache_dir=tmp_path)
+    assert s.features.shape[0] == 6                # six bands ride in the stack
+    assert s.features.shape[1:] == s.reference.shape
+    assert not s.valid[0, 0]                       # the all-cloud pixel is invalid
+    # cache round-trips (second call reads the .npz, no puller needed)
+    s2 = build_prithvi_sample(rec, fake_reference, bands6_fn=None, cache_dir=tmp_path)
+    assert s2.features.shape[0] == 6
 
 
 # ------------------------------------------------------ window geometry ---

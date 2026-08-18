@@ -24,6 +24,7 @@ from vhagar.io.optical import TargetGrid
 __all__ = [
     "build_optical_sample",
     "build_optical_samples",
+    "build_prithvi_sample",
     "rasterize_burned_on_grid",
     "read_emsr_reference_on_grid",
     "read_mtbs_reference_on_grid",
@@ -269,6 +270,77 @@ def build_optical_sample(
     if cache_path is not None:
         sample.save(cache_path)
     return sample
+
+
+def build_prithvi_sample(
+    record,
+    mosaic_path,
+    max_cloud: float = 60.0,
+    max_scenes: int = 12,
+    res_m: float = 30.0,
+    cache_dir=None,
+    include_background: bool = True,
+    bands6_fn=None,
+    **grid_kw,
+):
+    """Build one fire's six-band Prithvi sample: post-fire reflectance + MTBS burned mask.
+
+    The Prithvi counterpart of :func:`build_optical_sample`. Instead of a two-band RBR
+    predictor it pulls the six-band post-fire surface-reflectance composite
+    (:func:`vhagar.io.optical.sentinel2_bands6`) at native 30 m (Prithvi's resolution) and
+    stores it as the sample's ``[6, H, W]`` feature stack, with the MTBS burned/unburned mask
+    as the reference on the identical grid. The reference and window sizing are unchanged from
+    the RBR path, so a fire's Prithvi sample and its RBR sample share a grid and a reference,
+    which is what lets the foundation model be scored against RBR on the same held-out fires.
+    ``bands6_fn`` overrides the imagery pull for offline testing. Cache tag ``p6``.
+    """
+    from pathlib import Path
+
+    import numpy as np
+
+    from vhagar.datasets.burned_area import T2Sample, make_sample
+
+    if record.ignition_date is None:
+        raise ValueError(f"{record.event_id} has no ignition date")
+
+    cache_path = None
+    if cache_dir is not None:
+        cache_dir = Path(cache_dir)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        safe = record.event_id.replace(":", "_").replace("/", "_")
+        win_km = int(grid_kw.get("min_half_m", 15_000.0) / 1000)
+        cache_path = cache_dir / f"{safe}_r{int(res_m)}_w{win_km}p6.npz"
+        if cache_path.exists():
+            return T2Sample.load(cache_path)
+
+    grid, bbox = target_grid_for_fire(record, res_m=res_m, **grid_kw)
+    pull = bands6_fn if bands6_fn is not None else _default_bands6
+    bands = pull(bbox, record.ignition_date.isoformat(), grid, max_cloud, max_scenes)  # [6,H,W]
+
+    if callable(mosaic_path):
+        burned, valid_ref = mosaic_path(grid)
+    else:
+        burned, valid_ref = read_mtbs_reference_on_grid(
+            mosaic_path, grid, include_background=include_background
+        )
+    # The validity proxy is the narrow-NIR band (index 3): a pixel cloudy in every scene is
+    # NaN across all six bands, so finite NIR marks a usable pixel. The 6 bands ride in the
+    # stack; ``predictor`` exists only to carry the valid mask, not as a burn predictor.
+    predictor = bands[3]
+    sample = make_sample(
+        record.event_id, predictor, burned, reference_valid=valid_ref,
+        tile_id=record.tile_ids[0] if record.tile_ids else None,
+        stack=bands.astype(np.float32),
+    )
+    if cache_path is not None:
+        sample.save(cache_path)
+    return sample
+
+
+def _default_bands6(bbox, ignition_iso, grid, max_cloud, max_scenes):
+    from vhagar.io.optical import sentinel2_bands6
+
+    return sentinel2_bands6(bbox, ignition_iso, grid, max_cloud=max_cloud, max_scenes=max_scenes)
 
 
 def build_optical_samples(

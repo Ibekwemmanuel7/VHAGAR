@@ -31,15 +31,25 @@ import numpy as np
 from vhagar.features.indices import nbr, rbr
 
 __all__ = [
+    "PRITHVI_BAND_ASSETS",
     "SCL_KEEP",
     "TargetGrid",
     "composite_nbr",
     "mean_composite",
     "scl_valid_mask",
+    "sentinel2_bands6",
     "sentinel2_rbr",
     "sentinel2_stack",
+    "stream_band_composite",
     "stream_nbr",
 ]
+
+#: Sentinel-2 L2A earth-search asset keys for the six bands Prithvi-EO-2.0 consumes,
+#: in the model's expected order: Blue, Green, Red, narrow NIR, SWIR1, SWIR2. B8A (nir08)
+#: is the narrow NIR that matches the SWIR bandpass; B11/B12 are the two SWIRs. HLS (what
+#: Prithvi was trained on) and Sentinel-2 L2A are both harmonised surface reflectance, so
+#: this is the closest same-code-path substitute available from the open S2 catalogue.
+PRITHVI_BAND_ASSETS = ("blue", "green", "red", "nir08", "swir16", "swir22")
 
 #: Sen2Cor Scene Classification values to KEEP. Dropped are 0 nodata, 1 saturated,
 #: 2 dark, 3 cloud shadow, 8/9 cloud, 10 thin cirrus. Kept are vegetation (4),
@@ -117,6 +127,34 @@ def stream_nbr(scenes, shape: tuple[int, int], keep: tuple[int, ...] = SCL_KEEP)
         nir_m = np.where(count > 0, sum_nir / count, np.nan)
         swir_m = np.where(count > 0, sum_swir / count, np.nan)
     return nbr(nir_m, swir_m)
+
+
+def stream_band_composite(
+    scenes, shape: tuple[int, int], n_bands: int, keep: tuple[int, ...] = SCL_KEEP,
+    reflectance_scale: float = 10000.0,
+) -> np.ndarray:
+    """Cloud-masked mean composite of ``n_bands`` bands, accumulated one scene at a time.
+
+    ``scenes`` yields ``(bands, scl)`` where ``bands`` is a length-``n_bands`` sequence of
+    ``(H, W)`` arrays already on the target grid (Sentinel-2 L2A digital numbers) and
+    ``scl`` is the scene classification. Only running per-band sums and a shared count are
+    held, so a wide window with many scenes stays within flat memory (mirrors
+    :func:`stream_nbr`). Output is surface reflectance (DN divided by ``reflectance_scale``)
+    as ``[n_bands, H, W]``, NaN where a pixel is valid in no scene. Pure and offline-testable.
+    """
+    sums = [np.zeros(shape, dtype=np.float64) for _ in range(n_bands)]
+    count = np.zeros(shape, dtype=np.int32)
+    for bands, scl in scenes:
+        v = scl_valid_mask(scl, keep)
+        for b in range(n_bands):
+            sums[b] += np.where(v, np.asarray(bands[b], dtype=np.float64), 0.0)
+        count += v
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        out = np.stack([
+            np.where(count > 0, s / count, np.nan) / reflectance_scale for s in sums
+        ])
+    return out.astype(np.float32)
 
 
 def rbr_from_windows(
@@ -259,3 +297,41 @@ def sentinel2_stack(
     nbr_post = stream_nbr(_scene_arrays(post_start, post_end), grid.shape, keep)
     stack = np.stack([nbr_pre, nbr_post, _dnbr(nbr_pre, nbr_post)]).astype(np.float32)
     return rbr(nbr_pre, nbr_post), stack
+
+
+def sentinel2_bands6(
+    bbox_4326,
+    ignition_date: str,
+    grid: TargetGrid,
+    post_days: tuple[int, int] = (15, 75),
+    max_cloud: float = 60.0,
+    max_scenes: int = 12,
+    keep: tuple[int, ...] = SCL_KEEP,
+) -> np.ndarray:
+    """Post-fire six-band surface-reflectance composite for a Prithvi-EO-2.0 fine-tune.
+
+    Searches Sentinel-2 L2A in the post-fire window, warps the six Prithvi bands
+    (:data:`PRITHVI_BAND_ASSETS`, Blue/Green/Red/narrow-NIR/SWIR1/SWIR2) plus SCL onto
+    ``grid`` one scene at a time, cloud-masks and mean-composites, and returns
+    ``[6, H, W]`` reflectance in the model's band order. This is the multi-band re-pull the
+    foundation model needs: the RBR path pulled only two bands, Prithvi needs all six.
+    Single-timestamp (the BurnScars fine-tune uses one post-fire frame). Needs network,
+    pystac + rasterio.
+    """
+    from datetime import date, timedelta
+
+    ig = date.fromisoformat(ignition_date)
+    post_start = (ig + timedelta(days=post_days[0])).isoformat()
+    post_end = (ig + timedelta(days=post_days[1])).isoformat()
+
+    def _scenes():
+        items = _search_sentinel2(bbox_4326, post_start, post_end, max_cloud, max_scenes)
+        if not items:
+            raise RuntimeError(f"no Sentinel-2 scenes for {post_start}/{post_end}")
+        for it in items:
+            a = it.assets
+            bands = [_warp_asset_to_grid(a[key].href, grid) for key in PRITHVI_BAND_ASSETS]
+            scl = _warp_asset_to_grid(a["scl"].href, grid, resampling="nearest")
+            yield bands, scl
+
+    return stream_band_composite(_scenes(), grid.shape, n_bands=len(PRITHVI_BAND_ASSETS), keep=keep)

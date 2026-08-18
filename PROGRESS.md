@@ -1,9 +1,537 @@
 # VHAGAR progress tracker
 
-Last updated: 2026-08-14. Keep this file current. It is the single place to look
+Last updated: 2026-08-18. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: T1 temporal-anomaly real-data pull + FDC lead-time eval (2026-08-16)
+## Latest: Phase 5 -- live NRT ingest path (rolling GOES pull + background refresh) (2026-08-18)
+
+Built the hot-path ingest so the console can be a live feed, not just the cached August window.
+serve/ingest.py reuses VHAGAR's own resumable archive builder (vhagar.archive.backfill) to poll the
+newest GOES-18/19 ABI L2 FDC granules from the public NOAA S3 bucket (anonymous), decode via the
+existing io.goes_reader, append to a rolling store, and prune partitions past a retention window so
+clustering stays fast; once and loop modes. The API was refactored from a one-shot lru_cache into a
+swappable in-memory snapshot with a background refresher: VHAGAR_REFRESH_SEC>0 rebuilds the snapshot
+on a cadence so new granules appear without a restart and requests never block on the ~30s clustering
+(they read the last-good snapshot until the new one is ready). /api/health now reports refreshes +
+last_refresh.
+
+Tested offline (S3 is blocked in-sandbox and netCDF4 absent, so the actual pull is a user-machine
+step, like every prior network pull in this project): backfill import + reuse path OK; ingest --help
+OK; prune() unit test (drops old part-YYYYMMDD, keeps fresh) OK; API parses; background refresher
+verified via TestClient (refresh count 0 -> 2 over ~3s, endpoints stay honest, no fabricated fields
+survive a refresh). Console JS unchanged, still clean.
+
+Run live (user machine, needs internet + s3fs/xarray/h5netcdf/pyproj): terminal 1
+`python -m serve.ingest --out data/detections_nrt --sat 18 --interval 300 --retention-days 3`;
+terminal 2 set VHAGAR_DET_DIR=...\data\detections_nrt\detections and VHAGAR_REFRESH_SEC=300, then
+`uvicorn serve.vhagar_api:app`. Honest scope: GOES-18 covers the US West; add a --sat 19 ingester for
+the East. Files: serve/ingest.py; serve/vhagar_api.py refactored (state holder + refresher + health
+counters); serve/README.md "Live" section. This is the operational NRT wiring; the fuller architecture
+hot path (SNS->SQS->worker->PostGIS->SSE) remains the production upgrade.
+
+## Latest: Phase 5 -- console wired to real GOES FDC data via a self-hosted VHAGAR API (2026-08-18)
+
+Took the console off the bundled sample and onto VHAGAR's real detections. New serve/vhagar_api.py
+(FastAPI) reads the cached FDC parquet (188,639 GOES-18/19 detections, 2026-08-01..07 CONUS),
+clusters them into fire events with VHAGAR's own parallax-aware fusion (geo_leo_tolerance_m plus the
+same single-link rule as harmonize.fusion.cluster_detections, KD-tree neighbour search so it scales
+to the CONUS week), and serves /api/events + /api/detections as GeoJSON plus /console, all from one
+process (no Vercel, no Mapbox). Verified end to end via TestClient: 704 events total (89 in
+California), /api/export + /console return 200, first load ~45s then cached for the process.
+
+Honesty held to the letter. FDC gives position, FRP, brightness temperature, confidence, view zenith
+and time; it does NOT give spread risk, fire weather, or a validated burned area, so those fields are
+ABSENT, not invented (checked: no risk_score / wind / rh / temp / false_alarm in the payload). The
+event polygon is the convex hull of a cluster's detection pixels, a detection FOOTPRINT, not burned
+area. The API sets schema="fdc" and the console relabels accordingly: KPIs become detection footprint
+/ cumulative FRP / peak FRP / GOES sensors; perimeters are colored by peak FRP not risk; the spread-
+risk and weather panels are hidden; the incident feed sorts by peak FRP. Console JS node-checked, no
+em dashes. Run: pip install -r serve/requirements.txt; uvicorn serve.vhagar_api:app; open /console.
+Files: serve/vhagar_api.py, serve/README.md, serve/requirements.txt, serve/__init__.py; console made
+schema-aware.
+
+Polish (2026-08-18): (1) disk cache of the clustered events + detections keyed on the dataset
+manifest fingerprint (serve/.cache, gitignored), so a warm start is 0.12 s vs ~45 s cold (measured);
+VHAGAR_NO_CACHE=1 forces a rebuild. (2) Map legibility: event hull outlines now render in a pane
+ABOVE the detection dots (bright, dashed, solid when selected) with a faint fill below, and the FRP
+glow radius/opacity were toned down, so individual fires and their hulls read instead of one orange
+mass.
+
+## Phase 5 opened -- VHAGAR wildfire console + brand identity (product UI) (2026-08-18)
+
+Pivoted from the science core to the platform/UI phase (roadmap Phase 5, docs/00 section 10).
+Built VHAGAR's first operations UI and locked its visual identity. This is product/UI work; the
+model science is unchanged since the transfer result below.
+
+WHERE THE ROADMAP STANDS (docs/00 section 10):
+- Phase 0 Foundations: DONE (grid + tiling, leakage-proof splits + CI, label spine, event registry).
+- Phase 1 T2 burned area: DONE through the headline generalisation number. RBR baseline -> U-Net
+  (+0.441) -> stack U-Net (+0.538) / siamese -> per-ecoregion + leave-one-continent-out -> Prithvi-
+  EO-2.0 fine-tune rebalanced (+0.398), beats same-fire NBR (+0.398 vs +0.163), transfers CONUS->
+  Europe beating CONUS-tuned NBR (+0.488 vs +0.372, wins 6/9). Only "make it decisive" (scale
+  cohorts, user GPU/network) remains.
+- Phase 2 T1 detection: done to honest Stage-0 / Stage-2 / temporal results. Detection POD 0.50,
+  precision 0.94 / FAR 5.6% (parallax), latency 2 min; Stage-2 lat/lon leak reproduced; temporal-
+  anomaly early detection an honest negative (does not beat FDC at matched FAR, with a night
+  directional hint). NOT yet the hot-path GOES ingest / event-fusion service.
+- Phase 3 T3 danger and Phase 4 T4 spread: NOT STARTED.
+- Phase 5 Platform / UI: STARTED HERE. The map UI is the first deliverable. Alerting, PostGIS/
+  TimescaleDB, tiles, and the model registry are still to build.
+
+WHAT WAS BUILT (2026-08-18):
+- vhagar_console.html (VHAGAR repo): a single self-contained wildfire operations dashboard. No
+  build step, no Mapbox token, no external host (deliberately NOT Vercel). Leaflet with free Dark/
+  Satellite/Terrain tiles. Reads a fire API's /api/events + /api/detections (GeoJSON, the FirePerim
+  prior-art contract in docs/05); point it at a backend with window.VHAGAR_API, else same origin;
+  bundled sample fallback so it always renders. Live/sample pill, 5-min auto-refresh, KPI strip
+  (events, detections, burned area, total FRP, top spread risk, false-alarm screen %), prioritised
+  incident feed (click -> flyTo + detail drawer with weather and GeoJSON/KMZ export), risk-colored
+  perimeter polygons, FRP glow+dot detections, wind-spread arrows. JS node-checked, no em dashes.
+- Brand identity: Vhagar dragon-head emblem (green dragonfire, gold ring) cropped from the user's
+  art, saved in brand/ (square mark + circular 256/128/64/32 + favicon). Emblem logo and favicon
+  embedded in the console as data URIs; green-flame accent in the wordmark; functional fire/risk
+  colors left untouched.
+- portal_fire.html (PipelineWatch_NG lillie): VHAGAR wired into the Lillie product suite as a per-
+  AOI portal behind the same deny-by-default aoi_allowed gate as the oil/mining portals
+  (_build_fire_data + dispatch branch in view_portal; demo AOI static/fire_watch/aoi/great-basin-
+  demo.json).
+
+NEXT (roadmap choices): (a) continue Phase 5 -- wire the console to real VHAGAR fire data (adapt
+the lillie server, or bring a small events/detections API into the VHAGAR repo), then add alerting
+and tiles; (b) return to the science and make the T2 transfer decisive (scale CONUS cohort to ~60
+fires + a larger European set); or (c) open Phase 3 (T3 danger). T3 and T4 are the untouched
+roadmap phases.
+
+## TRANSFER RESULT -- CONUS-trained Prithvi generalises to Europe, beats NBR (+0.488 vs +0.372) (2026-08-16)
+
+Ran the leave-one-continent-out transfer end to end (transfer notebook: train CONUS burn-
+balanced + dice, predict 9 EU chips with that checkpoint; scored locally via t2-prithvi-transfer).
+RESULT: CONUS-trained Prithvi on European fires mean skill +0.488, wins 6/9, vs CONUS-tuned NBR
+threshold +0.372 (3/9). Per-fire Prithvi-NBR: +0.44,+0.05,+0.38,+0.18,+0.34,+0.15 (wins),
+-0.12,-0.16,-0.21 (losses). Foundation model fine-tuned ONLY on US fires transfers across the
+Atlantic and beats a spectral threshold by +0.116 mean -- genuine cross-continent generalisation.
+CONUS test IoU this run 0.195 (consistent w/ the 0.21 rebalanced run). docs/13 "Transfer result".
+
+Full T2 Prithvi arc (all same-code-path, every setback diagnosed+fixed): built -> naive under-
+performs (imbalance) -> rebalanced U-Net-competitive (+0.398) -> beats same-fire NBR baseline
+(+0.398 vs +0.163) -> transfers to Europe, beats CONUS-tuned NBR (+0.488 vs +0.372). Honest
+scope: 9 EU fires modest, Prithvi loses 3/9; direction clear. A strong, complete positive result.
+
+Note: transfer-notebook bug found -- predict_eu.py had files.download INSIDE the subprocess (fails,
+no kernel); masks still zipped fine, download must be in-kernel. (Claude ran the transfer scoring
+directly from the user's Downloads via the mount.)
+
+PATCHED (2026-08-16): colab/prithvi_transfer_colab.ipynb now writes masks+zip in the subprocess
+and downloads in a SEPARATE in-kernel cell (bug fixed). t2-prithvi-transfer output now prints
+"Prithvi wins N/M" (6/9). Suite green, ruff clean.
+
+TO MAKE RESULTS DECISIVE (user, network pulls; code is done):
+- CONUS: t2-prithvi-build --max-fires 60 --select size -> t2-prithvi-export --burn-balance ->
+  re-Colab (60 fires -> ~9 test fires vs 3).
+- Europe: emsr-candidates --year-min 2018 -> emsr-ingest (bigger emsr.csv) -> t2-prithvi-build-emsr
+  -> t2-prithvi-export-infer -> predict with CONUS ckpt -> t2-prithvi-transfer.
+
+## wired the leave-one-continent-out transfer test (CONUS-trained Prithvi vs Europe) (2026-08-16)
+
+European fires ARE on disk (emsr.csv + EMSR delineation shapefiles + old RBR emsr samples), just
+not in the main registry (0 europe records). Built the transfer-test enablement (all pure/tested
+except the pull): t2-prithvi-build-emsr (6-band European samples, EMS delineation reference, reuses
+read_emsr + read_emsr_reference_on_grid + build_prithvi_sample); export_inference_chips / t2-
+prithvi-export-infer (chip a cohort flat, no split, for predicting with a model trained elsewhere);
+nbr_threshold_transfer (tune NBR cut on CONUS, score Europe -- spectral analogue of the transfer);
+t2-prithvi-transfer (stitch European Prithvi preds, score vs EMS, compare to CONUS-tuned NBR). +2
+tests. Full suite green, ruff clean. docs/13 "Leave-one-continent-out transfer test".
+
+Workflow (user): t2-prithvi-build-emsr (S2 pull, ~9 EU fires) -> t2-prithvi-export-infer -> Colab:
+predict EU chips with the CONUS checkpoint -> t2-prithvi-transfer. Read: if CONUS-Prithvi keeps a
+skill margin over CONUS-tuned NBR on European fires, pretraining bought cross-continent transfer.
+
+## same-fire baseline -- Prithvi (+0.398) BEATS post-NBR threshold (+0.163) on identical fires (2026-08-16)
+
+Added the first strict same-code-path comparison. nbr_threshold_baseline() fits one post-fire
+NBR cut on train fires, scores the IDENTICAL 3 test fires with the SAME skill-over-naive metric
+(_post_nbr uses bands 3=nir08, 5=swir22). CLI t2-prithvi-baseline (pure numpy, no GPU). Ran on
+real cache: NBR-threshold mean skill +0.163 (MN -0.047, WA +0.320, WA +0.218) vs rebalanced
+Prithvi +0.398 (MN +0.042, WA +0.520, WA +0.634). Prithvi beats the spectral threshold by
++0.235 mean AND wins all 3 fires individually. This is the honest apples-to-apples the +0.54
+(U-Net's own CV) couldn't give: the foundation model earns its keep over a pointwise cut here.
++1 test. Full suite green, ruff clean. docs/13 "Same-fire baseline".
+
+Open items unchanged (both local, no GPU): more CONUS fires + European set (leave-one-continent-
+out) for a full verdict; optional strict t2-unet on these exact 3 fires (needs torch).
+
+## REBALANCED Prithvi fine-tune is U-Net-competitive (+0.398 skill, was +0.054) (2026-08-16)
+
+Re-ran on Colab T4 with --burn-balance (318 train chips, 63% burn) + LOSS=dice, 60 epochs. The
+fix worked, big jump: test burn-IoU 0.10->0.21, burn recall 11%->50%, per-fire mean skill
++0.054 -> +0.398 (ALL 3 fires positive now): MN +0.042 (was a total miss -0.098), WA +0.520
+(F1 0.82), WA +0.634 (F1 0.82). vs U-Net +0.54: two of three fires at/above U-Net level; the
+small MN fire pulls the mean. So a rebalanced foundation-model fine-tune is COMPETITIVE with the
+small model here -- complete turnaround, vindicates the imbalance diagnosis.
+
+Complete honest arc for T2 Prithvi: pipeline built + validated end-to-end on GPU; naive fine-
+tune underperforms (+0.054) by class-imbalance under-detection; diagnosed; fixed (burn-balanced
+chips + dice); recovered to U-Net-competitive (+0.398). docs/13 "The rebalanced result".
+
+STILL FOR A VERDICT (both local, no GPU): (1) strict same-fire comparison -- run t2-unet /
+t2-stage0 on these EXACT 3 test fires (the +0.54 was U-Net's own CV; these fires' naive F1s
+0.10-0.30 are a specific small sample). (2) SCALE -- more CONUS fires + European set for leave-
+one-continent-out transfer. Note: watch Colab download versioning -- browser saves
+prithvi_preds (N).zip, don't score a stale one.
+
+## first Prithvi fine-tune RAN on Colab T4 -- honest underperformance; added rebalancing (2026-08-16)
+
+Full Prithvi pipeline ran end-to-end on a Colab T4. 20 fires -> 470/75/138 chips -> fit (ce,
+~29 ep, early-stopped) -> test -> 138 preds -> download -> t2-prithvi-score. Fixes that got it
+running: torchgeo==0.7.1 pin; removed predict_* config keys; no-restart notebook running
+fit/test/predict as SUBPROCESSES (dodges pip's numpy-under-kernel conflict); session-upload data.
+
+RESULT (honest, underwhelming): test burn-IoU 0.10, burn recall 11%, not-burned 98%; per-fire
+mean skill +0.054 (per fire: miss -0.098 / +0.013 / +0.246) vs U-Net +0.54. Straight fine-tune
+badly UNDER-DETECTS burned area = CLASS IMBALANCE (wide windows -> mostly-unburned pixels/chips,
+plain CE predicts "not burned"), NOT a foundation-model defect. Benchmark 87.5 used curated
+burn-balanced chips; ours aren't.
+
+FIX built + tested: (1) chip_sample(burn_balance=True) / t2-prithvi-export --burn-balance:
+denser stride, keep all burn chips, cap background to max_bg_ratio x burn; TRAIN split only
+(val/test faithful). Real data: train burn-chip frac 42%->65% (199->713 burn chips). (2) Colab
+config now has a LOSS param (default 'dice', imbalance-robust) instead of ce. +1 test. Full
+suite green, ruff clean. Notebook regenerated. docs/13 "First real fine-tune result".
+
+NEXT (user): re-export --burn-balance, re-run Colab with LOSS='dice' for the fair test. Also
+run t2-unet on the SAME 3 test fires for strict apples-to-apples. Then scale fires + Europe.
+
+## terratorch validated config+chips; wired per-chip->per-fire stitch; no local GPU (2026-08-16)
+
+terratorch fit RAN on the user's machine (after pinning torchgeo==0.7.1 -- terratorch's
+torchgeo constraint is currently commented out/un-pinned, so pip pulled an incompatible newer
+one that dropped torchgeo.trainers.utils): loaded prithvi_burnscars_vhagar.yaml, downloaded
+Prithvi-EO-2.0-300M weights, built the 324M model, started training. So the config + chip
+dataset are validated against terratorch itself. BUT GPU available: False -- the box has no
+NVIDIA GPU (nvidia-smi not found; cu121 torch still reports cuda False). Real fine-tune ->
+cloud GPU; everything transfers as-is.
+
+Closed the last integration gap: terratorch predicts PER CHIP, scoring needs PER FIRE.
+export_prithvi_chips now writes _chips.json (stem -> event_id,y0,x0,H,W); new
+stitch_chip_predictions reassembles per-chip preds into per-fire masks (offset placement,
+edge-clip, burned-wins overlap). t2-prithvi-score --chips-manifest stitches then scores via
+the same skill-over-naive as RBR/U-Net. +2 tests (stitch reassembles quadrants; clips edge
+overhang). Full suite green, ruff clean.
+
+Remaining: run terratorch fit on a cloud GPU (or capped-CPU smoke test) -> predict test chips
+-> t2-prithvi-score --chips-manifest -> compare mean skill to U-Net +0.54 on same test fires.
+Note: 20 fires = 15/3/3 split (only 3 test fires) -> enough to validate, too few to settle;
+scale fires + add European fires for leave-one-continent-out before claiming a result.
+
+## Prithvi six-band pull confirmed on real fires; terratorch config generated (2026-08-16)
+
+Ran the real six-band pull end-to-end (user's machine): 20 CONUS-2021 fires cached at 30 m
+(first run hit transient earth-search APIErrors; resumable re-run got all 20), then export ->
+470/75/138 train/val/test chips. Verified on disk: [6,224,224] float32 reflectance in [0,~0.9],
+int16 labels {-1,0,1}, split by whole fire (15/3/3), image/label counts matched. The whole
+VHAGAR side of the Prithvi pipeline is now confirmed on real data, not just unit tests.
+
+Fetched the authoritative burn_scars_config.yaml and aligned the export to its exact layout:
+single out_dir/data with {stem}_merged.tif + {stem}.mask.tif + out_dir/splits/{train,val,
+test}.txt (was separate images/labels dirs). Generated prithvi_burnscars_vhagar.yaml at repo
+root: the published config with only data paths + per-band means/stds changed; the means/stds
+were COMPUTED from this dataset's 15 training fires (19.6M valid px, no val/test leakage) so
+they match Sentinel-2 L2A reflectance not HLS. means=[0.0498,0.0687,0.0765,0.2146,0.2049,
+0.1462], stds=[0.0311,0.0363,0.0496,0.0850,0.0943,0.0826].
+
+Suite green, ruff clean, YAML parses. docs/13 updated. User must RE-EXPORT (layout changed):
+vhagar t2-prithvi-export --cache-dir data\t2_prithvi --out-dir data\t2_prithvi_chips --chip 224,
+then pip install terratorch + terratorch fit -c prithvi_burnscars_vhagar.yaml (GPU), then
+vhagar t2-prithvi-score vs U-Net +0.54 on the same test fires.
+
+## Prithvi pipeline complete VHAGAR-side (chip export + fair scoring bridge) (2026-08-16)
+
+Completed the VHAGAR side of the Prithvi fine-tune so only network-pull + GPU-fit remain.
+eval/t2_prithvi.py (all pure/tested except the rasterio write):
+- grouped_split: whole fires -> train/val/test, leakage-proof (no fire in two splits).
+- chip_sample: tile a 6-band T2Sample into chip image [6,c,c] + label [c,c] int8 in HLS Burn
+  Scars convention (0 unburned / 1 burned / -1 nodata); pads small samples up to one chip.
+- write_chip_geotiffs / export_prithvi_chips: paired 6-band image + signed-label GeoTIFFs under
+  out_dir/{split}/{images,labels} + _split.json (rasterio-guarded). CLI t2-prithvi-export.
+- score_masks / summarise_scores: predicted burned masks -> F1/IoU + skill-over-naive per
+  held-out fire via the SAME confusion_counts as RBR/U-Net, so the head-to-head is one code
+  path. CLI t2-prithvi-score (reads {event_id}.tif preds, prints per-fire + mean skill).
++4 tests (grouped_split partition; chip_sample 6-band signed labels + small-sample pad; score
+matches confusion/naive). Full suite green, ruff clean. docs/13 updated (build->export->fit->score).
+
+Only user's-machine steps remain: t2-prithvi-build (S2 network pull) and terratorch fit (HF
+weights + GPU). Everything else assembled + scored leakage-proof, unit-tested.
+
+## pivoted to T2 Prithvi-EO-2.0; built the six-band re-pull (SOTA foundation model) (2026-08-16)
+
+Banked T1 temporal (honest negative + directional hint) and pivoted to the other frontier item:
+fine-tune Prithvi-EO-2.0 (NASA/IBM geospatial foundation model) for T2 burned area, to try to
+beat the U-Net's +0.54 skill. Researched the real recipe (model card + terratorch): Prithvi-EO-
+2.0-300M + UNet decoder, 6 HLS bands (Blue/Green/Red/narrow-NIR/SWIR1/SWIR2), single timestamp,
+weighted CE + LoRA, `terratorch fit`. 87.5 IoU on HLS Burn Scars benchmark.
+
+Built + tested offline the one new prerequisite, the SIX-BAND RE-PULL (RBR used only 2 bands):
+- io.optical.sentinel2_bands6 + stream_band_composite: post-fire 6-band cloud-masked surface-
+  reflectance composite [6,H,W] in Prithvi band order, streaming/flat memory. PRITHVI_BAND_ASSETS.
+- datasets.t2_optical.build_prithvi_sample: pairs the 6-band stack with the MTBS mask on the
+  SAME grid/window/reference as the RBR sample (so Prithvi is scorable head-to-head vs RBR/U-Net).
+  Cached T2Sample .npz (tag p6). Stubbed-pull unit test.
+- CLI t2-prithvi-build: select fires + build/cache the 6-band dataset.
+- docs/13_T2_PRITHVI.md: full runbook (build -> export terratorch chips on grouped folds ->
+  pip install terratorch + HF weights -> terratorch fit -> score via skill-over-naive on the
+  same folds). Honest caveats: S2-vs-HLS domain shift; only fair vs RBR/U-Net on same fires.
+
++2 tests (stream_band_composite masks/scales; build_prithvi_sample stacks 6 bands vs MTBS).
+Full suite green, ruff clean. STILL USER'S TO RUN (network/GPU): the 6-band pull, terratorch
+chip export, the fine-tune, fold-wise scoring. Next code increment: chip export + scoring bridge.
+
+## 5th artefact -- non-detection masked as zero-lead tie; now report DETECTION RATE (2026-08-16)
+
+The learned cohort table was internally impossible (per-fire medians of 0 next to stratum
+"100% px led"), which exposed an accounting bug: when the residual NEVER crossed threshold for
+a fire in the held-out window, real_lead_experiment returned median_lead_min=0 (a TIE) counting
+all fire px but adding nothing to the pooled distribution -- a MISS shown as a draw. So the
+earlier "night median 0" (both hourly + learned) was largely NON-DETECTIONS, not ties: the
+detector was failing to detect many night fires at all at FAR 0.01 / 3-frame / held-out, not
+matching FDC.
+
+Fix: RealLeadResult carries n_fire_pixels_total + detection_rate; a non-detecting fire reports
+median_lead_min=NaN (not 0) and counts as not-led. cohort_lead_summary leads with detection
+rate (px flagged at all in held-out window), then lead AMONG DETECTED px. CLI prints "no
+detection" in red per missed fire; table leads with detection rate. +1 test (miss lowers det
+rate, counts not-led, excluded from lead median). Suite green, ruff clean.
+
+HONEST BOTTOM LINE (5 artefacts fixed: contamination, global-threshold night-blindness,
+first-crossing false alarms, training-on-test, non-detection-as-tie): infra + method are solid
+(real pull, physics+learned forecasters, matched-FAR/per-tod/persistence/train-test protocol,
+stratified cohort w/ control, detection-rate-first scoreboard). NO lead over FDC established: a
+single-band 3.9um temporal-residual detector, scored honestly, does not beat FDC and often
+doesn't detect fires before it at a defensible FAR. Best banked at this honest negative.
+docs/12 "The fifth flaw" + "Honest bottom line for the T1 temporal component".
+
+HONEST COHORT NUMBERS (hourly mean, FAR 0.01, 6 bins, 3-confirm, held-out):
+  night_coldstart: 3 fires, det 23% px (67% fires), fires led 33%, median lead(det) +72,
+                   pooled px +175, px led 94%. Per-fire: miss(0/80), +175(72/163), -30(6/100).
+  day:             2 fires, det 29% px (100% fires), fires led 50%, median lead(det) -141,
+                   pooled px -430, px led 17%. Per-fire: +148(2/2), -430(27/97).
+Read: (1) LOW SENSITIVITY -- detects only ~25% of fire px at defensible FAR; rules it out as a
+stand-alone detector, at best a lead-time supplement on px it catches. (2) DIRECTIONAL SIGNAL
+conditional on detection -- night detected px LEAD FDC (+175 pooled, 94%), day detected px LAG
+(-430 pooled, 17%): the mechanism's signature (helps at night where absolute threshold slowest,
+not by day). Caveat: tiny cohort, effectively 1 informative fire/stratum -> suggestive, not
+demonstrated. Best banked here: well-instrumented honest negative WITH a directional hint.
+docs/12 "The honest cohort result" + "Honest bottom line". Suite green, ruff clean.
+
+## first trustworthy cohort result -- ties FDC on night, trails on day (directional, underpowered) (2026-08-16)
+
+With train/test split + clean controls, leads are physically plausible for the first time.
+Fire-level medians (hourly mean, FAR 0.01): night_coldstart 3 fires, 33% led, median 0 min;
+day 2 fires, 50% led, median -141 min (1 day fire skipped, no in-box FDC). DIRECTION is right
+(night 0 > day -141: residual relatively better where an absolute threshold is slowest) but
+night is a TIE not a win, and n=5 with per-fire pixel counts 2..80 is noisy. Added pooled-
+pixel aggregation (cohort_lead_summary now reports pooled_pixel_median_lead + frac, robust to
+tiny fires; RealLeadResult carries per-pixel leads_min) + CLI columns. +updated test.
+
+HONEST BOTTOM LINE (after 4 artefact fixes, real GOES pull, learned+physics forecasters,
+stratified cohort w/ control): a single-band 3.9um temporal-residual detector does NOT beat
+GOES FDC on this week's fires; it ties on night cold-starts, trails on day. Directional
+signal consistent with the mechanism, far short of a demonstrated lead, underpowered at n=5.
+Matching a mature multi-band operational product with one band + one GOES-week is a
+reasonable, honest landing. A real lead would need a much larger cohort + multi-band context,
+not more single-band tuning.
+
+Suite green, ruff clean. docs/12 "The first trustworthy cohort result". Next: optional
+--learned run on the SAME clean cohort (reuses cubes, torch) to see if it lifts night tie->
+slight lead; then bank the temporal component. Other frontier item remains: Prithvi-EO
+fine-tune for T2.
+
+## 4th artefact (training-on-test) fixed with a train/test split; clean day controls (2026-08-16)
+
+First cohort run gave enormous night leads (+275..+755 min) and auto-excluded ALL day
+controls -- both bugs, not results. (1) TRAINING ON TEST: the residual detected on the same
+frames the baseline was fit on, and a fire pixel differs from fire-free calibration pixels
+for ordinary reasons (warmer surface), so it crossed the spatial threshold DURING the
+pre-ignition baseline -> a ~10h pre-fire false detection scored as lead. Fix: real_lead_
+experiment(..., eval_start=clear_end) counts detections only on held-out post-baseline frames
+(same period FDC first flags the fire). CLI passes eval_start=clear_end in both t1-temporal-
+real and t1-temporal-cohort. (2) CONTAMINATED CONTROLS: the box (wider than the cluster cell)
+caught a neighbouring earlier fire in the baseline span. Fix: select_fire_cohort anchors each
+window on the earliest FDC detection IN THE BOX and ends the baseline 3h before it -> fire-
+free training by construction. Verified on real FDC: all 6 fires (3 night + 3 day) now clean.
+
++1 test (eval_start ignores a sustained in-baseline excursion, detects post-split). 4th
+artefact caught by the same discipline (implausible number + broken comparison -> method
+error, not banked). Suite green (18 temporal-file tests), ruff clean. docs/12 "The fourth
+flaw: training on the evaluation frames".
+
+Re-run (windows changed -> re-pull): vhagar t1-cohort-select -> vhagar t1-cohort-pull --spec
+cohort\cohort.json --refetch -> vhagar t1-temporal-cohort --spec cohort\cohort.json
+--detections data\detections\detections --far 0.01 --far-bins 6 --min-consec 3 [--learned].
+This is the first cohort measurement with a real control and no training-on-test.
+
+## stratified fire-cohort eval harness (the right SOTA test, n>1 with a control) (2026-08-16)
+
+n=1 can't answer whether the temporal detector works. Built the proper test: a cohort
+stratified by the condition theory says matters. select_fire_cohort clusters FDC into fires,
+computes ignition local-solar-hour + early FRP ramp, picks night_coldstart fires (the
+residual's edge) + day controls, each with a ready pull window + pre-ignition clear_frac.
+CLI t1-cohort-select (writes spec JSON + prints pull cmds) and t1-temporal-cohort (scores
+every fire through the SAME matched-FAR/far-bins/persistence/contamination pipeline, hourly-
+mean or --learned, aggregates lead over FDC PER STRATUM via cohort_lead_summary). Ran
+selection on real GOES-18 FDC: 3 cold-start late-night Sonora fires (~28-29N, local 23-24h,
+slow ramp) + 3 day controls. Scientific read: leads FDC on night stratum but not day =
+evidence for the mechanism; both/neither = not.
+
++3 tests (cohort_lead_summary aggregation; select_fire_cohort stratifies night/day on a
+synthetic parquet; selection clear-window ends before ignition). Full suite green, ruff
+clean. Harness + selection + aggregation unit-tested offline; the 6 small cube pulls are the
+user's to run (need S3). docs/12 "The right test: a stratified fire cohort, not one fire".
+
+Workflow (one-shot pull added, cohort_pull + t1-cohort-pull, resumable/skip-existing, +1
+test): vhagar t1-cohort-select -> vhagar t1-cohort-pull --spec cohort\cohort.json -> vhagar
+t1-temporal-cohort --spec cohort\cohort.json --detections data\detections\detections --far
+0.01 --far-bins 6 --min-consec 3 [--learned]. Cohort selection already reproduced on user's
+machine (3 Sonora night fires + 3 day controls); pulls + score pending (need S3).
+
+## learned forecaster ran -- robust negative, FDC not beaten on this fire (2026-08-16)
+
+Ran --learned (TemporalAnomalyNet, 15 epochs, window 6, +solar) on the north-cell cube:
++435/-95/-222 min at FAR 0.05/0.01/0.002. Marginally better than the hourly mean at moderate
+FAR (-95 vs -170 at 0.01) but SAME verdict: at any defensible FAR the residual lags FDC; at
+strict FAR only 14 of 24 fire pixels detected. Conclusion now ROBUST across forecasters: a
+crude mean AND a learned net w/ solar covariate, both trained on one diurnal cycle, both fail
+to beat FDC on this night fire at matched FAR.
+
+Two honest reads (neither a defect in the residual idea): (1) DATA SCALE -- both forecasters
+see only ~30h (one diurnal cycle); the untried lever is a multi-day pull (common factor in
+both failures, no new code, just a longer t1-pull-cube window). (2) SAMPLE SIZE -- n=1 fire,
+and FDC handles it well even at night; the residual's edge is specifically cold-start slow
+night fires; a fair verdict needs a cohort. The synthetic +70min is a synthetic property; on
+real data so far FDC is not beaten. Honest state, banked. docs/12 "The learned result, and
+the robust conclusion". Suite green, ruff clean.
+
+Decision point for user: (a) multi-day baseline pull (more history, highest-value single
+lever), (b) cohort of fires (fair test of the night-fire edge), or (c) bank the honest
+negative + full hardened protocol as the T1 temporal deliverable and pivot to Prithvi/T2.
+
+## learned TemporalAnomalyNet wired end-to-end (SOTA forecaster path) (2026-08-16)
+
+User chose the state-of-the-art lever. Wired the learned forecaster end-to-end so it runs as
+one command: t1-temporal-real --learned trains TemporalAnomalyNet on the cube's clear-sky
+span and feeds residuals to the SAME matched-FAR / far-bins / min-consec protocol.
+learned_residuals() = train_temporal_net(cube[:clear_end], solar covariate) then
+temporal_net_residuals() over the full cube. NaN-robust: BT mean-centred + holes filled with
+0 so the 3D conv sees in-distribution values, but the forecasting loss is MASKED to finite
+target pixels and residuals reset to NaN where input was NaN -- cloud never trains or scores.
+Solar covariate = cos(solar_zenith_cube) models the daytime 3.9um reflectance the hourly mean
+can't (the thing that forced the high threshold). CLI: --learned/--baseline, --window,
+--epochs, --no-solar. +1 torch-guarded test (NaN-safe learned residuals feed the experiment).
+
+Couldn't runtime-verify in sandbox (torch won't install: CPU index proxy-blocked, default
+build's CUDA deps exceed 2.4G free). Code is torch-guarded, shapes matched to
+TemporalAnomalyNet (B,T,C,H,W), non-torch suite green, ruff clean; torch tests run on user's
+machine. Run on existing cube (no new pull):
+  vhagar t1-temporal-real utah_north_cube.npz --detections data\detections\detections --clear-frac 0.7 --far-bins 6 --min-consec 3 --learned --epochs 15
+Same three artefact guards apply; read the same way (lead must hold as FAR tightens + be
+physically plausible). If it still doesn't clear FDC, remaining lever is a multi-day baseline
+pull (data-scale limit, not modelling-idea limit). docs/12 "The learned forecaster, wired".
+
+## TRUSTWORTHY temporal read -- crude baseline does NOT beat FDC (honest negative) (2026-08-16)
+
+With all three artefacts controlled (clean baseline, --far-bins 6, --min-consec 3), the
+honest table on the north-cell fire: +692/-170/-225 min at FAR 0.05/0.01/0.002. At any
+defensible FAR the residual detector LAGS FDC (-170 at 0.01, -225 at 0.002); for 11 of 24
+fire pixels it never confidently detects at strict FAR (count 24->13). The +692 at 0.05 is
+the last loose-threshold artefact: a 1-diurnal-cycle baseline holds real per-pixel BIAS
+(~1-2 samples/hour), so at a permissive cut the residual crosses pre-fire; at a strict cut
+that bias forces a high threshold and FDC's mature multi-band algorithm wins.
+
+CONCLUSION (plainly): on this real fire, a crude hourly-mean diurnal-residual detector does
+NOT beat GOES FDC at matched FAR. The synthetic +70min demo does not transfer to this
+baseline. Real negative result; cause localised to the BASELINE, not the residual idea.
+
+Two levers remain (both need more input than the existing cube): (1) multi-day clear-sky
+baseline pull -> many samples/hour -> less bias -> lower matched-FAR threshold (just a longer
+t1-pull-cube window, no new code); (2) learned TemporalAnomalyNet + solar_zenith_cube
+covariate (models daytime solar reflectance the mean can't; needs torch). Banked regardless:
+real GOES pull + matched-FAR lead-time protocol vs FDC + three artefacts found/fixed by a
+collapse-across-FAR diagnostic. docs/12 "The trustworthy read". Suite green, ruff clean.
+Awaiting user's choice of lever.
+
+## 3rd temporal artefact (first-crossing false alarms); added persistence confirm (2026-08-16)
+
+--far-bins 6 produced huge leads (+2048/+705/+682 min) -- another artefact. The estimator
+took the FIRST residual exceedance anywhere in the 42h record as detection time; over ~500
+frames a per-frame FAR of 0.01 gives every pixel several isolated false exceedances, and the
+sensitive night threshold lands them the night BEFORE ignition, so a single pre-fire blip
+scores as an 11-34h "lead". Matched FAR controls the rate, but first-crossing is maximally
+gamed by it. A 34h lead points to before the fire existed -> not real.
+
+Fix: persistence. real_lead_experiment(..., min_consec=k) via _first_persistent() requires k
+consecutive exceedances before declaring detection (how contextual detectors confirm across
+scans); isolated blips filtered, only a sustained ramp counts, alarm at run end. CLI
+--min-consec (default 3 = 15min). At FAR 0.01 a 3-frame false run is ~1e-6/position, so
+pre-fire false detections vanish. +1 test (persistence ignores a pre-fire spike, detects the
+ramp). Suite green (13 temporal tests), ruff clean. docs/12 "The third flaw".
+
+Three artefacts now, each caught by the same collapse-across-FAR / physical-implausibility
+diagnostic, not a headline: (1) baseline contamination [guard], (2) global-threshold night-
+blindness [per-time-of-day threshold], (3) first-crossing false alarms [persistence]. The
+next run is the first TRUSTWORTHY read:
+  vhagar t1-temporal-real utah_north_cube.npz --detections data\detections\detections --clear-frac 0.7 --far-bins 6 --min-consec 3
+If a positive strict-FAR lead holds at a physically plausible margin, the differentiator is
+real on this fire. If the ~1-diurnal-cycle baseline is too thin, levers: multi-day baseline
+pull or learned TemporalAnomalyNet + solar covariate. Deliverable is as much the hardened,
+self-skeptical protocol as any single number.
+
+## clean temporal run exposed a 2nd flaw; added per-time-of-day FAR threshold (2026-08-16)
+
+Re-pulled with a genuinely pre-ignition baseline (north cell -112.35,38.85,-112.05,39.10,
+08-01 00:00..08-02 18:00, 504 frames, fire ignites 07:47 UTC with ~32h clear history).
+Contamination guard silent (good). But the crude hourly-mean residual STILL did not beat
+FDC: +668/+5/-192 min at FAR 0.05/0.01/0.002 -- same collapse, clean baseline, so a
+different cause. It's a flaw in my own protocol: the residual threshold was a single GLOBAL
+percentile across all hours, but daytime 3.9um residual variance is far larger (solar
+reflectance), so a global cut is set by daytime and desensitises night -- exactly when this
+fire ignites (~01:47 local). I re-introduced the night-blindness the residual detector is
+meant to cure.
+
+Fix: per-time-of-day threshold. real_lead_experiment(..., far_bins=N) / t1-temporal-real
+--far-bins 6 splits the day into bins and calibrates each to target FAR on fire-free pixels
+pooled in that bin, so a night fire is judged against the night distribution. +1 test (per-
+time-of-day threshold detects a night excursion a global threshold misses). Suite green (12
+temporal tests), ruff clean. docs/12 "The clean run, and the second flaw it exposed".
+
+Next measurement (reuses existing cube, NO new pull): re-run
+  vhagar t1-temporal-real utah_north_cube.npz --detections data\detections\detections --clear-frac 0.7 --far-bins 6
+If the strict-FAR lead flips positive, the differentiator holds; if the ~1 diurnal cycle
+baseline is still too thin (1-2 samples/hour), next lever is the learned TemporalAnomalyNet
++ solar covariate, or a multi-day baseline pull. Method note: every flaw here was surfaced
+by the collapse-across-FAR diagnostic, not a headline number.
+
+## first real temporal pull ran; caught a baseline-contamination artefact (2026-08-16)
+
+Ran the real pull for the first time (user's machine, S3). Central-Utah fire, bbox
+-112.55,38.65,-112.05,39.10, 08-01 18:00..08-03 00:00: cube (360,23,31), 98% valid. The
+lead-time table read +925/+642/-78 min across FAR 0.05/0.01/0.002 -- and the +925 is an
+ARTEFACT, not a win. The fire ignited 19:47 UTC, 1h47m after the window opened, but
+clear-frac 0.6 fit the diurnal baseline on the first 18h, overlapping the active fire by
+~16h. Contaminated baseline + loose FAR -> residual trips on diurnal/baseline noise ->
+fake 15h lead. The tell: lead collapses as FAR tightens (+925 -> +642 -> -78); a real
+signal holds its lead. At the only strict FAR the residual LAGS FDC. Honest null result,
+correctly surfaced by the framework (the T1 twin of the T2 naive-baseline lesson).
+
+Hardened the code so this can't be presented as a result again: baseline_contamination()
+measures the share of fire pixels first-detected inside the clear window; t1-temporal-real
+prints a red refusal above 20%. Silenced the benign empty-hour-bin nanmean warning. +1
+test. Suite green, ruff clean. docs/12 "First real run, and the trap it exposed".
+
+Clean re-run recipe (still to run): a fire that ignites mid-window with a full pre-fire
+diurnal baseline, e.g. north cell bbox -112.35,38.85,-112.05,39.10 (ignites 08-02 07:47,
+zero detections before 08-02), pulled from 08-01 00:00 with --clear-frac ~0.7 so the
+baseline ends before onset. Onset is at night: the ideal case for the residual detector.
+
+## T1 temporal-anomaly real-data pull + FDC lead-time eval (2026-08-16)
 
 Built the real input and the real comparison for the temporal detector, the heavy piece
 that was outstanding. archive/temporal_cube.py: pull_bt_cube reads GOES ABI L2 CMIP band 7

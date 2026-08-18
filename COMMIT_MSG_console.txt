@@ -1,0 +1,35 @@
+Phase 5: VHAGAR wildfire console, brand identity, and self-hosted fire API
+
+Opens the platform/UI phase (roadmap Phase 5). Self-hosted end to end: no
+Vercel, no Mapbox token, no external services.
+
+Fire API (serve/)
+  - serve/vhagar_api.py (FastAPI): reads the real GOES FDC detection parquet
+    (data/detections, ~188k GOES-18/19 detections, Aug 2026 CONUS week) and
+    clusters them into fire events with VHAGAR's own parallax-aware fusion
+    (geo_leo_tolerance_m + the single-link rule of harmonize.fusion, KD-tree
+    neighbour search so it scales to the full week). Serves /api/events and
+    /api/detections as GeoJSON, /api/export/geojson, and /console.
+  - serve/README.md, serve/requirements.txt, serve/__init__.py.
+  - Honesty: FDC has no spread risk, fire weather, or validated burned area, so
+    those fields are absent, not invented. An event polygon is the convex hull
+    of a cluster's detection pixels, a detection footprint, not burned area. The
+    API declares schema="fdc" so the UI labels every number for what it is.
+
+Console (vhagar_console.html)
+  - Single self-contained dashboard. Reads the API above (window.VHAGAR_API or
+    same origin); bundled sample fallback so it always renders. Leaflet, free
+    Dark/Satellite/Terrain tiles. Live/sample pill, 5-min auto-refresh, KPI
+    strip, prioritised incident feed (click -> flyTo + detail drawer + GeoJSON
+    export), perimeter polygons, FRP glow+dot detections.
+  - Schema-aware: on fdc data it relabels KPIs (detection footprint, cumulative
+    FRP, peak FRP, GOES sensors), colors perimeters by peak FRP, hides the
+    spread-risk and weather panels, and sorts the feed by peak FRP.
+
+Brand identity (brand/)
+  - Vhagar dragon-head emblem (green dragonfire, gold ring) cropped from the
+    source art: square mark + circular 256/128/64/32 + favicon. Emblem logo and
+    favicon embedded in the console; green-flame accent in the wordmark;
+    functional fire/risk colors left untouched.
+
+PROGRESS.md updated with the Phase-5 entries and the roadmap position.

@@ -1,0 +1,426 @@
+"""VHAGAR fire API: serves the real GOES FDC detections and clustered events.
+
+Self-hosted, no external services. It reads the cached FDC detection parquet
+(data/detections), clusters detections into fire events with VHAGAR's own
+parallax-aware fusion (harmonize.fusion.cluster_detections), and serves the
+result as GeoJSON in the shape vhagar_console.html expects:
+
+    GET /api/detections?region=&days=   point features (FDC pixels)
+    GET /api/events?region=&days=       polygon features (clustered events)
+    GET /api/export/geojson?region=&days=   events as a download
+    GET /console                        the operations console
+    GET /api/health
+
+Honesty note. GOES FDC gives us position, FRP, brightness temperature,
+confidence, view zenith and time. It does NOT give spread risk, fire weather,
+or a validated burned area, so those fields are absent here rather than
+invented. The event polygon is the convex hull of a cluster's detection
+pixels: a DETECTION FOOTPRINT, not a burned-area measurement. The console is
+told schema="fdc" so it labels every number for what it is.
+
+Run:
+    pip install fastapi uvicorn pandas pyarrow numpy
+    uvicorn serve.vhagar_api:app --reload
+    open http://127.0.0.1:8000/console
+"""
+from __future__ import annotations
+
+import json
+import math
+import os
+import pickle
+import sys
+import threading
+import time
+from datetime import timedelta
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from scipy.spatial import cKDTree
+
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_ROOT / "src"))
+
+# We reuse VHAGAR's own parallax-aware GEO/LEO tolerance (the measured
+# footprint-quantisation + terrain-parallax radius) and the same single-link
+# rule as harmonize.fusion.cluster_detections; only the neighbour search is
+# swapped for a KD-tree so it scales to the full CONUS week.
+from vhagar.harmonize.fusion import SENSOR_TOLERANCE_M, geo_leo_tolerance_m  # noqa: E402
+
+MAX_GAP_S = 12 * 3600  # same 12 h temporal link as cluster_detections
+
+DET_DIR = Path(os.environ.get("VHAGAR_DET_DIR", _ROOT / "data" / "detections" / "detections"))
+CONSOLE = _ROOT / "vhagar_console.html"
+CACHE_DIR = _ROOT / "serve" / ".cache"
+
+# Region windows in lon/lat, matching the console's region picker.
+REGIONS: dict[str, dict] = {
+    "california": {"label": "California / US West", "bbox": (-124.6, 32.0, -114.0, 42.3)},
+    "us_west":    {"label": "US West",             "bbox": (-125.0, 31.0, -102.0, 49.2)},
+    "conus":      {"label": "Continental US",      "bbox": (-125.0, 24.0, -66.5, 50.0)},
+}
+
+# Minimum detections before a cluster is drawn as an event polygon; smaller
+# clusters stay as individual detection points only.
+MIN_EVENT_DETECTIONS = 4
+# Cap on points returned per request so the browser stays responsive; the
+# strongest FRP pixels are kept.
+MAX_POINTS = 5000
+# Bound the O(n^2) clustering per tile.
+MAX_DET_PER_TILE = 3000
+
+
+def _sensor_from_granule(key: str) -> str:
+    if not isinstance(key, str):
+        return "GOES"
+    if "_G19_" in key:
+        return "GOES-19"
+    if "_G18_" in key:
+        return "GOES-18"
+    if "_G16_" in key:
+        return "GOES-16"
+    return "GOES"
+
+
+def _dataset_sig() -> list:
+    """Cheap fingerprint of the detection dataset: mtime + size of its manifest
+    and config, not a walk of all 1600+ partition files."""
+    marks = []
+    for name in ("_manifest.jsonl", "_config.json"):
+        p = DET_DIR.parent / name
+        if p.exists():
+            st = p.stat()
+            marks.append([name, round(st.st_mtime, 3), st.st_size])
+    if not marks:
+        st = DET_DIR.stat()
+        marks.append(["dir", round(st.st_mtime, 3)])
+    return marks
+
+
+def _build_state() -> tuple[pd.DataFrame, list[dict]]:
+    """Load all FDC detections once and precompute clustered events per tile.
+
+    Returns (detections dataframe, event records). Cached for process lifetime.
+    """
+    if not DET_DIR.exists():
+        raise FileNotFoundError(f"no FDC parquet under {DET_DIR}")
+
+    # Disk cache: skip the read + cluster (about 45 s) when the dataset is
+    # unchanged. Fingerprint from the dataset manifest (cheap) rather than
+    # walking every partition file (~7 s over a network mount). Set
+    # VHAGAR_NO_CACHE=1 to force a rebuild; any cache problem falls through to a
+    # clean recompute.
+    sig = _dataset_sig()
+    df_cache, ev_cache, sig_cache = (CACHE_DIR / "detections.parquet",
+                                     CACHE_DIR / "events.pkl", CACHE_DIR / "sig.json")
+    if not os.environ.get("VHAGAR_NO_CACHE") and df_cache.exists() and ev_cache.exists() and sig_cache.exists():
+        try:
+            if json.loads(sig_cache.read_text()) == sig:
+                return pd.read_parquet(df_cache), pickle.loads(ev_cache.read_bytes())
+        except (OSError, ValueError, pickle.UnpicklingError):
+            pass
+
+    df = pd.read_parquet(DET_DIR)
+    df["t"] = pd.to_datetime(df["t"], utc=False)
+    df["sensor"] = df["granule_key"].map(_sensor_from_granule)
+    events = _cluster_all(df)
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(df_cache)
+        ev_cache.write_bytes(pickle.dumps(events))
+        sig_cache.write_text(json.dumps(sig))
+    except OSError:
+        pass
+    return df, events
+
+
+def _tol_vector(vza: np.ndarray) -> np.ndarray:
+    """Per-detection matching radius (m): VHAGAR's parallax-aware GEO tolerance
+    where a view zenith is known, else the flat 3x2 km GOES buffer."""
+    out = np.where(np.isnan(vza), SENSOR_TOLERANCE_M["goes"],
+                   geo_leo_tolerance_m(np.nan_to_num(vza, nan=45.0), 1000.0))
+    return np.maximum(out.astype(float), 1000.0)
+
+
+def _fast_groups(x, y, tsec, tol):
+    """Single-link clusters (same rule as cluster_detections: join when planar
+    separation <= max of the two tolerances AND time gap <= 12 h), via a
+    KD-tree so it is O(n log n) not O(n^2)."""
+    n = len(x)
+    parent = list(range(n))
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    if n > 1:
+        pairs = cKDTree(np.column_stack([x, y])).query_pairs(float(tol.max()), output_type="ndarray")
+        if len(pairs):
+            i, j = pairs[:, 0], pairs[:, 1]
+            d2 = (x[i] - x[j]) ** 2 + (y[i] - y[j]) ** 2
+            tmax = np.maximum(tol[i], tol[j])
+            ok = (d2 <= tmax * tmax) & (np.abs(tsec[i] - tsec[j]) <= MAX_GAP_S)
+            for a, b in pairs[ok]:
+                ra, rb = find(int(a)), find(int(b))
+                if ra != rb:
+                    parent[rb] = ra
+    groups: dict[int, list[int]] = {}
+    for k in range(n):
+        groups.setdefault(find(k), []).append(k)
+    return list(groups.values())
+
+
+def _cluster_all(df: pd.DataFrame) -> list[dict]:
+    """Cluster per tile across the whole window using VHAGAR fusion, then
+    reduce each cluster to a compact, honest event record."""
+    records: list[dict] = []
+    for _tile, g in df.groupby("tile_id", sort=False):
+        if len(g) > MAX_DET_PER_TILE:
+            g = g.sort_values("frp_mw", ascending=False).head(MAX_DET_PER_TILE)
+        x = g["x"].to_numpy(float)
+        y = g["y"].to_numpy(float)
+        tsec = (g["t"].astype("int64").to_numpy()) / 1e9
+        tol = _tol_vector(g["view_zenith_deg"].to_numpy(float))
+        for members in _fast_groups(x, y, tsec, tol):
+            if len(members) < MIN_EVENT_DETECTIONS:
+                continue
+            rec = _event_record(g.iloc[members])
+            if rec is not None:
+                records.append(rec)
+    # stable, strongest first
+    records.sort(key=lambda r: (r["_frp_sort"]), reverse=True)
+    for i, r in enumerate(records, 1):
+        r["event_id"] = i
+        r["label"] = f"Cluster {i}"
+    return records
+
+
+def _convex_hull(pts: np.ndarray) -> np.ndarray:
+    """Monotonic-chain convex hull of an (n,2) lon/lat array. Returns closed ring."""
+    p = np.unique(pts, axis=0)
+    if len(p) < 3:
+        return p
+    p = p[np.lexsort((p[:, 1], p[:, 0]))]
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower = []
+    for q in p:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], q) <= 0:
+            lower.pop()
+        lower.append(q)
+    upper = []
+    for q in p[::-1]:
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], q) <= 0:
+            upper.pop()
+        upper.append(q)
+    ring = np.array(lower[:-1] + upper[:-1])
+    return np.vstack([ring, ring[0]])
+
+
+def _hull_area_perimeter(ring: np.ndarray, lat0: float) -> tuple[float, float]:
+    """Footprint area (ha) and perimeter (km) of a lon/lat ring via a local
+    equirectangular projection about lat0."""
+    mx = 111_320.0 * math.cos(math.radians(lat0))
+    my = 110_540.0
+    xs = (ring[:, 0] - ring[0, 0]) * mx
+    ys = (ring[:, 1] - ring[0, 1]) * my
+    area = 0.5 * abs(np.sum(xs[:-1] * ys[1:] - xs[1:] * ys[:-1]))
+    seg = np.sqrt(np.diff(xs) ** 2 + np.diff(ys) ** 2)
+    return area / 10_000.0, float(seg.sum()) / 1000.0
+
+
+def _event_record(rows: pd.DataFrame) -> dict | None:
+    lon = rows["lon"].to_numpy(dtype=float)
+    lat = rows["lat"].to_numpy(dtype=float)
+    ring = _convex_hull(np.column_stack([lon, lat]))
+    if len(ring) < 4:
+        return None
+    clat, clon = float(lat.mean()), float(lon.mean())
+    area_ha, perim_km = _hull_area_perimeter(ring, clat)
+    frp = rows["frp_mw"].to_numpy(dtype=float)
+    frp_valid = frp[~np.isnan(frp)]
+    total = float(np.nansum(frp)) if frp_valid.size else None
+    mx = float(np.nanmax(frp)) if frp_valid.size else None
+    mean = float(np.nanmean(frp)) if frp_valid.size else None
+    t0, t1 = rows["t"].min(), rows["t"].max()
+    return {
+        "geometry": [[[round(float(x), 4), round(float(y), 4)] for x, y in ring]],
+        "centroid_lat": round(clat, 4), "centroid_lon": round(clon, 4),
+        "n_detections": int(len(rows)),
+        "total_frp_mw": None if total is None else round(total, 1),
+        "max_frp_mw": None if mx is None else round(mx, 1),
+        "mean_frp_mw": None if mean is None else round(mean, 1),
+        "footprint_ha": round(area_ha, 1), "perimeter_km": round(perim_km, 1),
+        "first_seen": t0.isoformat(), "last_seen": t1.isoformat(),
+        "sensors": ", ".join(sorted(rows["sensor"].unique())),
+        "bbox": (float(lon.min()), float(lat.min()), float(lon.max()), float(lat.max())),
+        "_t0": t0, "_t1": t1,
+        "_frp_sort": (mx if mx is not None else 0.0),
+    }
+
+
+def _window(df: pd.DataFrame, days: int) -> pd.Timestamp:
+    return df["t"].max() - timedelta(days=days)
+
+
+def _in_bbox(lon, lat, bbox) -> bool:
+    w, s, e, n = bbox
+    return (w <= lon <= e) and (s <= lat <= n)
+
+
+# ------------------------------------------------------------------ live state
+# One in-memory (df, events) snapshot, swapped atomically. A background thread
+# rebuilds it on a schedule so a running server picks up newly ingested granules
+# without a restart, and requests never block on the ~30 s clustering: they read
+# the last-good snapshot until the new one is ready.
+_STATE: tuple[pd.DataFrame, list[dict]] | None = None
+_BUILD_LOCK = threading.Lock()
+_REFRESH_COUNT = 0
+_LAST_REFRESH: float | None = None
+
+
+def get_state() -> tuple[pd.DataFrame, list[dict]]:
+    global _STATE
+    if _STATE is None:
+        with _BUILD_LOCK:
+            if _STATE is None:
+                _STATE = _build_state()
+    return _STATE
+
+
+def refresh_state() -> None:
+    """Rebuild the snapshot (cheap when the dataset fingerprint is unchanged)
+    and swap it in. Built outside the lock so reads are never blocked."""
+    new = _build_state()
+    global _STATE, _REFRESH_COUNT, _LAST_REFRESH
+    _STATE = new
+    _REFRESH_COUNT += 1
+    _LAST_REFRESH = time.time()
+
+
+def _refresh_loop(interval_s: float) -> None:
+    while True:
+        time.sleep(interval_s)
+        try:
+            refresh_state()
+        except Exception as exc:  # keep the server up even if a refresh fails
+            print(f"[vhagar-api] refresh failed: {exc}", file=sys.stderr)
+
+
+# --------------------------------------------------------------------------- API
+from fastapi import FastAPI, Query, Response  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
+
+app = FastAPI(title="VHAGAR fire API", version="0.1",
+              description="Real GOES FDC detections and clustered fire events.")
+
+
+@app.on_event("startup")
+def _start_refresher() -> None:
+    """When VHAGAR_REFRESH_SEC>0 (live mode), rebuild the snapshot on that cadence
+    so newly ingested granules appear without a restart. Off by default so the
+    static demo does not re-cluster pointlessly."""
+    sec = float(os.environ.get("VHAGAR_REFRESH_SEC", "0") or 0)
+    if sec > 0:
+        threading.Thread(target=_refresh_loop, args=(sec,), daemon=True).start()
+        print(f"[vhagar-api] live: background refresh every {sec:.0f}s", file=sys.stderr)
+
+
+@app.get("/api/health")
+def health():
+    try:
+        df, ev = get_state()
+        return {"status": "ok", "detections": int(len(df)), "events": len(ev),
+                "window": [str(df["t"].min()), str(df["t"].max())],
+                "regions": list(REGIONS),
+                "refreshes": _REFRESH_COUNT,
+                "last_refresh": _LAST_REFRESH}
+    except FileNotFoundError as e:
+        return JSONResponse({"status": "no_data", "detail": str(e)}, status_code=503)
+
+
+@app.get("/api/detections")
+def detections(region: str = Query("california"), days: int = Query(3, ge=1, le=14),
+               filter_fa: bool = Query(False)):
+    df, _ = get_state()
+    bbox = REGIONS.get(region, REGIONS["california"])["bbox"]
+    w, s, e, n = bbox
+    cut = _window(df, days)
+    m = ((df["t"] >= cut) & (df["lon"] >= w) & (df["lon"] <= e)
+         & (df["lat"] >= s) & (df["lat"] <= n))
+    sub = df.loc[m]
+    if len(sub) > MAX_POINTS:
+        sub = sub.assign(_f=sub["frp_mw"].fillna(0.0)).sort_values("_f", ascending=False).head(MAX_POINTS)
+    feats = []
+    for r in sub.itertuples():
+        feats.append({"type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [round(float(r.lon), 4), round(float(r.lat), 4)]},
+            "properties": {
+                "frp_mw": None if pd.isna(r.frp_mw) else round(float(r.frp_mw), 1),
+                "brightness_k": None if pd.isna(r.temp_k) else round(float(r.temp_k), 1),
+                "confidence": None if pd.isna(r.confidence) else round(float(r.confidence) * 100),
+                "sensor": r.sensor, "acq_datetime": r.t.isoformat(),
+                "view_zenith_deg": None if pd.isna(r.view_zenith_deg) else round(float(r.view_zenith_deg), 1),
+                "is_false_alarm": False}})
+    return JSONResponse({"type": "FeatureCollection", "features": feats,
+        "metadata": {"mode": "live", "schema": "fdc", "region": region,
+                     "source": "GOES-18/19 ABI FDC (VHAGAR)", "count": len(feats)}})
+
+
+@app.get("/api/events")
+def events(region: str = Query("california"), days: int = Query(3, ge=1, le=14),
+           filter_fa: bool = Query(False)):
+    df, evs = get_state()
+    bbox = REGIONS.get(region, REGIONS["california"])["bbox"]
+    cut = _window(df, days)
+    feats = []
+    for r in evs:
+        if not _in_bbox(r["centroid_lon"], r["centroid_lat"], bbox):
+            continue
+        if r["_t1"] < cut:
+            continue
+        p = {k: r[k] for k in ("event_id", "label", "centroid_lat", "centroid_lon",
+             "n_detections", "total_frp_mw", "max_frp_mw", "mean_frp_mw",
+             "perimeter_km", "footprint_ha", "first_seen", "last_seen", "sensors")}
+        p["area_ha"] = r["footprint_ha"]          # console reads area_ha; labelled "footprint"
+        p["risk_class"] = "Unknown"               # FDC carries no spread risk
+        p["perimeter_method"] = "detection convex hull"
+        feats.append({"type": "Feature",
+            "geometry": {"type": "Polygon", "coordinates": r["geometry"]},
+            "properties": p})
+    feats.sort(key=lambda f: (f["properties"]["max_frp_mw"] or 0), reverse=True)
+    return JSONResponse({"type": "FeatureCollection", "features": feats,
+        "metadata": {"mode": "live", "schema": "fdc", "region": region,
+                     "source": "GOES-18/19 ABI FDC (VHAGAR)", "event_count": len(feats),
+                     "detection_count": int((df["t"] >= cut).sum())}})
+
+
+@app.get("/api/export/geojson")
+def export_geojson(region: str = Query("california"), days: int = Query(3, ge=1, le=14)):
+    fc = events(region, days).body  # reuse
+    return Response(content=fc, media_type="application/geo+json",
+        headers={"Content-Disposition": f"attachment; filename=vhagar_events_{region}.geojson"})
+
+
+@app.get("/console")
+def console():
+    return FileResponse(CONSOLE, media_type="text/html")
+
+
+@app.get("/favicon.ico")
+def favicon():
+    ico = _ROOT / "brand" / "favicon.png"
+    if ico.exists():
+        return FileResponse(ico, media_type="image/png")
+    return Response(status_code=204)
+
+
+@app.get("/")
+def root():
+    return {"service": "VHAGAR fire API", "console": "/console",
+            "health": "/api/health", "docs": "/docs"}
