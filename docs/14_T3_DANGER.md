@@ -109,6 +109,44 @@ predictive mean (trapezoidal over the quantiles) to give `E[BA]`. Real data is
 `t3-expected-ba --no-synthetic --fires per_fire.parquet --features ...`, one row
 per fire with `area_ha`, `lon`, `lat`, `year`, and the covariates.
 
+## Layer 3: the deep challenger, in shadow mode
+
+A spatial deep model is admitted only as a *challenger* to the gradient boosting,
+and promoted only on evidence. Because danger is gridded (cell x day),
+verification is spatial: pixel-exact scoring punishes a forecast that is right
+about *where* fire is likely but off by a cell, so the primary metric is the
+**Fractions Skill Score** (`fractions_skill_score` in `eval/metrics.py`), which
+compares neighborhood fractions of the observation and forecast and is reported
+at 40 / 80 / 120 km.
+
+`eval/danger_grid.py` is the harness. It builds a gridded ignition world where
+ignition is driven by *clean* spatially coherent weather and fuel but the model
+sees only *noisy per-cell observations*, fits a **pointwise** gradient-boosting
+baseline and a **spatial** challenger (the same booster on neighborhood-pooled
+features, a runnable stand-in for the ConvLSTM) under leave-time-block-out CV,
+and applies the promotion gate: the challenger is promoted only if it beats the
+baseline on base-rate-preserving **AUPRC and Brier**. `models/ignition_conv.py`
+is the real deep challenger, a compact U-Net trained with a differentiable
+**soft-FSS loss** plus BCE (torch-guarded, runs on a GPU box); the harness scores
+whatever probability field a model produces.
+
+`vhagar t3-challenger` on the synthetic world (36 days, 40x40 cells at 20 km,
+base rate ~0.05, obs noise 0.15), stable across seeds:
+
+| model | AUPRC | Brier | FSS 40 | FSS 80 | FSS 120 |
+|---|---|---|---|---|---|
+| pointwise baseline | ~0.12 | ~0.046 | ~0.58 | ~0.75 | ~0.82 |
+| spatial challenger | ~0.16 | ~0.045 | ~0.64 | ~0.81 | ~0.88 |
+
+Here the spatial challenger earns promotion: it beats the baseline on AUPRC,
+Brier, and FSS at every scale, because neighborhood pooling denoises the
+observations. That is the gate working, not a foregone conclusion, when spatial
+context adds nothing the same gate keeps the challenger in shadow. The
+architecture's expectation stands: on real daily ignition the deep model should
+earn its place rarely, and more so at seasonal lead times; the value here is the
+FSS-based spatial verification and the AUPRC-and-Brier promotion gate, so a deep
+model is only ever promoted on blocked, proper-scored evidence.
+
 ## Honest scope and what is next
 
 This increment builds and unit-tests the *method*: the sampling design, the

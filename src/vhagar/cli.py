@@ -1940,6 +1940,64 @@ def t3_expected_ba_cmd(
         "  of its mean (tail-driven), while CRPS gives a stable skill over climatology. docs/14.[/dim]")
 
 
+@app.command("t3-challenger")
+def t3_challenger_cmd(
+    obs_noise: float = typer.Option(0.15, help="per-cell observation noise (where spatial context helps)"),
+    intercept: float = typer.Option(-9.0, help="danger intercept; more negative = lower base rate"),
+    folds: int = typer.Option(4, help="leave-time-block-out folds"),
+    seed: int = typer.Option(0),
+    torch_net: bool = typer.Option(False, "--torch", help="also train the deep U-Net challenger (needs pytorch)"),
+) -> None:
+    """T3 Layer 3: the deep challenger, in shadow mode.
+
+    Gridded ignition danger, verified spatially. Fits a pointwise gradient-boosting
+    baseline and a spatial challenger (the booster on neighborhood-pooled features)
+    under leave-time-block-out CV, scores both with Fractions Skill Score at
+    40/80/120 km plus base-rate-preserving AUPRC and Brier, and applies the
+    promotion gate: the challenger is promoted only if it beats the baseline on
+    AUPRC AND Brier. The torch U-Net (models/ignition_conv.py) trains with a
+    soft-FSS loss; --torch runs it (GPU box). docs/14.
+    """
+    try:
+        import scipy  # noqa: F401
+        import sklearn  # noqa: F401
+    except ImportError as exc:
+        console.print("[red]t3-challenger needs scikit-learn and scipy[/red]")
+        raise typer.Exit(1) from exc
+
+    from vhagar.eval.danger_grid import shadow_evaluate, synthetic_ignition_grid
+
+    X, ev, _fn, ckm = synthetic_ignition_grid(np.random.default_rng(seed),
+                                              intercept=intercept, obs_noise=obs_noise)
+    r = shadow_evaluate(X, ev, cell_km=ckm, n_folds=folds, seed=seed)
+    b, c = r["baseline"], r["challenger"]
+    console.print(f"[bold]Gridded ignition danger[/bold]: {X.shape[0]} days x {X.shape[2]}x{X.shape[3]} cells "
+                  f"@ {ckm:.0f} km, base rate {r['base_rate']:.3f}, obs noise {obs_noise}\n")
+    t = Table(title="T3 deep challenger, shadow mode: spatial verification (FSS) + pixel gate (AUPRC/Brier)")
+    for col in ("model", "AUPRC", "Brier", "FSS 40km", "FSS 80km", "FSS 120km"):
+        t.add_column(col, justify="right")
+    for name, s in (("pointwise baseline (GBDT)", b), ("spatial challenger", c)):
+        t.add_row(name, f"{s['auprc']:.3f}", f"{s['brier']:.4f}",
+                  f"{s['fss'][40]:.3f}", f"{s['fss'][80]:.3f}", f"{s['fss'][120]:.3f}")
+    console.print(t)
+    colour = "green" if r["promote"] else "yellow"
+    console.print(f"[{colour}]  {r['verdict']}[/{colour}]")
+
+    if torch_net:
+        try:
+            from vhagar.models.ignition_conv import predict_spatial, train_spatial
+        except ImportError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(1) from exc
+        from vhagar.eval.metrics import average_precision, brier_score
+        cut = int(X.shape[0] * 0.7)
+        net = train_spatial(X[:cut], ev[:cut], seed=seed)
+        pred = predict_spatial(net, X[cut:])
+        yt = ev[cut:].reshape(-1)
+        console.print(f"[dim]  deep U-Net (temporal holdout): AUPRC {average_precision(yt, pred.reshape(-1)):.3f} "
+                      f"Brier {brier_score(yt, pred.reshape(-1)):.4f}. Promote only on a full blocked run. docs/14.[/dim]")
+
+
 @app.command("firms-fetch")
 def firms_fetch_cmd(
     detections: Path = typer.Option(

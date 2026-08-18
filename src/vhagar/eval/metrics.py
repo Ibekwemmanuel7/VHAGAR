@@ -37,6 +37,7 @@ __all__ = [
     "dice",
     "expected_calibration_error",
     "f1_with_tolerance",
+    "fractions_skill_score",
     "iou",
     "log_loss",
     "pinball_loss",
@@ -350,3 +351,35 @@ def crps_from_quantiles(y_true, quantile_preds, taus) -> float:
         raise ValueError("quantile_preds must be (n, len(taus))")
     pl = [pinball_loss(y, q[:, k], float(taus[k])) for k in range(taus.size)]
     return float(2.0 * np.mean(pl))
+
+
+def fractions_skill_score(obs, pred, neighborhood: int, threshold: float | None = None) -> float:
+    """Fractions Skill Score for a 2D field: spatial verification for rare,
+    point-like events.
+
+    Pixel-exact scores punish a forecast that is right about *where fire is
+    likely* but off by a cell. FSS instead compares the fraction of exceedances
+    in a moving ``neighborhood`` x ``neighborhood`` window between the binary
+    observation and the forecast:
+
+        FSS = 1 - mean((O_frac - F_frac)^2) / (mean(O_frac^2) + mean(F_frac^2))
+
+    1 is perfect, 0 is no skill. It rises with neighborhood size, which is the
+    point: report it at several scales (e.g. 40 / 80 / 120 km) rather than at one
+    pixel. ``obs`` is binary. With ``threshold`` the forecast is binarised at
+    that probability (classic FSS); with ``threshold=None`` the probability field
+    is used directly as the forecast fraction (the probabilistic variant, fairer
+    when comparing calibrated fields of different smoothness).
+    """
+    from scipy.ndimage import uniform_filter
+
+    o = np.asarray(obs, dtype=np.float64)
+    if threshold is None:
+        f = np.clip(np.asarray(pred, dtype=np.float64), 0.0, 1.0)
+    else:
+        f = (np.asarray(pred, dtype=np.float64) >= threshold).astype(np.float64)
+    of = uniform_filter(o, size=neighborhood, mode="constant")
+    ff = uniform_filter(f, size=neighborhood, mode="constant")
+    fbs = float(np.mean((of - ff) ** 2))
+    ref = float(np.mean(of ** 2) + np.mean(ff ** 2))
+    return 1.0 - fbs / ref if ref > 0 else float("nan")

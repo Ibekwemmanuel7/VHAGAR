@@ -3,7 +3,35 @@
 Last updated: 2026-08-18. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: Phase 3 -- expected-burned-area head E[BA] (heavy-tailed, CRPS-scored) (2026-08-18)
+## Latest: Phase 3 -- Layer-3 deep challenger in shadow mode (FSS + promotion gate) (2026-08-18)
+
+Built T3's Layer-3 deep challenger the way docs/00 5.4 frames it: a spatial model admitted only as a
+CHALLENGER to the gradient boosting and promoted only on blocked, proper-scored evidence. Added the
+Fractions Skill Score to eval/metrics (fractions_skill_score, classic thresholded + probabilistic
+variant): neighborhood verification for rare point-like events, since pixel-exact scoring punishes a
+forecast that is right about where fire is likely but off by a cell. eval/danger_grid.py is the
+shadow-mode harness: a gridded ignition world (ignition from clean spatially-coherent fields, model
+sees noisy per-cell obs), a pointwise GBDT baseline vs a spatial challenger (booster on
+neighborhood-pooled features) under leave-time-block-out CV, scored with FSS at 40/80/120 km +
+base-rate-preserving AUPRC and Brier, with the promotion gate = beat baseline on AUPRC AND Brier.
+models/ignition_conv.py is the real deep challenger: a compact U-Net trained with a differentiable
+soft-FSS loss + BCE (torch-guarded, GPU box). CLI t3-challenger (--torch optional).
+
+DEMO (vhagar t3-challenger, 36 days x 40x40 @ 20km, base rate ~0.05, obs noise 0.15, stable across
+seeds): pointwise baseline AUPRC ~0.12 / Brier ~0.046 / FSS 0.58/0.75/0.82; spatial challenger ~0.16
+/ ~0.045 / 0.64/0.81/0.88 -> PROMOTE (it denoises the observations and wins on AUPRC, Brier, and FSS
+at every scale). The gate is the deliverable, not the verdict: when spatial context adds nothing the
+same gate keeps the challenger in shadow, and the architecture expects the deep model to earn its
+place rarely at daily lead times. Tests: tests/test_danger_grid.py (FSS perfect/neighborhood-growth/
+probabilistic variant, grid scenario, pooling variance, shadow_evaluate signal + gate consistency,
+torch shapes via importorskip), all green (torch test skips here), ruff clean.
+
+T3 now has all three quantities AND the Layer-3 challenger: FWI (danger), cause-stratified ignition
+probability, E[BA], and the shadow-mode deep-model gate. Files: eval/metrics.py (+FSS),
+eval/danger_grid.py, models/ignition_conv.py, cli.py (+t3-challenger), tests/test_danger_grid.py,
+docs/14.
+
+## Phase 3 -- expected-burned-area head E[BA] (heavy-tailed, CRPS-scored) (2026-08-18)
 
 Added the third of T3's three quantities (E[BA] = P(ignition) x E[BA | ignition]), the heavy-tailed
 one, the way docs/00 5.1/5.4 demand. eval/burned_area.py: BurnedAreaModel fits a log-space quantile
