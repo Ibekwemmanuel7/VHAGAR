@@ -33,13 +33,16 @@ __all__ = [
     "burned_area_ratio",
     "confusion_counts",
     "critical_success_index",
+    "crps_from_quantiles",
     "dice",
     "expected_calibration_error",
     "f1_with_tolerance",
     "iou",
     "log_loss",
+    "pinball_loss",
     "pod_far",
     "reliability_curve",
+    "skill_score",
     "sorensen",
 ]
 
@@ -317,3 +320,33 @@ def skill_score(score: float, reference: float, perfect: float = 0.0) -> float:
     """
     denom = reference - perfect
     return float((reference - score) / denom) if denom else float("nan")
+
+
+def pinball_loss(y_true, y_pred, quantile: float) -> float:
+    """Quantile (pinball) loss at level ``quantile``.
+
+    Proper scoring rule for a single predictive quantile: it is minimised by the
+    true conditional quantile, so it is the right target for heavy-tailed
+    burned-area regression where squared error is dominated by a few extremes.
+    """
+    y = np.asarray(y_true, dtype=np.float64).ravel()
+    q = np.asarray(y_pred, dtype=np.float64).ravel()
+    d = y - q
+    return float(np.mean(np.maximum(quantile * d, (quantile - 1.0) * d)))
+
+
+def crps_from_quantiles(y_true, quantile_preds, taus) -> float:
+    """Continuous Ranked Probability Score from a set of predictive quantiles.
+
+    Uses the quantile decomposition CRPS = 2 * integral_0^1 pinball_tau d tau,
+    approximated as twice the mean pinball loss over the provided ``taus``
+    (Gneiting & Raftery). ``quantile_preds`` is ``(n, K)`` at levels ``taus``
+    ``(K,)``. Lower is better; unlike RMSE it is stable under heavy tails.
+    """
+    y = np.asarray(y_true, dtype=np.float64).ravel()
+    q = np.asarray(quantile_preds, dtype=np.float64)
+    taus = np.asarray(taus, dtype=np.float64).ravel()
+    if q.ndim != 2 or q.shape[1] != taus.size:
+        raise ValueError("quantile_preds must be (n, len(taus))")
+    pl = [pinball_loss(y, q[:, k], float(taus[k])) for k in range(taus.size)]
+    return float(2.0 * np.mean(pl))

@@ -1776,6 +1776,170 @@ def t1_classify_cmd(
     )
 
 
+@app.command("t3-ignition")
+def t3_ignition_cmd(
+    synthetic: bool = typer.Option(True, help="run the synthetic reporting-bias demo"),
+    occurrence: Path = typer.Option(None, help="real: presence cell-days parquet"),
+    candidates: Path = typer.Option(None, help="real: target-group candidate cell-days parquet"),
+    features: str = typer.Option("", help="real: comma-separated covariate columns"),
+    tau: float = typer.Option(0.0, help="real: true base rate (0 = infer presences/candidates)"),
+    n_cells: int = typer.Option(3500, help="synthetic cells per year"),
+    neg_per_pos: float = typer.Option(3.0, help="background pseudo-absences per presence"),
+    folds: int = typer.Option(4, help="spatial-block CV folds"),
+    seed: int = typer.Option(0),
+) -> None:
+    """T3 Layer 2: cause-stratified, blocked, properly-scored ignition probability.
+
+    The state of the art here is gradient boosting, not a deep net (ECMWF's
+    operational Probability-of-Fire), so this fits a gradient-boosted classifier
+    per cause under spatial-block CV and scores it only with proper scores
+    (AUPRC, Brier + Murphy decomposition, ECE, Brier skill vs a base-rate
+    climatology), with King-Zeng rare-event correction and lon/lat excluded.
+
+    It also demonstrates the sampling trap (docs/00 5.6): naive random background
+    inflates apparent skill and leans on the human-footprint covariate (an
+    observation artefact); target-group background drawn from the same reporting
+    process collapses that reliance and reveals the honest skill. docs/14.
+    """
+    try:
+        import sklearn  # noqa: F401
+    except ImportError as exc:
+        console.print("[red]t3-ignition needs scikit-learn[/red]")
+        raise typer.Exit(1) from exc
+
+    from vhagar.datasets import danger as dg
+    from vhagar.eval.danger import evaluate_ignition, top_features
+
+    if not synthetic:
+        if occurrence is None or candidates is None or not features:
+            console.print("[red]real mode needs --occurrence, --candidates and --features[/red]")
+            raise typer.Exit(1)
+        import pandas as pd
+        fcols = [c.strip() for c in features.split(",") if c.strip()]
+        pres_df = pd.read_parquet(occurrence)
+        cand_df = pd.read_parquet(candidates)
+        pres, cand, fn = dg.frames_to_records(pres_df, cand_df, fcols)
+        base_rate = tau if tau > 0 else float(len(pres_df) / max(len(cand_df), 1))
+        s = dg.assemble_ignition_samples(pres, cand, fn, np.random.default_rng(seed + 7),
+                                         tau=base_rate, neg_per_pos=neg_per_pos,
+                                         use_target_group=True, stratify=False)
+        r = evaluate_ignition(s, n_folds=folds, seed=seed, prior_correct=True)
+        tf = top_features(s, folds, seed, k=5)
+        p = r["pooled"]
+        console.print(f"[bold]Real ignition run[/bold]: {len(pres_df):,} presences, "
+                      f"{len(cand_df):,} candidates, base rate {base_rate:.4f}\n")
+        rt = Table(title="T3 ignition (real data, target-group background, prior-corrected)")
+        for c in ("AUPRC", "Brier", "reliability", "resolution", "ECE", "BSS vs climo"):
+            rt.add_column(c, justify="right")
+        rt.add_row(f"{p['auprc']:.3f}", f"{p['brier']:.4f}", f"{p['reliability']:.4f}",
+                   f"{p['resolution']:.4f}", f"{p['ece']:.4f}", f"{p['bss_vs_climatology']:+.3f}")
+        console.print(rt)
+        h = r.get("human", {}).get("auprc", float("nan"))
+        ltg = r.get("lightning", {}).get("auprc", float("nan"))
+        console.print(f"[dim]  cause-stratified AUPRC  human {h:.3f}  lightning {ltg:.3f}[/dim]")
+        console.print("[dim]  top features: " + ", ".join(f"{n}({v:+.3f})" for n, v in tf) + "[/dim]")
+        return
+
+    rng = np.random.default_rng(seed)
+    pres, cand, fn, tau = dg.synthetic_reporting_scenario(rng, n_cells=n_cells)
+    bias = float(pres["people"].mean() - cand["people"].mean())
+    console.print(
+        f"[bold]Synthetic reporting-bias world[/bold]: {len(pres['id']):,} reported ignitions, "
+        f"true base rate {tau:.3f}, reporting bias in human footprint +{bias:.3f}\n")
+
+    rows = []
+    for tag, kw in [("naive random", dict(use_target_group=False, stratify=False)),
+                    ("target-group", dict(use_target_group=True, stratify=False))]:
+        s = dg.assemble_ignition_samples(pres, cand, fn, np.random.default_rng(seed + 7),
+                                         tau=tau, neg_per_pos=neg_per_pos, **kw)
+        r = evaluate_ignition(s, n_folds=folds, seed=seed, prior_correct=True)
+        tf = dict(top_features(s, folds, seed, k=5))
+        rows.append((tag, r, tf.get("people", 0.0) + tf.get("roads", 0.0)))
+
+    t = Table(title="T3 ignition: proper scores under blocked spatial CV (prior-corrected)")
+    for c in ("sampling", "AUPRC", "Brier", "reliability", "resolution",
+              "ECE", "BSS vs climo", "footprint imp"):
+        t.add_column(c, justify="right")
+    for tag, r, ppl in rows:
+        p = r["pooled"]
+        t.add_row(tag, f"{p['auprc']:.3f}", f"{p['brier']:.4f}", f"{p['reliability']:.4f}",
+                  f"{p['resolution']:.4f}", f"{p['ece']:.4f}", f"{p['bss_vs_climatology']:+.3f}",
+                  f"{ppl:+.3f}")
+    console.print(t)
+    for tag, r, _ in rows:
+        h = r.get("human", {}).get("auprc", float("nan"))
+        ltg = r.get("lightning", {}).get("auprc", float("nan"))
+        console.print(f"[dim]  {tag}: cause-stratified AUPRC  human {h:.3f}  lightning {ltg:.3f}[/dim]")
+    console.print(
+        "[dim]  The trap: naive background inflates AUPRC and leans on the human-footprint\n"
+        "  covariate (an observation artefact); target-group background collapses that\n"
+        "  reliance and reveals the honest, lower skill. Probabilities are King-Zeng\n"
+        "  prior-corrected to the true base rate. docs/14.[/dim]")
+
+
+@app.command("t3-expected-ba")
+def t3_expected_ba_cmd(
+    synthetic: bool = typer.Option(True, help="run the synthetic heavy-tailed demo"),
+    fires: Path = typer.Option(None, help="real: per-fire parquet with area_ha + features + lon/lat/year"),
+    features: str = typer.Option("", help="real: comma-separated covariate columns"),
+    p_ignition: float = typer.Option(0.02, help="illustrative P(ignition) for the E[BA] combination"),
+    n: int = typer.Option(4000, help="synthetic fires"),
+    folds: int = typer.Option(4),
+    seed: int = typer.Option(0),
+    no_tail: bool = typer.Option(False, "--no-tail", help="disable the GPD extreme-value tail"),
+) -> None:
+    """T3: expected burned area E[BA] = P(ignition) x E[BA | ignition].
+
+    The heavy-tailed quantity. Fits a log-space quantile-boosting distribution
+    with a generalised-Pareto tail for the extremes, and scores it with CRPS and
+    pinball loss under spatial-block CV, never RMSE (RMSE is reported only to
+    show its tail-driven instability). lon/lat are excluded from the model. docs/14.
+    """
+    try:
+        import scipy  # noqa: F401
+        import sklearn  # noqa: F401
+    except ImportError as exc:
+        console.print("[red]t3-expected-ba needs scikit-learn and scipy[/red]")
+        raise typer.Exit(1) from exc
+
+    from vhagar.eval import burned_area as ba
+
+    if synthetic:
+        X, area, _yr, lon, lat, _fn = ba.synthetic_burned_area_scenario(
+            np.random.default_rng(seed), n=n)
+        src = f"synthetic heavy-tailed world, {len(area):,} fires"
+    else:
+        if fires is None or not features:
+            console.print("[red]real mode needs --fires and --features (parquet with area_ha, lon, lat, year)[/red]")
+            raise typer.Exit(1)
+        import pandas as pd
+        df = pd.read_parquet(fires)
+        fcols = [c.strip() for c in features.split(",") if c.strip()]
+        X = df[fcols].to_numpy(dtype=float)
+        area = df["area_ha"].to_numpy(dtype=float)
+        lon, lat = df["lon"].to_numpy(dtype=float), df["lat"].to_numpy(dtype=float)
+        src = f"{fires.name}, {len(area):,} fires"
+
+    r = ba.evaluate_expected_ba(X, area, lon, lat, n_folds=folds, seed=seed, use_tail=not no_tail)
+    console.print(f"[bold]E[BA | ignition][/bold]: {src}; median {np.median(area):.0f} ha, "
+                  f"p99 {np.quantile(area, 0.99):.0f} ha\n")
+    t = Table(title="T3 expected burned area: proper scoring under blocked spatial CV")
+    for c in ("CRPS", "CRPS climatology", "CRPS skill", "RMSE fold mean", "RMSE fold std"):
+        t.add_column(c, justify="right")
+    t.add_row(f"{r['crps']:.1f}", f"{r['crps_climatology']:.1f}",
+              f"{r['crps_skill_vs_climatology']:+.3f}", f"{r['rmse_mean']:.0f}", f"{r['rmse_std']:.0f}")
+    console.print(t)
+    pin = ", ".join(f"q{int(k * 100)} {v:.0f}" for k, v in r["pinball"].items())
+    console.print(f"[dim]  pinball loss by quantile: {pin}[/dim]")
+    m = ba.BurnedAreaModel(seed=seed, use_tail=not no_tail).fit(X, area)
+    eba = ba.expected_burned_area(np.full(X.shape[0], p_ignition), m.predict_quantiles(X))
+    console.print(f"[dim]  E[BA] = P(ig) x E[BA|ig]: at P(ig)={p_ignition}, mean E[BA] {eba.mean():.2f} ha/cell "
+                  f"(E[BA|ig] mean {eba.mean() / p_ignition:.0f} ha).[/dim]")
+    console.print(
+        "[dim]  Scored with CRPS + pinball, never RMSE: RMSE's fold-to-fold std is a large fraction\n"
+        "  of its mean (tail-driven), while CRPS gives a stable skill over climatology. docs/14.[/dim]")
+
+
 @app.command("firms-fetch")
 def firms_fetch_cmd(
     detections: Path = typer.Option(

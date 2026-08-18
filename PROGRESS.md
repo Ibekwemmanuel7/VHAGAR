@@ -3,7 +3,62 @@
 Last updated: 2026-08-18. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: Phase 5 -- live NRT ingest path (rolling GOES pull + background refresh) (2026-08-18)
+## Latest: Phase 3 -- expected-burned-area head E[BA] (heavy-tailed, CRPS-scored) (2026-08-18)
+
+Added the third of T3's three quantities (E[BA] = P(ignition) x E[BA | ignition]), the heavy-tailed
+one, the way docs/00 5.1/5.4 demand. eval/burned_area.py: BurnedAreaModel fits a log-space quantile
+gradient-boosting distribution (HistGradientBoostingRegressor loss=quantile per level) with a
+generalised-Pareto peaks-over-threshold tail for the far quantiles; expected_burned_area combines a
+per-cell P(ignition) with the predictive mean (trapezoid over quantiles). Scored with CRPS (quantile
+decomposition) + pinball, NEVER RMSE. Added crps_from_quantiles + pinball_loss to eval/metrics. CLI
+t3-expected-ba (--synthetic demo + --no-synthetic --fires real hook). lon/lat excluded; spatial-block
+CV.
+
+DEMO (vhagar t3-expected-ba --synthetic, heavy-tailed world median ~200 ha / p99 ~1.7k / max ~176k):
+model CRPS ~235 vs climatology ~260 -> skill +0.09 (covariates carry real signal); GPD tail adds a
+little at the extreme quantiles; RMSE fold std ~1100 on mean ~2400 (std/mean ~0.9) = tail-driven
+instability, which is exactly why the architecture forbids selecting on RMSE. 6 new tests
+(tests/test_burned_area.py: pinball known-value, CRPS rewards sharpness, heavy tail, monotone
+quantiles + GPD fit, E[BA] scales with P(ig), beats-climatology + RMSE-instability regression), all
+green, ruff clean. Three T3 quantities now exist: danger (FWI), ignition probability, E[BA]. Files:
+eval/burned_area.py, eval/metrics.py (+pinball/crps), cli.py (+t3-expected-ba), tests/test_burned_area.py,
+docs/14.
+
+## Phase 3 OPENED -- T3 cause-stratified ignition model + the sampling-trap demo (2026-08-18)
+
+Opened the next roadmap phase (T3 fire danger, docs/00 section 5), built the state-of-the-art way:
+gradient boosting not a deep net (per ECMWF's operational Probability-of-Fire), with the effort on
+the sampling design and honest scoring, which is where ignition models actually fail.
+
+- datasets/danger.py (the "trap that ruins most ignition models", docs/00 5.6): target-group
+  background sampling, negative stratification, King-Zeng rare-event prior correction, human/lightning
+  cause split; all pure + unit-tested. Plus synthetic_reporting_scenario, a biased presence-only world
+  so the trap can be shown, not asserted.
+- eval/danger.py: cause-stratified, spatial-block-CV, proper-scored ignition eval reusing eval/metrics
+  (AUPRC, Brier + Murphy decomposition, ECE, log loss, BSS vs base-rate climatology), prior-corrected,
+  lon/lat excluded (the T1 leakage lesson). Permutation importance on a held-out block to expose which
+  covariate the model leans on.
+- CLI t3-ignition (--synthetic demo); docs/14_T3_DANGER.md.
+
+DEMONSTRATION (vhagar t3-ignition --synthetic, spatial-block CV, prior-corrected): in a world where
+true ignition depends only on weather/fuel but REPORTING depends on the human footprint, naive random
+background inflates AUPRC (~0.33) and makes people/roads a top feature (human-footprint importance
++0.043); target-group background collapses that reliance (+0.011) and reveals the honest, lower skill
+(~0.29). The architecture's warning, shown on data not asserted. (BSS negative by design: the
+synthetic signal is deliberately weak; the point is the sampling effect.)
+
+Tests: tests/test_danger.py, 12 tests incl. the trap regression (target-group footprint importance <
+naive), all green, ruff clean. Real-data ingest loader now built too: frames_to_records +
+reporting_weight (target-group intensity from occurrence density) turn a fire-occurrence table + a
+candidate cell-day pool into the model's inputs; CLI t3-ignition --no-synthetic --occurrence
+--candidates --features runs the full pipeline (verified end-to-end on a generated parquet). What
+stays the user's networked step is ASSEMBLING those two tables: the fire-occurrence DB (FPA-FOD /
+CWFIS) + covariate stack (fuels, VPD, SMAP, WUI, roads, lightning holdover). Layer 1 FWI already
+existed (features/fwi.py); NFDRS, NWP forcing, and the Layer-3 DL shadow challenger remain. Files:
+datasets/danger.py, eval/danger.py, cli.py (+t3-ignition, real + synthetic paths),
+tests/test_danger.py, docs/14.
+
+## Phase 5 -- live NRT ingest path (rolling GOES pull + background refresh) (2026-08-18)
 
 Built the hot-path ingest so the console can be a live feed, not just the cached August window.
 serve/ingest.py reuses VHAGAR's own resumable archive builder (vhagar.archive.backfill) to poll the
