@@ -69,10 +69,10 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' \
             'http://127.0.0.1:8000/api/events?region=conus&days=7')
           [ "$code" = "200" ] || { echo "::error::/api/events returned $code"; exit 1; }
-          body=$(curl -s http://127.0.0.1:8000/console)
-          echo "$body" | grep -q 'pk.ci_dummy' \
+          curl -s http://127.0.0.1:8000/console -o /tmp/console.html
+          grep -q 'pk.ci_dummy' /tmp/console.html \
             || { echo "::error::token not injected into console"; exit 1; }
-          if echo "$body" | grep -q '__MAPBOX_TOKEN__'; then
+          if grep -q '__MAPBOX_TOKEN__' /tmp/console.html; then
             echo "::error::token placeholder left in console"; exit 1
           fi
           kmz=$(curl -s -o /dev/null -w '%{http_code}' \
