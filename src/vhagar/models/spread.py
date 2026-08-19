@@ -30,6 +30,10 @@ __all__ = [
     "fast_marching_arrival",
     "spread_forecast",
     "persistence_buffer",
+    "length_to_breadth",
+    "eccentricity_from_lb",
+    "anisotropic_arrival",
+    "front_length_breadth",
 ]
 
 
@@ -136,6 +140,96 @@ def spread_forecast(burned_now, ros, horizon: float, dx: float = 1.0,
         prob = 1.0 / (1.0 + np.exp((arrival - horizon) / scale))
     prob = np.where(burned_now, 1.0, prob)
     return mask, prob, arrival
+
+
+def length_to_breadth(wind, lb_max: float = 4.0):
+    """Fire length-to-breadth ratio from normalised wind (>= 1).
+
+    Wind stretches the fire into an ellipse elongated downwind; ``LB`` is the
+    ratio of its long axis to its short axis. A simple bounded, monotone surrogate
+    ``LB = 1 + (lb_max - 1) * wind`` (any calibrated form, e.g. Alexander 1985 or
+    the FBP length-to-breadth, drops in). ``wind=0`` gives ``LB=1`` (a circle).
+    """
+    return 1.0 + (lb_max - 1.0) * np.clip(np.asarray(wind, dtype=np.float64), 0.0, 1.0)
+
+
+def eccentricity_from_lb(lb):
+    """Ellipse eccentricity from length-to-breadth ratio."""
+    lb = np.maximum(np.asarray(lb, dtype=np.float64), 1.0)
+    return np.sqrt(lb * lb - 1.0) / lb
+
+
+# 8-neighbour offsets: (dy, dx, distance, direction angle in grid coords)
+_NEI8 = [(-1, 0, 1.0), (1, 0, 1.0), (0, -1, 1.0), (0, 1, 1.0),
+         (-1, -1, np.sqrt(2)), (-1, 1, np.sqrt(2)), (1, -1, np.sqrt(2)), (1, 1, np.sqrt(2))]
+_NEI8 = [(dy, dx, dd, float(np.arctan2(dy, dx))) for dy, dx, dd in _NEI8]
+
+
+def anisotropic_arrival(head_ros, wind_speed, wind_dir, seeds, dx: float = 1.0,
+                        lb_max: float = 4.0) -> np.ndarray:
+    """Wind-driven (elliptical) fire arrival time by 8-connected shortest path.
+
+    The front advances fastest downwind and slowest into wind, tracing an ellipse
+    (Richards' elliptical wavelet). In direction ``psi`` from the head the rate is
+
+        ROS(psi) = head_ros * (1 - e) / (1 - e * cos(psi)),
+
+    with eccentricity ``e`` set by the local wind. Arrival time is the
+    least-cost path on the 8-neighbour grid where each step costs
+    ``distance / ROS(step direction)``, a discrete anisotropic solver (the
+    continuous rigorous counterpart is the Ordered Upwind Method; 8-connectivity
+    is an adequate, simple approximation that renders the elongation).
+
+    ``wind_dir`` is the downwind (head) direction per cell in radians, grid
+    convention ``atan2(dy, dx)``. ``head_ros``, ``wind_speed``, ``wind_dir`` are
+    ``[H, W]`` fields (scalars broadcast).
+    """
+    head_ros = np.asarray(head_ros, dtype=np.float64)
+    H, W = head_ros.shape
+    wind_speed = np.broadcast_to(np.asarray(wind_speed, dtype=np.float64), (H, W))
+    wind_dir = np.broadcast_to(np.asarray(wind_dir, dtype=np.float64), (H, W))
+    ecc = eccentricity_from_lb(length_to_breadth(wind_speed, lb_max))
+
+    T = np.full((H, W), np.inf)
+    done = np.zeros((H, W), dtype=bool)
+    heap: list = []
+    for y, x in zip(*np.where(np.asarray(seeds, dtype=bool)), strict=True):
+        T[y, x] = 0.0
+        heapq.heappush(heap, (0.0, int(y), int(x)))
+
+    while heap:
+        t, y, x = heapq.heappop(heap)
+        if done[y, x]:
+            continue
+        done[y, x] = True
+        e = ecc[y, x]
+        r0 = max(head_ros[y, x], 1e-9)
+        wd = wind_dir[y, x]
+        for dy, dxi, dd, ang in _NEI8:
+            ny, nx = y + dy, x + dxi
+            if 0 <= ny < H and 0 <= nx < W and not done[ny, nx]:
+                psi = ang - wd
+                ros = r0 * (1.0 - e) / (1.0 - e * np.cos(psi))
+                nt = t + dd * dx / max(ros, 1e-9)
+                if nt < T[ny, nx]:
+                    T[ny, nx] = nt
+                    heapq.heappush(heap, (nt, ny, nx))
+    return T
+
+
+def front_length_breadth(mask) -> float:
+    """Measured length-to-breadth of a burned mask, via its principal moments.
+
+    Returns the ratio of the long to the short principal-axis extent (~1 for a
+    circle, larger for a wind-elongated ellipse). Used to check the solver.
+    """
+    ys, xs = np.where(np.asarray(mask, dtype=bool))
+    if ys.size < 3:
+        return 1.0
+    cov = np.cov(np.vstack([xs - xs.mean(), ys - ys.mean()]))
+    ev = np.linalg.eigvalsh(cov)
+    ev = np.clip(ev, 1e-9, None)
+    return float(np.sqrt(ev[-1] / ev[0]))
 
 
 def persistence_buffer(burned_now, radius_cells: float):

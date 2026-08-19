@@ -94,8 +94,16 @@ this physics-anchored analysis.
 
 ## What is next
 
-- **Anisotropy**: wind-driven elliptical spread (the isotropic solver renders
-  rate and coherence, not elongation) via a direction-dependent speed.
+- **Anisotropy** (done): wind-driven elliptical spread, `anisotropic_arrival` in
+  `models/spread.py`. In direction `psi` from the head the rate is
+  `ROS(psi) = head_ros * (1 - e) / (1 - e * cos psi)` (Richards' elliptical
+  wavelet), eccentricity `e` set by the local wind via a length-to-breadth ratio.
+  Arrival time is the least-cost path on the 8-neighbour grid (a simple discrete
+  anisotropic solver; the rigorous continuous counterpart is the Ordered Upwind
+  Method). `vhagar t4-aniso` verifies it: zero wind is a circle (LB ~ 1), and the
+  measured length-to-breadth tracks the prescribed value as wind rises (e.g. ~2.1
+  at wind 0.3, ~3.5 at 0.6), with the head far outrunning the back. Plug in a
+  calibrated FBP / Alexander length-to-breadth for real fires.
 - **State estimation and assimilation**: infer the arrival-time field from real
   timed detections (VIIRS/GOES first-detection, NIROPS airborne IR) and
   assimilate on every satellite pass; the strongest published result is a

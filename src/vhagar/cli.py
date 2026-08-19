@@ -2090,6 +2090,44 @@ def t4_assimilate_cmd(
         "  score-filter upgrades (torch, GPU) are what reduce it. docs/15.[/dim]")
 
 
+@app.command("t4-aniso")
+def t4_aniso_cmd(
+    winds: str = typer.Option("0,0.3,0.6,0.9", help="comma-separated normalised wind speeds"),
+    grid: int = typer.Option(141, help="grid size"),
+    lb_max: float = typer.Option(4.0, help="length-to-breadth at full wind"),
+) -> None:
+    """T4 anisotropic wind-driven spread: elliptical fire growth.
+
+    Grows a fire from a point under each wind speed with the elliptical
+    arrival-time solver and reports the length-to-breadth ratio (long axis / short
+    axis), which should match the prescribed value and be ~1 at zero wind. docs/15.
+    """
+    from vhagar.models.spread import anisotropic_arrival, front_length_breadth, length_to_breadth
+
+    ws = [float(w) for w in winds.split(",") if w.strip()]
+    c = grid // 2
+    head = np.ones((grid, grid))
+    seed = np.zeros((grid, grid), dtype=bool)
+    seed[c, c] = True
+    t = Table(title="T4 anisotropic spread: fire length-to-breadth vs wind")
+    for col in ("wind", "prescribed LB", "measured LB", "downwind ext", "upwind ext", "crosswind ext"):
+        t.add_column(col, justify="right")
+    for w in ws:
+        T = anisotropic_arrival(head, wind_speed=w, wind_dir=0.0, seeds=seed)
+        fin = np.isfinite(T)
+        tau = float(np.quantile(T[fin], 0.06))
+        m = tau >= T
+        ys, xs = np.where(m)
+        t.add_row(f"{w:.2f}", f"{float(length_to_breadth(w, lb_max)):.2f}",
+                  f"{front_length_breadth(m):.2f}", str(int(xs.max() - c)),
+                  str(int(c - xs.min())), str(int(ys.max() - ys.min())))
+    console.print(t)
+    console.print(
+        "[dim]  Zero wind is a circle (LB ~ 1); wind stretches the fire into a downwind ellipse whose\n"
+        "  head outruns the back. This is the 8-connected elliptical solver; the rigorous continuous\n"
+        "  counterpart is the Ordered Upwind Method. Plug in a calibrated FBP/Alexander LB. docs/15.[/dim]")
+
+
 @app.command("firms-fetch")
 def firms_fetch_cmd(
     detections: Path = typer.Option(

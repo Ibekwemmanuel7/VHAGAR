@@ -3,7 +3,28 @@
 Last updated: 2026-08-18. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: Phase 4 -- T4 arrival-time state estimation + online assimilation (highest-ROI piece) (2026-08-18)
+## Latest: Phase 4 -- T4 anisotropic (wind-driven) elliptical spread (2026-08-18)
+
+Made the level-set physically faithful: wind-driven fires spread as elongated ellipses, not circles.
+models/spread.py adds the elliptical wavelet (Richards) directional ROS(psi)=head_ros*(1-e)/(1-e*cos psi)
+with eccentricity from a wind-driven length-to-breadth ratio (length_to_breadth + eccentricity_from_lb),
+and anisotropic_arrival, an 8-connected least-cost-path (Dijkstra) anisotropic arrival-time solver (the
+rigorous continuous counterpart is the Ordered Upwind Method; 8-connectivity is an adequate simple
+approximation). front_length_breadth measures the resulting ellipse. CLI t4-aniso.
+
+VERIFIED (vhagar t4-aniso): zero wind = a symmetric circle (measured LB 1.00, downwind ext == upwind);
+wind stretches it downwind with the head far outrunning the back (wind 0.3: measured LB 2.12 vs
+prescribed 1.90, downwind 60 vs upwind 4; wind 0.6: LB 3.46 vs 2.80; wind 0.9: 3.86 vs 3.70). Measured
+length-to-breadth tracks the prescribed value; a calibrated FBP/Alexander LB drops in for real fires.
+Tests: tests/test_anisotropic.py (LB/eccentricity monotone, zero-wind circle + symmetry, wind elongates
+downwind head>>back and LB tracks prescribed), all green, ruff clean.
+
+T4 now has: isotropic + ANISOTROPIC fast propagation, honest incremental validation, and arrival-time
+state estimation with online ROS calibration + assimilation. Remaining T4: the conditional-GAN /
+diffusion arrival-time model (torch, GPU), real perimeters (NIROPS/VIIRS). Files: models/spread.py
+(+anisotropic), cli.py (+t4-aniso), tests/test_anisotropic.py, docs/15.
+
+## Phase 4 -- T4 arrival-time state estimation + online assimilation (highest-ROI piece) (2026-08-18)
 
 Built the piece docs/00 6.2 calls the highest return on investment in spread: fuse sparse timed
 satellite detections into a continuous arrival-time analysis and re-calibrate per-fire ROS online.
