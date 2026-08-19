@@ -431,28 +431,31 @@ def _enrich_weather(feats):
     """Attach current wind/RH/temp + an operational spread-risk score/class to
     each event, when VHAGAR_WEATHER is set. Weather is CURRENT conditions at the
     location (coincident with a live NRT feed; present-day for archived data).
-    Degrades to no-op on any failure so the endpoint always returns."""
-    if not feats or not os.environ.get("VHAGAR_WEATHER"):
-        return False
+    Degrades gracefully and returns a status string for the response metadata so
+    a failure is visible rather than silently blank."""
+    if not feats:
+        return "no-events"
+    if not os.environ.get("VHAGAR_WEATHER"):
+        return "off"
     try:
         from vhagar.features.spread_risk import risk_class, spread_risk_score
         from vhagar.weather import fetch_weather
         pts = [(f["properties"]["centroid_lat"], f["properties"]["centroid_lon"]) for f in feats]
         wx = fetch_weather(pts)
-        got = False
+        got = 0
         for f, w in zip(feats, wx, strict=False):
             if not w:
                 continue
-            got = True
+            got += 1
             p = f["properties"]
             p.update({k: w.get(k) for k in
                       ("temp_c", "rh_pct", "wind_speed_ms", "wind_dir_deg", "wind_gust_ms")})
             score = spread_risk_score(w.get("temp_c"), w.get("rh_pct"), w.get("wind_speed_ms"))
             p["risk_score"] = score
             p["risk_class"] = risk_class(score)
-        return got
-    except Exception:            # noqa: BLE001
-        return False
+        return f"current:{got}/{len(feats)}" if got else "unavailable"
+    except Exception as exc:            # noqa: BLE001
+        return f"error:{type(exc).__name__}"
 
 
 def _events_fc(region: str, days: int) -> dict:
@@ -475,12 +478,12 @@ def _events_fc(region: str, days: int) -> dict:
             "geometry": {"type": "Polygon", "coordinates": r["geometry"]},
             "properties": p})
     feats.sort(key=lambda f: (f["properties"]["max_frp_mw"] or 0), reverse=True)
-    enriched = _enrich_weather(feats)
+    wx_status = _enrich_weather(feats)
     return {"type": "FeatureCollection", "features": feats,
             "metadata": {"mode": "live", "schema": "fdc", "region": region,
                          "source": "GOES-18/19 ABI FDC (VHAGAR)", "event_count": len(feats),
                          "detection_count": int((df["t"] >= cut).sum()),
-                         "weather": "current" if enriched else None}}
+                         "weather": wx_status}}
 
 
 @app.get("/api/events")
