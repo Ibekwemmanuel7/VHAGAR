@@ -28,7 +28,20 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
+      # Near-real-time feed: serve the rolling snapshot published every 30 min by
+      # the live-snapshot workflow, re-pulled on each refresh and each cold-start
+      # wake. Until the first snapshot exists, the API falls back to the committed
+      # serve/demo bundle, so the site works immediately either way.
+      - key: VHAGAR_SNAPSHOT_URL
+        value: "https://github.com/Ibekwemmanuel7/VHAGAR/releases/download/live-snapshot/snapshot.tgz"
       - key: VHAGAR_FROZEN
         value: "1"
+      # Live weather: enrich each event with current Open-Meteo conditions and the
+      # spread-risk score, per request, labelled as current conditions.
+      - key: VHAGAR_WEATHER
+        value: "1"
+      # Re-pull the snapshot every 30 min while the instance is awake.
+      - key: VHAGAR_REFRESH_SEC
+        value: "1800"
       - key: VHAGAR_MAPBOX_TOKEN
         sync: false

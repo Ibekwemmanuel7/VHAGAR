@@ -58,6 +58,12 @@ CACHE_DIR = _ROOT / "serve" / ".cache"
 # Set VHAGAR_FROZEN=1 to force it; it is also used automatically when the raw
 # detection dataset is absent (the usual case on a fresh clone / a slim image).
 FROZEN_DIR = Path(os.environ.get("VHAGAR_FROZEN_DIR", _ROOT / "serve" / "demo"))
+# Near-real-time deploy: a scheduled job publishes a fresh snapshot tarball
+# (detections.parquet + events.pkl) at this URL, e.g. a rolling GitHub Release
+# asset. When set, the API pulls it on load and on every background refresh, so
+# a free (sleeping) host still serves the latest feed on each wake without any
+# always-on ingester. Falls back to the committed demo if the fetch fails.
+SNAPSHOT_URL = os.environ.get("VHAGAR_SNAPSHOT_URL", "").strip()
 
 # Region windows in lon/lat, matching the console's region picker.
 REGIONS: dict[str, dict] = {
@@ -103,11 +109,48 @@ def _dataset_sig() -> list:
     return marks
 
 
+def _load_snapshot_url(url: str) -> tuple[pd.DataFrame, list[dict]]:
+    """Download a snapshot tarball and load it. The tarball holds a
+    ``detections.parquet`` and an ``events.pkl`` at any depth; we extract by
+    basename only (no path traversal) into a temp dir. The source is our own
+    published asset, but the extraction is sanitised regardless."""
+    import io
+    import tarfile
+    import tempfile
+    import urllib.request
+
+    req = urllib.request.Request(url, headers={"User-Agent": "vhagar-api"})
+    with urllib.request.urlopen(req, timeout=90) as resp:  # noqa: S310 (our asset)
+        raw = resp.read()
+    dest = Path(tempfile.mkdtemp(prefix="vhagar_snap_"))
+    wanted = {"detections.parquet", "events.pkl"}
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as tf:
+        for member in tf.getmembers():
+            base = os.path.basename(member.name)
+            if member.isfile() and base in wanted:
+                member.name = base  # flatten, drop any directory component
+                tf.extract(member, dest)
+    df_p, ev_p = dest / "detections.parquet", dest / "events.pkl"
+    if not (df_p.exists() and ev_p.exists()):
+        raise FileNotFoundError("snapshot tarball missing detections.parquet or events.pkl")
+    return pd.read_parquet(df_p), pickle.loads(ev_p.read_bytes())
+
+
 def _build_state() -> tuple[pd.DataFrame, list[dict]]:
     """Load all FDC detections once and precompute clustered events per tile.
 
     Returns (detections dataframe, event records). Cached for process lifetime.
     """
+    # Near-real-time deploy: pull the freshest published snapshot. Tried first so
+    # a background refresh keeps the feed current; any failure falls through to
+    # the committed demo (below) rather than taking the service down.
+    if SNAPSHOT_URL:
+        try:
+            return _load_snapshot_url(SNAPSHOT_URL)
+        except Exception as exc:  # network / format problem: keep serving
+            print(f"[vhagar-api] snapshot fetch failed ({exc}); using fallback",
+                  file=sys.stderr)
+
     # Frozen deploy: load the committed snapshot directly and skip the raw read
     # + clustering entirely. Explicit via VHAGAR_FROZEN, or automatic when the
     # raw dataset is missing but a bundled snapshot is present.

@@ -1,0 +1,62 @@
+# Near-real-time feed for the live console. Every 30 minutes this pulls the
+# newest GOES FDC granules from NOAA's public S3, clusters them into fire events
+# with VHAGAR's fusion, and publishes the result as a rolling GitHub Release
+# asset (tag: live-snapshot). The deployed API serves that asset via
+# VHAGAR_SNAPSHOT_URL, so the site refreshes without an always-on ingester.
+#
+# The public asset URL to set as VHAGAR_SNAPSHOT_URL on Render is:
+#   https://github.com/<owner>/<repo>/releases/download/live-snapshot/snapshot.tgz
+name: live-snapshot
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # every 30 minutes (UTC); GitHub may delay under load
+  workflow_dispatch: {}        # allow a manual run from the Actions tab
+
+permissions:
+  contents: write              # needed to create the release and upload the asset
+
+concurrency:
+  group: live-snapshot
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install serve + decode dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r serve/requirements.txt
+          pip install -e ".[archive]"
+
+      - name: Build the snapshot (pull + cluster the latest window)
+        id: build
+        run: |
+          set +e
+          python -m serve.build_snapshot --sats 18,19 --lookback-hours 12 --out snapshot.tgz
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" = "3" ]; then
+            echo "no detections this cycle; keeping the previous snapshot"; exit 0
+          fi
+          exit $code
+
+      - name: Publish snapshot as the rolling release asset
+        if: steps.build.outputs.code == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view live-snapshot >/dev/null 2>&1 || \
+            gh release create live-snapshot --title "Live snapshot" \
+              --notes "Rolling near-real-time GOES FDC snapshot, refreshed by CI every 30 min."
+          gh release upload live-snapshot snapshot.tgz --clobber
+          echo "published: https://github.com/${{ github.repository }}/releases/download/live-snapshot/snapshot.tgz"

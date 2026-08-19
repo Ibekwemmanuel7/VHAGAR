@@ -88,10 +88,38 @@ The `.github/workflows/deploy-check.yml` workflow reproduces the native deploy
 (install `serve/requirements.txt`, start uvicorn in frozen mode) and asserts the
 endpoints serve, so a broken deploy path fails CI before it reaches Render.
 
-## Live (near real time)
+## Hosted live, free (scheduled snapshot)
+
+The free Render tier cannot run an always-on ingester (it sleeps when idle and
+has too little memory for the GOES decode stack), so the live feed is driven
+from outside it. The `.github/workflows/live-snapshot.yml` workflow runs every
+30 minutes on GitHub's runners, where the internet and memory exist: it pulls
+the newest GOES-18/19 FDC granules from NOAA's public S3, clusters them with
+VHAGAR's fusion (`serve/build_snapshot.py`), and publishes the result as a
+rolling GitHub Release asset (tag `live-snapshot`).
+
+The deployed API serves that asset. `render.yaml` sets:
+
+- `VHAGAR_SNAPSHOT_URL` to the release asset, pulled on load and on every
+  refresh. Until the first snapshot is published it falls back to the committed
+  `serve/demo` bundle, so the site works immediately.
+- `VHAGAR_REFRESH_SEC=1800` so an awake instance re-pulls every 30 min; a
+  sleeping free instance re-pulls on its next cold-start wake.
+- `VHAGAR_WEATHER=1` so each event is enriched with current Open-Meteo
+  conditions and the spread-risk score, per request, labelled as current
+  conditions (the fire data and the weather stay separate measurements).
+
+So the satellite feed is never more than about 30 minutes behind real time, and
+the weather is live. GitHub Actions runs unlimited minutes on public repos; on a
+private repo a 30-minute cadence is well within the free monthly allowance. No
+snapshot data is committed to git (it lives as a release asset), so history does
+not grow.
+
+## Live (near real time), self-hosted
 
 By default the API serves the cached August window (a real-data demo, not a live
-feed). To make it live, run the ingester and point the API at a rolling store.
+feed). To make it live without the scheduled snapshot, run the ingester and
+point the API at a rolling store.
 
 The ingester (`serve/ingest.py`) reuses VHAGAR's own resumable archive builder
 (`vhagar.archive.backfill`) to pull the newest GOES ABI L2 FDC granules from the
