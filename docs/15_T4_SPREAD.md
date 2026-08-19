@@ -1,0 +1,73 @@
+# T4: Fire spread forecasting
+
+T4 answers "where does this fire go next?" The architecture (`docs/00` section 6)
+is unusually blunt about the ceiling: next-day burned-mask **average precision
+in the 0.35-0.45 band**, IoU roughly **0.6-0.8 on wind-driven fires** with
+assimilation, and rate-of-spread MAPE around 40-60% in timber. The binding
+constraints are label quality (VIIRS-derived perimeters score 0.71-0.93 F1
+against agency perimeters, that is the ceiling), fuel-map error and wind
+downscaling, **not** model architecture. *Any claim of much above 0.5 AP on
+next-day spread, or above 0.9 IoU on real perimeters, is almost certainly a leaky
+split or cumulative-rather-than-incremental burned area.* This module is built to
+respect that.
+
+## What is built
+
+**Physics propagation core (`models/spread.py`).** Fire spread is a
+front-tracking problem: the perimeter is the level set `T(x) = t` of an
+arrival-time field satisfying the Eikonal equation `|grad T| = 1 / ROS(x)`. It is
+solved with the **Fast Marching Method** (Sethian), a single monotone O(N log N)
+sweep, exact for the upwind scheme, with no time stepping and no
+self-intersecting polygons. `rate_of_spread` is a monotone fuel/wind/slope field
+(a documented Rothermel/FBP surrogate; any calibrated ROS field drops in).
+`spread_forecast` propagates the current front forward to a horizon;
+`persistence_buffer` is the mandatory naive baseline.
+
+**Honest validation harness (`eval/spread.py`).** A synthetic fire is grown to
+truth with the solver, then given three effects the forecaster cannot see, which
+are where real skill is lost: **hidden suppression** (a fuel break / crews hold a
+flank), **spotting** (embers ignite ahead), and **fine-scale fuel heterogeneity**
+below map resolution. The forecaster sees the perimeter at `t0` and a
+**spatially-correlated wrong ROS** (fuel-map + wind-downscaling bias) and
+propagates it. Scoring is on the **incremental** new-burn region only (cells not
+already burned at `t0`), so cumulative area cannot inflate the number, with AP,
+IoU, Dice, burned-area ratio and arrival-time MAE, stratified wind vs plume.
+
+## Result (synthetic, honest)
+
+`vhagar t4-spread`, thin next-step band (base rate ~0.11):
+
+| model | AP | IoU | Dice | burned-area ratio |
+|---|---|---|---|---|
+| physics level-set | ~0.77 | ~0.57 | ~0.72 | ~1.4 |
+| persistence + buffer | ~0.75 | ~0.45 | ~0.62 | ~0.65 |
+| persistence | ~0.11 | 0 | 0 | 0 |
+
+The honest reading:
+
+- The physics forecast **beats both mandatory baselines**, and IoU (~0.57-0.60)
+  sits at the edge of the cited wind-driven band.
+- **Absolute AP (~0.77) is optimistic**, and we say so: the synthetic truth is a
+  perturbed level set, close to the forecaster's own model class, so a level-set
+  forecaster does unrealistically well. On real fires the ceiling is AP 0.35-0.45
+  because model-form error, fine-scale chaos and suppression dominate, which a
+  synthetic cannot fully reproduce. The value here is the propagation core and
+  the incremental, baseline-anchored harness, not the absolute number.
+- **Burned-area ratio > 1** is the honest tell: the forecast over-predicts
+  because it cannot see the suppression that holds a flank, exactly the bias IoU
+  hides and the architecture asks to report.
+
+## What is next
+
+- **Anisotropy**: wind-driven elliptical spread (the isotropic solver renders
+  rate and coherence, not elongation) via a direction-dependent speed.
+- **State estimation and assimilation**: infer the arrival-time field from real
+  timed detections (VIIRS/GOES first-detection, NIROPS airborne IR) and
+  assimilate on every satellite pass; the strongest published result is a
+  conditional GAN inferring arrival time (Sorensen ~0.81, ignition-time error
+  ~32 min).
+- **ML at the boundaries**: a diffusion / neural-operator surrogate on the
+  simulator ensemble for 100-500x speedup, and a residual corrector (the U-Net in
+  `models/ignition_conv.py` is the machinery) on simulated-vs-observed growth.
+- **Real numbers**: score against NIROPS / VIIRS 12-hour perimeters, a networked,
+  user-machine data step. Only then are absolute AP / IoU meaningful.

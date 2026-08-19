@@ -3,7 +3,38 @@
 Last updated: 2026-08-18. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: Phase 3 -- Layer-3 deep challenger in shadow mode (FSS + promotion gate) (2026-08-18)
+## Latest: Phase 4 OPENED -- T4 spread: level-set propagation + honest incremental validation (2026-08-18)
+
+Opened the last major science phase (T4 spread, docs/00 section 6). Built the physics propagation
+core the architecture keeps first-class: models/spread.py solves the Eikonal front-tracking equation
+|grad T|=1/ROS with a hand-rolled Fast Marching Method (no skfmm dep; O(N log N), exact upwind, no
+self-intersecting polygons), plus a monotone fuel/wind/slope rate_of_spread, spread_forecast (front
+-> horizon), and the mandatory persistence_buffer baseline. FMM verified: constant speed recovers
+Euclidean distance (axis exact, diagonal within tolerance).
+
+eval/spread.py is the honest validation harness, built to respect the architecture's stated ceiling
+(next-day AP 0.35-0.45; "anything much above 0.5 is leaky or cumulative"). A synthetic fire is grown
+to truth, then given three effects the forecaster cannot see (hidden suppression / fuel break,
+spotting, fine-scale fuel heterogeneity); the forecaster propagates the t0 perimeter with a
+spatially-correlated wrong ROS; scoring is on the INCREMENTAL new-burn region only (never cumulative),
+with AP/IoU/Dice/burned-area-ratio/arrival-MAE, stratified wind vs plume. CLI t4-spread.
+
+RESULT (synthetic, thin band base ~0.11): physics AP ~0.77 IoU ~0.57 Dice ~0.72 BAratio ~1.4 vs
+persistence+buffer AP ~0.75 IoU ~0.45 vs persistence AP ~0.11 IoU 0. Honest read: physics beats both
+mandatory baselines and IoU sits at the wind-driven band edge; absolute AP is OPTIMISTIC and flagged
+as such (synthetic truth is a perturbed level-set, close to the forecaster's model class; real ceiling
+is 0.35-0.45, driven by model-form error / fuel maps / wind / suppression that a synthetic cannot
+reproduce); burned-area ratio >1 is the honest over-prediction from unmodelled suppression. Did NOT
+crank noise to fake 0.4. Real numbers need real perimeters (NIROPS/VIIRS), a user data step.
+
+Tests: tests/test_spread.py (FMM=distance, ROS monotone, forecast grows + probabilistic, buffer
+dilation, physics beats baselines incrementally + BAratio>1), all green, ruff clean. Next T4:
+anisotropic (wind-driven) spread, arrival-time state estimation from real detections + assimilation
+(conditional-GAN result), diffusion/neural-operator surrogate + residual corrector (reuses the U-Net
+in models/ignition_conv). Files: models/spread.py, eval/spread.py, cli.py (+t4-spread),
+tests/test_spread.py, docs/15_T4_SPREAD.md.
+
+## Phase 3 -- Layer-3 deep challenger in shadow mode (FSS + promotion gate) (2026-08-18)
 
 Built T3's Layer-3 deep challenger the way docs/00 5.4 frames it: a spatial model admitted only as a
 CHALLENGER to the gradient boosting and promoted only on blocked, proper-scored evidence. Added the

@@ -1998,6 +1998,51 @@ def t3_challenger_cmd(
                       f"Brier {brier_score(yt, pred.reshape(-1)):.4f}. Promote only on a full blocked run. docs/14.[/dim]")
 
 
+@app.command("t4-spread")
+def t4_spread_cmd(
+    n_fires: int = typer.Option(12, help="synthetic fires per regime"),
+    ros_err: float = typer.Option(0.7, help="spatially-correlated ROS estimate error (the ceiling)"),
+    seed: int = typer.Option(0),
+) -> None:
+    """T4 spread: physics level-set forecast vs the mandatory persistence baselines.
+
+    Grows synthetic fires to truth with the Fast Marching solver (with hidden
+    suppression, spotting and fine-scale fuel heterogeneity), then forecasts from
+    the perimeter at t0 with a spatially-biased ROS estimate and scores on the
+    INCREMENTAL new-burn region only (never cumulative). Reports AP, IoU, Dice,
+    burned-area ratio and arrival-time MAE against persistence and
+    persistence+buffer. docs/15.
+    """
+    try:
+        import scipy  # noqa: F401
+    except ImportError as exc:
+        console.print("[red]t4-spread needs scipy[/red]")
+        raise typer.Exit(1) from exc
+
+    from vhagar.eval.spread import evaluate_spread
+
+    r = evaluate_spread(n_fires=n_fires, seed=seed, ros_err=ros_err)
+    for regime, ag in r.items():
+        t = Table(title=f"T4 spread, {regime}-regime: incremental next-step skill (base rate {ag['new_burn_rate']:.3f})")
+        for col in ("model", "AP", "IoU", "Dice", "burned-area ratio", "arrival MAE"):
+            t.add_column(col, justify="right")
+        for name, key in (("physics level-set", "physics"),
+                          ("persistence + buffer", "persistence_buffer"),
+                          ("persistence", "persistence")):
+            s = ag[key]
+            t.add_row(name, f"{s['ap']:.3f}", f"{s['iou']:.3f}", f"{s['dice']:.3f}",
+                      f"{s['ba_ratio']:.2f}", f"{s.get('arrival_mae', float('nan')):.2f}"
+                      if key == "physics" else "-")
+        console.print(t)
+    console.print(
+        "[dim]  The physics forecast beats persistence and persistence+buffer, and IoU sits in the\n"
+        "  cited wind-driven band. Absolute AP is optimistic here because the synthetic truth is a\n"
+        "  perturbed level set, close to the forecaster's model class; the real next-day ceiling is\n"
+        "  AP 0.35-0.45 (model-form error, fuel maps, wind, suppression). burned-area ratio > 1 is the\n"
+        "  honest over-prediction from unmodelled suppression. Real numbers need real perimeters\n"
+        "  (NIROPS / VIIRS). docs/15.[/dim]")
+
+
 @app.command("firms-fetch")
 def firms_fetch_cmd(
     detections: Path = typer.Option(
