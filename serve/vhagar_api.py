@@ -496,13 +496,22 @@ def _events_fc(region: str, days: int) -> dict:
              "n_detections", "total_frp_mw", "max_frp_mw", "mean_frp_mw",
              "perimeter_km", "footprint_ha", "first_seen", "last_seen", "sensors")}
         p["area_ha"] = r["footprint_ha"]          # console reads area_ha; labelled "footprint"
-        p["risk_class"] = "Unknown"               # FDC carries no spread risk (unless enriched)
+        # Weather baked into the snapshot at build time (see serve/build_snapshot),
+        # if present; otherwise absent and optionally filled live below.
+        for wk in ("temp_c", "rh_pct", "wind_speed_ms", "wind_dir_deg",
+                   "wind_gust_ms", "risk_score"):
+            if r.get(wk) is not None:
+                p[wk] = r[wk]
+        p["risk_class"] = r.get("risk_class") or "Unknown"
         p["perimeter_method"] = "detection convex hull"
         feats.append({"type": "Feature",
             "geometry": {"type": "Polygon", "coordinates": r["geometry"]},
             "properties": p})
     feats.sort(key=lambda f: (f["properties"]["max_frp_mw"] or 0), reverse=True)
-    wx_status = _enrich_weather(feats)
+    baked = sum(1 for f in feats if f["properties"].get("wind_speed_ms") is not None)
+    # Serve baked weather when the snapshot already carries it; only fetch live
+    # (self-hosted path) when it does not, since a shared cloud IP gets rate-limited.
+    wx_status = f"baked:{baked}/{len(feats)}" if baked else _enrich_weather(feats)
     return {"type": "FeatureCollection", "features": feats,
             "metadata": {"mode": "live", "schema": "fdc", "region": region,
                          "source": "GOES-18/19 ABI FDC (VHAGAR)", "event_count": len(feats),

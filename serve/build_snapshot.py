@@ -52,6 +52,32 @@ def _ingest(store: Path, sats: list[int], domain: str, region: str,
             _log(f"GOES-{sat} pull failed ({type(exc).__name__}: {exc}); continuing")
 
 
+def _bake_weather(events) -> int:
+    """Attach current wind/RH/temp + spread-risk to each event record in place.
+    Best-effort: returns how many events got weather, 0 on any failure."""
+    if not events:
+        return 0
+    try:
+        from vhagar.features.spread_risk import risk_class, spread_risk_score
+        from vhagar.weather import fetch_weather
+        pts = [(e["centroid_lat"], e["centroid_lon"]) for e in events]
+        wx = fetch_weather(pts)
+        got = 0
+        for e, w in zip(events, wx, strict=False):
+            if not w:
+                continue
+            got += 1
+            e.update({k: w.get(k) for k in
+                      ("temp_c", "rh_pct", "wind_speed_ms", "wind_dir_deg", "wind_gust_ms")})
+            s = spread_risk_score(w.get("temp_c"), w.get("rh_pct"), w.get("wind_speed_ms"))
+            e["risk_score"] = s
+            e["risk_class"] = risk_class(s)
+        return got
+    except Exception as exc:  # noqa: BLE001
+        _log(f"weather bake failed ({type(exc).__name__}: {exc})")
+        return 0
+
+
 def build(sats: list[int], domain: str, region: str, lookback_hours: float,
           workers: int, out: Path, min_detections: int) -> int:
     store = Path(tempfile.mkdtemp(prefix="vhagar_nrt_"))
@@ -78,6 +104,12 @@ def build(sats: list[int], domain: str, region: str, lookback_hours: float,
         _log(f"only {len(df)} detections (< {min_detections}); not publishing")
         return 3
     _log(f"clustered {len(df)} detections into {len(events)} events")
+
+    # Bake current weather + spread risk into each event here, on the runner, so
+    # the deployed API never calls the weather service (whose free tier rate-
+    # limits a shared cloud egress IP). One batched call per build; best-effort.
+    got = _bake_weather(events)
+    _log(f"weather baked into {got}/{len(events)} events")
 
     work = Path(tempfile.mkdtemp(prefix="vhagar_pack_"))
     df.to_parquet(work / "detections.parquet")
