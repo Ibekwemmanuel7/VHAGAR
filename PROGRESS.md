@@ -3,7 +3,22 @@
 Last updated: 2026-08-18. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: Phase 5 -- console rebuilt on Mapbox GL (FirePerim layout) + blue ice-dragon rebrand (2026-08-18)
+## Latest: Phase 5 -- console restyled to match FirePerim + robust Mapbox (blank-map fix) (2026-08-19)
+
+User (twice) preferred FirePerim's UI; restyled the console to mirror it closely: FirePerim-style header
+(LIVE dot + labelled Region/Days/Basemap SELECT dropdowns + updated-time + ember Refresh button), the
+sensor pill row (✦ All sensors / GOES-18 / GOES-19), a FirePerim sidebar (product title + emblem,
+GeoJSON/KMZ buttons at top, "N events · live", event cards with a risk/FRP-coloured LEFT BORDER + badge +
+2-col Area/Wind/FRP/RH grid), legend bottom-left, click popups, detail drawer. Dropped the big KPI-card
+strip to match FirePerim's cleaner look. Blue VHAGAR identity kept (ice-dragon emblem + wordmark).
+Blank-map fix: the previous Mapbox map rendered blank; added map.on("error") that surfaces token
+rejection with an actionable message (most likely the token is URL-restricted to another domain, so it
+401s on 127.0.0.1 -> allow http://127.0.0.1:8000 or use an unrestricted token), plus map.resize() on
+load + a ResizeObserver + window-resize (fixes any flex-sizing blank). Verified: /console 200 with token
+injected, Mapbox loaded, sensor tabs + error handler present; console JS node-checked, no em dashes,
+ruff clean. Files: vhagar_console.html (full rewrite), serve/vhagar_api.py (/console token injection).
+
+## Phase 5 -- console rebuilt on Mapbox GL (FirePerim layout) + blue ice-dragon rebrand (2026-08-18)
 
 Rebrand: replaced the gold/green dragon emblem with the user's blue ice-dragon art (icedragon-full.jpg);
 brand/ regenerated (circular mark 256/128/64/32 + favicon, ice-blue ring), console accent shifted
