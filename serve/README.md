@@ -25,6 +25,8 @@ the process lifetime).
   FeatureCollection (convex hull of each cluster's detection pixels).
 - `GET /api/detections?region=&days=` FDC detection pixels as GeoJSON points.
 - `GET /api/export/geojson?region=&days=` events as a download.
+- `GET /api/export/kmz?region=&days=` agency-ready KMZ (Google Earth / GIS) with
+  risk-styled event perimeters.
 - `GET /api/health` counts and the data window.
 - `GET /v1/danger?dryness=&fuel=&wind=&slope=&temp=&rh=&rainfall=&month=` the three
   T3 fire-danger quantities kept separate: FWI (+ class), ignition probability, and

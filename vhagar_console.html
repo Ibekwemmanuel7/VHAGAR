@@ -358,8 +358,14 @@ function openDrawer(p){
       ${metric("Detections",num(p.n_detections,0),"")}
       ${metric("Sensors",(p.sensors||"-").split(",").length,"feeds")}
      </div>`;
+ const hasWx=p.wind_speed_ms!=null||p.temp_c!=null;
+ const riskLine=(p.risk_class&&p.risk_class!=="Unknown")
+  ? `<div class="r"><span>Spread risk (current wx)</span><b>${p.risk_class} (${num(p.risk_score,0)})</b></div>`:"";
+ const wxLines=hasWx
+  ? `<div class="r"><span>Wind</span><b>${num(p.wind_speed_ms)} m/s @ ${num(p.wind_dir_deg,0)}&deg;</b></div>`
+    +`<div class="r"><span>RH / Temp</span><b>${num(p.rh_pct,0)}% / ${num(p.temp_c)}&deg;C</b></div>`:"";
  const wx=fdc
-  ? `<div class="wx">
+  ? `<div class="wx">${riskLine}${wxLines}
       <div class="r"><span>Sensors</span><b>${p.sensors||"-"}</b></div>
       <div class="r"><span>First detection</span><b>${clean(p.first_seen)} UTC</b></div>
       <div class="r"><span>Last detection</span><b>${clean(p.last_seen)} UTC</b></div>
@@ -373,7 +379,8 @@ function openDrawer(p){
       <div class="r"><span>Last seen</span><b>${clean(p.last_seen)} UTC</b></div>
      </div>`;
  const exports=fdc
-  ? `<div class="expt"><a href="${API}/api/export/geojson?${q}" target="_blank" rel="noopener">GeoJSON</a></div>`
+  ? `<div class="expt"><a href="${API}/api/export/geojson?${q}" target="_blank" rel="noopener">GeoJSON</a>
+     <a href="${API}/api/export/kmz?${q}" target="_blank" rel="noopener">KMZ</a></div>`
   : `<div class="expt"><a href="${API}/api/export/geojson?${q}" target="_blank" rel="noopener">GeoJSON</a>
      <a href="${API}/api/export/kmz?${q}" target="_blank" rel="noopener">KMZ</a></div>`;
  const note=fdc

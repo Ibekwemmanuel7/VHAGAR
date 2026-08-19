@@ -372,9 +372,35 @@ def detections(region: str = Query("california"), days: int = Query(3, ge=1, le=
                      "source": "GOES-18/19 ABI FDC (VHAGAR)", "count": len(feats)}})
 
 
-@app.get("/api/events")
-def events(region: str = Query("california"), days: int = Query(3, ge=1, le=14),
-           filter_fa: bool = Query(False)):
+def _enrich_weather(feats):
+    """Attach current wind/RH/temp + an operational spread-risk score/class to
+    each event, when VHAGAR_WEATHER is set. Weather is CURRENT conditions at the
+    location (coincident with a live NRT feed; present-day for archived data).
+    Degrades to no-op on any failure so the endpoint always returns."""
+    if not feats or not os.environ.get("VHAGAR_WEATHER"):
+        return False
+    try:
+        from vhagar.features.spread_risk import risk_class, spread_risk_score
+        from vhagar.weather import fetch_weather
+        pts = [(f["properties"]["centroid_lat"], f["properties"]["centroid_lon"]) for f in feats]
+        wx = fetch_weather(pts)
+        got = False
+        for f, w in zip(feats, wx, strict=False):
+            if not w:
+                continue
+            got = True
+            p = f["properties"]
+            p.update({k: w.get(k) for k in
+                      ("temp_c", "rh_pct", "wind_speed_ms", "wind_dir_deg", "wind_gust_ms")})
+            score = spread_risk_score(w.get("temp_c"), w.get("rh_pct"), w.get("wind_speed_ms"))
+            p["risk_score"] = score
+            p["risk_class"] = risk_class(score)
+        return got
+    except Exception:            # noqa: BLE001
+        return False
+
+
+def _events_fc(region: str, days: int) -> dict:
     df, evs = get_state()
     bbox = REGIONS.get(region, REGIONS["california"])["bbox"]
     cut = _window(df, days)
@@ -388,23 +414,40 @@ def events(region: str = Query("california"), days: int = Query(3, ge=1, le=14),
              "n_detections", "total_frp_mw", "max_frp_mw", "mean_frp_mw",
              "perimeter_km", "footprint_ha", "first_seen", "last_seen", "sensors")}
         p["area_ha"] = r["footprint_ha"]          # console reads area_ha; labelled "footprint"
-        p["risk_class"] = "Unknown"               # FDC carries no spread risk
+        p["risk_class"] = "Unknown"               # FDC carries no spread risk (unless enriched)
         p["perimeter_method"] = "detection convex hull"
         feats.append({"type": "Feature",
             "geometry": {"type": "Polygon", "coordinates": r["geometry"]},
             "properties": p})
     feats.sort(key=lambda f: (f["properties"]["max_frp_mw"] or 0), reverse=True)
-    return JSONResponse({"type": "FeatureCollection", "features": feats,
-        "metadata": {"mode": "live", "schema": "fdc", "region": region,
-                     "source": "GOES-18/19 ABI FDC (VHAGAR)", "event_count": len(feats),
-                     "detection_count": int((df["t"] >= cut).sum())}})
+    enriched = _enrich_weather(feats)
+    return {"type": "FeatureCollection", "features": feats,
+            "metadata": {"mode": "live", "schema": "fdc", "region": region,
+                         "source": "GOES-18/19 ABI FDC (VHAGAR)", "event_count": len(feats),
+                         "detection_count": int((df["t"] >= cut).sum()),
+                         "weather": "current" if enriched else None}}
+
+
+@app.get("/api/events")
+def events(region: str = Query("california"), days: int = Query(3, ge=1, le=14),
+           filter_fa: bool = Query(False)):
+    return JSONResponse(_events_fc(region, days))
 
 
 @app.get("/api/export/geojson")
 def export_geojson(region: str = Query("california"), days: int = Query(3, ge=1, le=14)):
-    fc = events(region, days).body  # reuse
-    return Response(content=fc, media_type="application/geo+json",
+    return Response(content=json.dumps(_events_fc(region, days)),
+        media_type="application/geo+json",
         headers={"Content-Disposition": f"attachment; filename=vhagar_events_{region}.geojson"})
+
+
+@app.get("/api/export/kmz")
+def export_kmz(region: str = Query("california"), days: int = Query(3, ge=1, le=14)):
+    """Agency-ready KMZ (Google Earth / GIS): risk-styled event perimeters."""
+    from vhagar.export import events_to_kmz
+    kmz = events_to_kmz(_events_fc(region, days))
+    return Response(content=kmz, media_type="application/vnd.google-earth.kmz",
+        headers={"Content-Disposition": f"attachment; filename=vhagar_events_{region}.kmz"})
 
 
 @app.get("/console")

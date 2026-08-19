@@ -3,7 +3,28 @@
 Last updated: 2026-08-18. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: Phase 5 -- /v1/danger endpoint + T3 danger card in the console (2026-08-18)
+## Latest: Phase 5 -- operational parity with FirePerim (weather + spread-risk + KMZ) (2026-08-18)
+
+Closed the three quick operational gaps a FirePerim review flagged, so the console reaches parity on
+the operational product. New package modules (dependency-light, pure-tested; the live fetch is a
+user-machine step): vhagar/weather/open_meteo.py (current wind/RH/temp via Open-Meteo, stdlib urllib,
+batched + cached, graceful fallback, parse pure), vhagar/features/spread_risk.py (transparent 0-100
+weather-driven spread-risk score wind 55% / dryness 30% / heat 15% + Low/Moderate/High/Extreme class;
+an operational triage signal, NOT the calibrated T3 danger), vhagar/export/kmz.py (hand-rolled KML ->
+KMZ, risk-styled event perimeters, no simplekml dep). Wired into serve/vhagar_api.py: GET
+/api/export/kmz (verified: 200, 89 placemarks over the CA events); optional weather+risk enrichment on
+/api/events gated by VHAGAR_WEATHER (attaches wind/rh/temp + spread_risk + risk_class; labelled
+"current conditions", coincident in NRT mode, present-day for archived data; off by default -> events
+stay honest FDC-only, metadata.weather null). Console: KMZ export link + a weather/spread-risk block
+in the event drawer shown only when enriched. Tests tests/test_operational.py (weather parse, risk
+monotone/bands, KMZ roundtrip) green; console JS node-checked, no em dashes; ruff clean.
+
+Still NOT closed (the big FirePerim gap): the airborne/UAS IR imagery track (orthorectification,
+telemetry georeferencing, multi-pass fusion, desmoke/dehaze, real FLAME3 ingest) -- a genuine new
+capability area, satellite-only VHAGAR has none of it. Files: vhagar/weather/, vhagar/features/
+spread_risk.py, vhagar/export/, serve/vhagar_api.py, vhagar_console.html, tests/test_operational.py.
+
+## Phase 5 -- /v1/danger endpoint + T3 danger card in the console (2026-08-18)
 
 Wired the three T3 danger quantities into the product. serve/vhagar_api.py gains GET /v1/danger which
 returns FWI (+ class, from the Canadian Fire Weather Index on supplied weather), ignition probability
