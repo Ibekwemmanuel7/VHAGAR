@@ -3,7 +3,35 @@
 Last updated: 2026-08-18. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: Phase 4 OPENED -- T4 spread: level-set propagation + honest incremental validation (2026-08-18)
+## Latest: Phase 4 -- T4 arrival-time state estimation + online assimilation (highest-ROI piece) (2026-08-18)
+
+Built the piece docs/00 6.2 calls the highest return on investment in spread: fuse sparse timed
+satellite detections into a continuous arrival-time analysis and re-calibrate per-fire ROS online.
+models/state_estimation.py: since arrival ~ 1/ROS, a robust per-fire scale k = median(prior_arrival /
+observed_detection_time) aligns a prior ROS field (mapped fuel/wind pattern) to the detections; the
+analysis field is prior_arrival / k (calibrate_ros_scale + estimate_arrival_field + AnalysisState).
+eval/assimilation.py runs the sequential loop: after each satellite pass, re-calibrate to all
+detections so far and forecast to the next pass; score the INCREMENTAL new burn (where naive
+persistence has no skill) with Sorensen/FAR vs naive persistence and the uncalibrated prior. CLI
+t4-assimilate.
+
+RESULT (vhagar t4-assimilate, wind, prior ROS biased 0.6x, 6 passes): online calibration recovers the
+bias, k -> ~1.73 (ideal 1.67); the analysis reconstructs the perimeter at full-Sorensen ~0.79 (near
+the published conditional-GAN ~0.81); on the between-pass new burn it beats naive persistence (~0.43
+vs 0.00) and the uncalibrated prior (~0.43 vs ~0.06) by a wide margin. New-burn FAR is high (~0.5-0.75)
+and rises as the fire grows, the honest over-prediction from unmodelled suppression + prior spatial
+error, which the generative / diffusion score-filter upgrades (torch, GPU; the U-Net in
+models/ignition_conv is the machinery) are what reduce. Tests: tests/test_assimilation.py
+(calibration recovers a known scale, analysis field = prior/k, assimilation beats baselines +
+calibrates), all green, ruff clean.
+
+T4 now has: level-set fast-marching propagation, honest incremental validation, AND arrival-time state
+estimation with online per-fire ROS calibration + sequential assimilation. Next T4: anisotropic
+wind-driven spread; the conditional-GAN / diffusion arrival-time model (torch); real perimeters
+(NIROPS/VIIRS). Files: models/state_estimation.py, eval/assimilation.py, cli.py (+t4-assimilate),
+tests/test_assimilation.py, docs/15.
+
+## Phase 4 OPENED -- T4 spread: level-set propagation + honest incremental validation (2026-08-18)
 
 Opened the last major science phase (T4 spread, docs/00 section 6). Built the physics propagation
 core the architecture keeps first-class: models/spread.py solves the Eikonal front-tracking equation

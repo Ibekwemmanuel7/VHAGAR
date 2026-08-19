@@ -57,6 +57,41 @@ The honest reading:
   because it cannot see the suppression that holds a flank, exactly the bias IoU
   hides and the architecture asks to report.
 
+## State estimation and assimilation (the highest-return piece)
+
+The architecture calls state estimation the highest return on investment in
+spread: fuse the sparse, timed satellite active-fire detections into a
+*continuous* arrival-time field and re-calibrate the per-fire rate of spread
+online. `models/state_estimation.py` is the physics-anchored estimator: a prior
+ROS (from mapped fuel/wind/slope) fixes the spatial *pattern* of spread; because
+scaling ROS by `k` scales all arrival times by `1/k`, a single robust per-fire
+`k = median(prior_arrival / observed_time)` aligns the *rate* to the detections.
+That is exactly the "per-fire ROS adjustment factor calibrated online" the doc
+asks for. `eval/assimilation.py` runs the loop: after each satellite pass it
+re-calibrates to all detections so far and re-forecasts to the next pass.
+
+`vhagar t4-assimilate` (wind regime, prior ROS biased 0.6x, 6 passes):
+
+| | value |
+|---|---|
+| calibrated scale k | ~1.73 (ideal 1/0.6 = 1.67) |
+| full-perimeter Sorensen (analysis) | ~0.79 (published conditional-GAN ~0.81) |
+| incremental Sorensen, analysis | ~0.43 |
+| incremental Sorensen, uncalibrated prior | ~0.06 |
+| incremental Sorensen, naive persistence | 0.00 |
+
+The reading: online calibration **recovers the ROS bias** from sparse timed
+detections (k converges to ~1.7), the analysis **reconstructs the perimeter** at
+Sorensen ~0.79, near the published conditional-GAN result, and on the between-pass
+**new burn** it beats naive persistence (which predicts no growth) and the
+uncalibrated prior (wrong rate) by a wide margin. The new-burn false-alarm ratio
+is high (~0.5-0.75) and *rises* as the fire grows, the honest over-prediction from
+unmodelled suppression and prior spatial error; reducing it is precisely what the
+generative upgrades below are for. The published state of the art is a conditional
+GAN that infers arrival time from active fire; that generative model is torch work
+(the U-Net in `models/ignition_conv.py` is the machinery), and it sits on top of
+this physics-anchored analysis.
+
 ## What is next
 
 - **Anisotropy**: wind-driven elliptical spread (the isotropic solver renders

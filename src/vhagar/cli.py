@@ -2043,6 +2043,53 @@ def t4_spread_cmd(
         "  (NIROPS / VIIRS). docs/15.[/dim]")
 
 
+@app.command("t4-assimilate")
+def t4_assimilate_cmd(
+    n_fires: int = typer.Option(12, help="synthetic fires"),
+    n_passes: int = typer.Option(6, help="satellite passes assimilated per fire"),
+    prior_bias: float = typer.Option(0.6, help="true multiplicative ROS error the loop must recover"),
+    regime: str = typer.Option("wind", help="wind | plume"),
+    seed: int = typer.Option(0),
+) -> None:
+    """T4 state estimation + assimilation: online per-fire ROS calibration.
+
+    The highest-return spread piece (docs/00 6.2). Sparse timed detections are
+    assimilated pass by pass into a continuous arrival-time analysis by calibrating
+    the per-fire ROS scale, then forecasting to the next pass. Scored on the
+    incremental new burn (where naive persistence has no skill) with Sorensen and
+    false-alarm ratio, against naive persistence and the uncalibrated prior, plus
+    the full-perimeter Sorensen. docs/15.
+    """
+    try:
+        import scipy  # noqa: F401
+    except ImportError as exc:
+        console.print("[red]t4-assimilate needs scipy[/red]")
+        raise typer.Exit(1) from exc
+
+    from vhagar.eval.assimilation import assimilation_experiment
+
+    r = assimilation_experiment(n_fires=n_fires, n_passes=n_passes, regime=regime,
+                                prior_bias=prior_bias, seed=seed)
+    o = r["overall"]
+    t = Table(title=f"T4 assimilation, {regime}-regime: per-fire ROS calibration from timed detections")
+    for col in ("pass", "cal. scale k", "incr Sorensen (analysis)", "incr (uncal. prior)",
+                "incr (naive)", "new-burn FAR", "full-perim Sorensen"):
+        t.add_column(col, justify="right")
+    for s in r["steps"]:
+        t.add_row(str(s["step"] + 1), f"{s['k']:.2f}", f"{s['soren_analysis']:.3f}",
+                  f"{s['soren_prior']:.3f}", f"{s['soren_naive']:.3f}",
+                  f"{s['far_analysis']:.3f}", f"{s['soren_full']:.3f}")
+    console.print(t)
+    console.print(
+        f"[dim]  Online calibration recovers the ROS bias: k -> {o['k_final']:.2f} (ideal "
+        f"{o['k_ideal']:.2f}). The calibrated analysis reconstructs the perimeter at Sorensen "
+        f"~{o['soren_full']:.2f} (published conditional-GAN ~0.81) and forecasts the between-pass\n"
+        f"  new burn far better than naive persistence ({o['soren_analysis']:.2f} vs "
+        f"{o['soren_naive']:.2f}) or the uncalibrated prior ({o['soren_prior']:.2f}). The high new-burn\n"
+        "  FAR is the honest over-prediction from unmodelled suppression; the generative / diffusion\n"
+        "  score-filter upgrades (torch, GPU) are what reduce it. docs/15.[/dim]")
+
+
 @app.command("firms-fetch")
 def firms_fetch_cmd(
     detections: Path = typer.Option(
