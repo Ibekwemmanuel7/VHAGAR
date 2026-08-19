@@ -125,7 +125,6 @@ select{font-family:inherit}
    <div id="map"></div>
    <div class="advis" id="advis"></div>
    <div class="legend" id="legend">
-    <h4 id="legtitle">Peak FRP, event hull</h4>
     <div class="ramp"><i style="background:#8fa0c0"></i><i style="background:#E0B43A"></i><i style="background:#E8552B"></i><i style="background:#B71C1C"></i></div>
     <div class="ends"><span>Low</span><span>High</span></div>
     <div class="row"><span class="sw" style="background:radial-gradient(circle,#ff7a33 40%,rgba(255,122,51,.2) 72%)"></span>Detection, size by FRP</div>
@@ -318,7 +317,6 @@ function applyChrome(){const fdc=isFDC();
  document.getElementById("advis").innerHTML=fdc
   ?`<b>${esc(state.source||"GOES ABI FDC")}</b>. Candidate fire pixels clustered into events by VHAGAR's parallax-aware fusion. The polygon is the detection convex hull, a detection extent, not a burned-area measurement.`
   :`Satellite-derived perimeters and detections. Each is a candidate for verification, not a confirmed event.`;
- document.getElementById("legtitle").textContent=fdc?"Peak FRP, event hull":"Spread risk, perimeter";
  const anyWind=((state.events&&state.events.features)||[]).some(f=>f.properties.wind_dir_deg!=null);
  document.getElementById("lgwind").style.display=anyWind?"flex":"none";
 }
