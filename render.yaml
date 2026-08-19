@@ -40,8 +40,9 @@ services:
       # spread-risk score, per request, labelled as current conditions.
       - key: VHAGAR_WEATHER
         value: "1"
-      # Re-pull the snapshot every 30 min while the instance is awake.
+      # Re-pull the snapshot every 10 min while the instance is awake, so a newly
+      # published snapshot (built every ~30 min) shows up within ten minutes.
       - key: VHAGAR_REFRESH_SEC
-        value: "1800"
+        value: "600"
       - key: VHAGAR_MAPBOX_TOKEN
         sync: false
