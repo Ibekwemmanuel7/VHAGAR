@@ -1,26 +1,33 @@
 # Render Blueprint for the VHAGAR fire API + console.
 #
+# Native Python runtime (Render's recommended path for a plain FastAPI app: no
+# image build, faster deploys, no build-minute overhead). A Dockerfile is also
+# committed for anyone who wants a container, but this blueprint does not use it.
+#
 # One-time setup:
 #   1. Push this repo to GitHub (the serve/demo snapshot must be committed).
 #   2. In Render: New > Blueprint, point it at the repo. Render reads this file.
 #   3. When prompted, paste your Mapbox public token (pk...) for
 #      VHAGAR_MAPBOX_TOKEN. It is marked sync:false so it is never stored here.
-#   4. After the first deploy, copy the service URL (https://<name>.onrender.com)
-#      and add it to that token's allowed URLs in your Mapbox account, then open
+#   4. After the first deploy, copy the service URL (https://<name>.onrender.com),
+#      add it to that token's allowed URLs in your Mapbox account, then open
 #      https://<name>.onrender.com/console
 #
 # The free plan sleeps after ~15 min idle, so the first hit after a nap has a
-# cold start of roughly a minute. The service itself starts instantly because it
+# cold start of about a minute. The service itself starts instantly because it
 # loads the committed snapshot (serve/demo) rather than re-clustering.
 services:
   - type: web
     name: vhagar-console
-    runtime: docker
+    runtime: python
     plan: free
-    dockerfilePath: ./Dockerfile
+    buildCommand: "pip install -r serve/requirements.txt"
+    startCommand: "uvicorn serve.vhagar_api:app --host 0.0.0.0 --port $PORT"
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
       - key: VHAGAR_FROZEN
         value: "1"
       - key: VHAGAR_MAPBOX_TOKEN

@@ -52,12 +52,14 @@ instantly: no raw GOES parquet, no 45 s clustering. `VHAGAR_FROZEN=1` forces
 that path (it is also used automatically when the raw dataset is absent, the
 usual case on a fresh clone or a slim image).
 
-The `Dockerfile` and `render.yaml` at the repo root are ready to go:
+The `render.yaml` at the repo root uses Render's native Python runtime (the
+recommended path for a plain FastAPI app: no image build, faster deploys):
 
 1. Push to GitHub (the `serve/demo` snapshot must be committed; it is exempted
    in `.gitignore`).
 2. In Render: New > Blueprint, point it at the repo. Render reads `render.yaml`
-   and provisions a free Docker web service with a `/api/health` health check.
+   and provisions a free web service (`pip install -r serve/requirements.txt`,
+   `uvicorn serve.vhagar_api:app`) with a `/api/health` health check.
 3. When prompted, paste your Mapbox public token (`pk...`) for
    `VHAGAR_MAPBOX_TOKEN`. It is marked `sync: false`, so it is never stored in
    the repo.
@@ -67,18 +69,24 @@ The `Dockerfile` and `render.yaml` at the repo root are ready to go:
 
 Caveats for the free plan: the service sleeps after about 15 minutes idle, so
 the first request after a nap has a cold start of roughly a minute (the app
-itself starts fast; the delay is Render waking the container). The snapshot is
+itself starts fast; the delay is Render waking the instance). The snapshot is
 the cached August 2026 CONUS week, a real-data demo, not a live feed. To make a
 hosted instance live, run the ingester somewhere with internet and point the
 service at a rolling store (see below), or redeploy with a refreshed snapshot.
 
-The same image runs anywhere Docker does:
+A `Dockerfile` is also committed for anyone who prefers a container (it sets
+`VHAGAR_FROZEN=1` and runs the same uvicorn command). It is optional; the
+Render blueprint does not use it.
 
 ```
 docker build -t vhagar .
 docker run -p 8000:8000 -e VHAGAR_MAPBOX_TOKEN=pk.... vhagar
 # open http://127.0.0.1:8000/console
 ```
+
+The `.github/workflows/deploy-check.yml` workflow reproduces the native deploy
+(install `serve/requirements.txt`, start uvicorn in frozen mode) and asserts the
+endpoints serve, so a broken deploy path fails CI before it reaches Render.
 
 ## Live (near real time)
 

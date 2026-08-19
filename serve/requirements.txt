@@ -4,3 +4,4 @@ pandas
 pyarrow
 numpy
 scipy
+scikit-learn

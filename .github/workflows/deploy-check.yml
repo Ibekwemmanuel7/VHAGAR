@@ -1,47 +1,58 @@
-# Deploy smoke test: build the exact Docker image Render will run, start it in
-# frozen-snapshot mode, and assert the service comes up and serves. This guards
-# the deploy artifact (Dockerfile + render.yaml + serve/demo snapshot), which
-# the ordinary CI (ci.yml: ruff + pytest) does not exercise.
+# Deploy smoke test: reproduce Render's native-python deploy (install
+# serve/requirements.txt, start uvicorn in frozen-snapshot mode) and assert the
+# service comes up and serves. This guards the deploy path (render.yaml + the
+# serve/demo snapshot), which the ordinary CI (ci.yml: ruff + pytest) does not
+# exercise. No Docker: it runs the exact commands Render runs.
 name: deploy-check
 
 on:
   push:
     branches: [main]
     paths:
-      - Dockerfile
       - render.yaml
       - "serve/**"
       - "src/vhagar/**"
       - vhagar_console.html
   pull_request:
     paths:
-      - Dockerfile
       - render.yaml
       - "serve/**"
       - "src/vhagar/**"
       - vhagar_console.html
 
 jobs:
-  docker-smoke:
+  serve-smoke:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build the image (same one Render builds)
-        run: docker build -t vhagar:ci .
+      - name: Set up Python (match render.yaml PYTHON_VERSION)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
 
-      - name: Run the container in frozen-snapshot mode
+      - name: Install the serving deps (same as Render buildCommand)
         run: |
-          docker run -d --name vhagar -p 8000:8000 \
-            -e VHAGAR_MAPBOX_TOKEN=pk.ci_dummy vhagar:ci
+          python -m pip install --upgrade pip
+          pip install -r serve/requirements.txt
+
+      - name: Start uvicorn in frozen-snapshot mode
+        env:
+          VHAGAR_FROZEN: "1"
+          VHAGAR_MAPBOX_TOKEN: pk.ci_dummy
+        run: |
+          uvicorn serve.vhagar_api:app --host 127.0.0.1 --port 8000 \
+            > /tmp/uvicorn.log 2>&1 &
+          echo $! > /tmp/uvicorn.pid
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:8000/api/health > /dev/null; then
-              echo "up after ${i} tries"; ok=1; break
+              echo "up after ${i}s"; ok=1; break
             fi
-            sleep 2
+            sleep 1
           done
           if [ "${ok:-0}" != "1" ]; then
-            echo "::error::health check never passed"; docker logs vhagar; exit 1
+            echo "::error::health check never passed"; cat /tmp/uvicorn.log; exit 1
           fi
 
       - name: Assert the endpoints serve
@@ -58,7 +69,6 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' \
             'http://127.0.0.1:8000/api/events?region=conus&days=7')
           [ "$code" = "200" ] || { echo "::error::/api/events returned $code"; exit 1; }
-          # the /console route must inject the Mapbox token and drop the placeholder
           body=$(curl -s http://127.0.0.1:8000/console)
           echo "$body" | grep -q 'pk.ci_dummy' \
             || { echo "::error::token not injected into console"; exit 1; }
@@ -70,10 +80,10 @@ jobs:
           [ "$kmz" = "200" ] || { echo "::error::/api/export/kmz returned $kmz"; exit 1; }
           echo "all endpoints served"
 
-      - name: Container logs
+      - name: uvicorn log
         if: always()
-        run: docker logs vhagar || true
+        run: cat /tmp/uvicorn.log || true
 
-      - name: Clean up
+      - name: Stop uvicorn
         if: always()
-        run: docker rm -f vhagar || true
+        run: kill "$(cat /tmp/uvicorn.pid)" 2>/dev/null || true
