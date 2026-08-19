@@ -3,7 +3,37 @@
 Last updated: 2026-08-18. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: Phase 4 -- T4 anisotropic (wind-driven) elliptical spread (2026-08-18)
+## Latest: Phase 5 -- /v1/danger endpoint + T3 danger card in the console (2026-08-18)
+
+Wired the three T3 danger quantities into the product. serve/vhagar_api.py gains GET /v1/danger which
+returns FWI (+ class, from the Canadian Fire Weather Index on supplied weather), ignition probability
+(cause-stratified GBDT, King-Zeng prior-corrected) and expected burned area E[BA] = P(ig) x E[BA|ig]
+(quantile-GBDT + GPD tail), KEPT SEPARATE, never collapsed into one risk number. Danger models train
+lazily on VHAGAR's synthetic danger scenarios and cache (first call ~2s, then instant); labelled
+schema="t3-danger-demo" with an honest note to wire real fuels/weather/occurrence for operational
+values. Verified monotone: hot/dry (FWI 26.7 Very-high, ign 18%, E[BA] 154 ha) >> cool/wet (FWI 0.2
+Low, 0.5%, 0.5 ha). vhagar_console.html gains a "Fire danger, T3 (demo)" strip below the KPIs showing
+the three quantities, fetched from /v1/danger, distinct from the FDC detection product and hidden if
+the endpoint is absent. Test tests/test_serve_danger.py (three quantities present + monotone) green;
+console JS node-checked, no em dashes; ruff clean. This connects the Phase-3 science to the Phase-5
+serving contract. Files: serve/vhagar_api.py (+/v1/danger), vhagar_console.html (+danger card),
+tests/test_serve_danger.py.
+
+## Phase 4 -- T4 generative arrival-time model (conditional GAN, physics-anchored) (2026-08-18)
+
+Built the published SOTA for spread state estimation (docs/00 6.2): a conditional GAN that infers the
+arrival-time field from active fire. models/arrival_gan.py: a U-Net generator conditioned on the
+observed perimeter + a normalised detection-time channel + mapped covariates, a PatchGAN discriminator,
+and losses = LSGAN adversarial + L1 reconstruction + an EIKONAL-CONSISTENCY term ||grad T| - 1/ROS|
+that ties the generated field to the level-set physics so it cannot hallucinate an impossible front.
+It sits on top of the physics-anchored estimator (state_estimation.py gives the calibrated prior; the
+GAN learns the residual a single per-fire scale cannot). The conditioning + normalisation builders
+(build_conditioning, normalize_arrival, make_training_pair) are pure numpy and unit-tested (data
+contract verified without torch); generator/discriminator/Eikonal-loss/training loop are torch-guarded
+(GPU box). Tests: tests/test_arrival_gan.py (4; torch shapes via importorskip), pure ones green, ruff
+clean. Files: models/arrival_gan.py, tests/test_arrival_gan.py, docs/15.
+
+## Phase 4 -- T4 anisotropic (wind-driven) elliptical spread (2026-08-18)
 
 Made the level-set physically faithful: wind-driven fires spread as elongated ellipses, not circles.
 models/spread.py adds the elliptical wavelet (Richards) directional ROS(psi)=head_ros*(1-e)/(1-e*cos psi)

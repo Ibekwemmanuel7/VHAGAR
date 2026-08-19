@@ -87,10 +87,23 @@ Sorensen ~0.79, near the published conditional-GAN result, and on the between-pa
 uncalibrated prior (wrong rate) by a wide margin. The new-burn false-alarm ratio
 is high (~0.5-0.75) and *rises* as the fire grows, the honest over-prediction from
 unmodelled suppression and prior spatial error; reducing it is precisely what the
-generative upgrades below are for. The published state of the art is a conditional
-GAN that infers arrival time from active fire; that generative model is torch work
-(the U-Net in `models/ignition_conv.py` is the machinery), and it sits on top of
-this physics-anchored analysis.
+generative model below is for.
+
+## Generative arrival-time inference (conditional GAN)
+
+The published state of the art for state estimation is a conditional GAN that
+infers the arrival-time field from active fire (Sorensen ~0.81, ignition-time
+error ~32 min). `models/arrival_gan.py` is that model: a U-Net **generator**
+conditioned on the observed perimeter, a normalised detection-time channel and
+the mapped covariates; a PatchGAN **discriminator**; and losses that combine
+LSGAN adversarial + L1 reconstruction + an **Eikonal-consistency** term
+`| |grad T| - 1/ROS |` that ties the generated field to the level-set physics so
+it cannot hallucinate a geometrically impossible front. It sits on top of the
+physics-anchored estimator: `state_estimation.py` gives the calibrated prior, the
+GAN learns the residual structure a single per-fire scale cannot. The conditioning
+and normalisation builders are pure numpy and unit-tested (the data contract is
+verified without torch); the generator, discriminator, Eikonal loss and training
+loop are torch-guarded and run on a GPU box.
 
 ## What is next
 

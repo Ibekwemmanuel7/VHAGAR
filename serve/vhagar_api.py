@@ -420,7 +420,93 @@ def favicon():
     return Response(status_code=204)
 
 
+# ---------------------------------------------------------- T3 danger (/v1)
+# The three fire-danger quantities the architecture refuses to collapse into one
+# number: FWI (conditional danger), P(ignition), and E[BA]. Models are trained
+# lazily on VHAGAR's synthetic danger scenarios and cached; wire real fuels /
+# weather / occurrence for operational values. This is a demo of the contract,
+# labelled as such, never a claim of calibrated real danger.
+_DANGER = None
+_DANGER_LOCK = threading.Lock()
+
+
+def _danger_state():
+    global _DANGER
+    if _DANGER is None:
+        with _DANGER_LOCK:
+            if _DANGER is None:
+                import numpy as _np
+                from sklearn.ensemble import HistGradientBoostingClassifier
+
+                from vhagar.datasets.danger import (
+                    assemble_ignition_samples,
+                    rare_event_correction,
+                    synthetic_reporting_scenario,
+                )
+                from vhagar.eval.burned_area import (
+                    BurnedAreaModel,
+                    synthetic_burned_area_scenario,
+                )
+                rng = _np.random.default_rng(0)
+                pres, cand, ign_fn, tau = synthetic_reporting_scenario(rng, n_cells=2500)
+                s = assemble_ignition_samples(pres, cand, ign_fn, rng, tau=tau,
+                                              use_target_group=True, stratify=False)
+                ign = HistGradientBoostingClassifier(max_depth=4, max_iter=200,
+                                                     random_state=0).fit(s.X, s.y)
+                Xb, area, *_ = synthetic_burned_area_scenario(_np.random.default_rng(1), n=3000)
+                eba = BurnedAreaModel(seed=0).fit(Xb, area)
+                _DANGER = {"ign": ign, "ign_fn": ign_fn, "tau": s.tau, "ybar": s.ybar,
+                           "eba": eba, "rec": rare_event_correction}
+    return _DANGER
+
+
+def _fwi_point(temp, rh, wind, rain, month):
+    from vhagar.features import fwi as F
+    ff = float(F.ffmc(temp, rh, wind, rain, 85.0))
+    dm = float(F.dmc(temp, rh, rain, 6.0, month))
+    dc = float(F.dc(temp, rain, 15.0, month))
+    return float(F.fwi(F.isi(ff, wind), F.bui(dm, dc)))
+
+
+def _fwi_class(v):
+    for thr, name in ((38, "Extreme"), (21, "Very high"), (12, "High"), (5, "Moderate")):
+        if v >= thr:
+            return name
+    return "Low"
+
+
+@app.get("/v1/danger")
+def danger(dryness: float = Query(0.6, ge=0, le=1), fuel: float = Query(0.6, ge=0, le=1),
+           wind: float = Query(0.5, ge=0, le=1), slope: float = Query(0.3, ge=0, le=1),
+           temp: float = Query(28.0), rh: float = Query(25.0), rainfall: float = Query(0.0),
+           month: int = Query(8, ge=1, le=12)):
+    """The three T3 danger quantities for one cell-day, kept separate."""
+    import numpy as _np
+    try:
+        st = _danger_state()
+    except ImportError:
+        return JSONResponse({"error": "danger models need scikit-learn"}, status_code=503)
+    # ignition features: [dryness, fuel, wind, people, roads]; people/roads neutral
+    xig = _np.array([[dryness, fuel, wind, 0.3, 0.3]])
+    p_raw = float(st["ign"].predict_proba(xig)[:, 1][0])
+    p_ig = float(st["rec"](p_raw, st["tau"], st["ybar"]))
+    # E[BA | ignition] from the quantile model, then E[BA]
+    q = st["eba"].predict_quantiles(_np.array([[dryness, fuel, wind, slope]]))
+    eba_cond = float(_np.mean(q))
+    fwi_v = _fwi_point(temp, rh, wind * 40.0, rainfall, month)
+    return JSONResponse({
+        "schema": "t3-danger-demo",
+        "fire_danger": {"fwi": round(fwi_v, 1), "class": _fwi_class(fwi_v)},
+        "ignition_probability": round(p_ig, 5),
+        "expected_burned_area_ha": round(p_ig * eba_cond, 2),
+        "e_ba_given_ignition_ha": round(eba_cond, 1),
+        "note": ("Three separate quantities (never one 'risk' number). Models trained on VHAGAR's "
+                 "synthetic danger scenarios; wire real fuels / weather / occurrence for operational "
+                 "values. FWI is the Canadian Fire Weather Index from the supplied weather."),
+    })
+
+
 @app.get("/")
 def root():
     return {"service": "VHAGAR fire API", "console": "/console",
-            "health": "/api/health", "docs": "/docs"}
+            "health": "/api/health", "danger": "/v1/danger", "docs": "/docs"}

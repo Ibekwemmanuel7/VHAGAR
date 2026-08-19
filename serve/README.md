@@ -26,6 +26,11 @@ the process lifetime).
 - `GET /api/detections?region=&days=` FDC detection pixels as GeoJSON points.
 - `GET /api/export/geojson?region=&days=` events as a download.
 - `GET /api/health` counts and the data window.
+- `GET /v1/danger?dryness=&fuel=&wind=&slope=&temp=&rh=&rainfall=&month=` the three
+  T3 fire-danger quantities kept separate: FWI (+ class), ignition probability, and
+  expected burned area. Models train lazily on VHAGAR's synthetic danger scenarios
+  and cache; the console shows this as a "Fire danger, T3 (demo)" strip. Wire real
+  fuels / weather / occurrence for operational values.
 
 `region` is one of `california`, `us_west`, `conus`. `days` is 1..14, counted
 back from the newest detection in the dataset.
