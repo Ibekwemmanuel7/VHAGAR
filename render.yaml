@@ -1,0 +1,27 @@
+# Render Blueprint for the VHAGAR fire API + console.
+#
+# One-time setup:
+#   1. Push this repo to GitHub (the serve/demo snapshot must be committed).
+#   2. In Render: New > Blueprint, point it at the repo. Render reads this file.
+#   3. When prompted, paste your Mapbox public token (pk...) for
+#      VHAGAR_MAPBOX_TOKEN. It is marked sync:false so it is never stored here.
+#   4. After the first deploy, copy the service URL (https://<name>.onrender.com)
+#      and add it to that token's allowed URLs in your Mapbox account, then open
+#      https://<name>.onrender.com/console
+#
+# The free plan sleeps after ~15 min idle, so the first hit after a nap has a
+# cold start of roughly a minute. The service itself starts instantly because it
+# loads the committed snapshot (serve/demo) rather than re-clustering.
+services:
+  - type: web
+    name: vhagar-console
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: VHAGAR_FROZEN
+        value: "1"
+      - key: VHAGAR_MAPBOX_TOKEN
+        sync: false

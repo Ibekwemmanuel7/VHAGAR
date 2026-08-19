@@ -53,6 +53,11 @@ MAX_GAP_S = 12 * 3600  # same 12 h temporal link as cluster_detections
 DET_DIR = Path(os.environ.get("VHAGAR_DET_DIR", _ROOT / "data" / "detections" / "detections"))
 CONSOLE = _ROOT / "vhagar_console.html"
 CACHE_DIR = _ROOT / "serve" / ".cache"
+# A prebuilt, self-contained snapshot committed to the repo so a hosted deploy
+# (Render, a container) starts instantly with no raw parquet and no clustering.
+# Set VHAGAR_FROZEN=1 to force it; it is also used automatically when the raw
+# detection dataset is absent (the usual case on a fresh clone / a slim image).
+FROZEN_DIR = Path(os.environ.get("VHAGAR_FROZEN_DIR", _ROOT / "serve" / "demo"))
 
 # Region windows in lon/lat, matching the console's region picker.
 REGIONS: dict[str, dict] = {
@@ -103,6 +108,13 @@ def _build_state() -> tuple[pd.DataFrame, list[dict]]:
 
     Returns (detections dataframe, event records). Cached for process lifetime.
     """
+    # Frozen deploy: load the committed snapshot directly and skip the raw read
+    # + clustering entirely. Explicit via VHAGAR_FROZEN, or automatic when the
+    # raw dataset is missing but a bundled snapshot is present.
+    fz_df, fz_ev = FROZEN_DIR / "detections.parquet", FROZEN_DIR / "events.pkl"
+    if (os.environ.get("VHAGAR_FROZEN") or not DET_DIR.exists()) and fz_df.exists() and fz_ev.exists():
+        return pd.read_parquet(fz_df), pickle.loads(fz_ev.read_bytes())
+
     if not DET_DIR.exists():
         raise FileNotFoundError(f"no FDC parquet under {DET_DIR}")
 

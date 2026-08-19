@@ -44,6 +44,42 @@ the process lifetime).
 `region` is one of `california`, `us_west`, `conus`. `days` is 1..14, counted
 back from the newest detection in the dataset.
 
+## Deploy free on Render
+
+The repo ships a self-contained snapshot under `serve/demo/`
+(`detections.parquet` + `events.pkl`, about 3 MB), so a hosted service starts
+instantly: no raw GOES parquet, no 45 s clustering. `VHAGAR_FROZEN=1` forces
+that path (it is also used automatically when the raw dataset is absent, the
+usual case on a fresh clone or a slim image).
+
+The `Dockerfile` and `render.yaml` at the repo root are ready to go:
+
+1. Push to GitHub (the `serve/demo` snapshot must be committed; it is exempted
+   in `.gitignore`).
+2. In Render: New > Blueprint, point it at the repo. Render reads `render.yaml`
+   and provisions a free Docker web service with a `/api/health` health check.
+3. When prompted, paste your Mapbox public token (`pk...`) for
+   `VHAGAR_MAPBOX_TOKEN`. It is marked `sync: false`, so it is never stored in
+   the repo.
+4. After the first deploy, copy the service URL
+   (`https://<name>.onrender.com`), add it to that token's allowed URLs in your
+   Mapbox account, then open `https://<name>.onrender.com/console`.
+
+Caveats for the free plan: the service sleeps after about 15 minutes idle, so
+the first request after a nap has a cold start of roughly a minute (the app
+itself starts fast; the delay is Render waking the container). The snapshot is
+the cached August 2026 CONUS week, a real-data demo, not a live feed. To make a
+hosted instance live, run the ingester somewhere with internet and point the
+service at a rolling store (see below), or redeploy with a refreshed snapshot.
+
+The same image runs anywhere Docker does:
+
+```
+docker build -t vhagar .
+docker run -p 8000:8000 -e VHAGAR_MAPBOX_TOKEN=pk.... vhagar
+# open http://127.0.0.1:8000/console
+```
+
 ## Live (near real time)
 
 By default the API serves the cached August window (a real-data demo, not a live

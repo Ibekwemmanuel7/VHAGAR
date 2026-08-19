@@ -1,0 +1,79 @@
+# Deploy smoke test: build the exact Docker image Render will run, start it in
+# frozen-snapshot mode, and assert the service comes up and serves. This guards
+# the deploy artifact (Dockerfile + render.yaml + serve/demo snapshot), which
+# the ordinary CI (ci.yml: ruff + pytest) does not exercise.
+name: deploy-check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - render.yaml
+      - "serve/**"
+      - "src/vhagar/**"
+      - vhagar_console.html
+  pull_request:
+    paths:
+      - Dockerfile
+      - render.yaml
+      - "serve/**"
+      - "src/vhagar/**"
+      - vhagar_console.html
+
+jobs:
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image (same one Render builds)
+        run: docker build -t vhagar:ci .
+
+      - name: Run the container in frozen-snapshot mode
+        run: |
+          docker run -d --name vhagar -p 8000:8000 \
+            -e VHAGAR_MAPBOX_TOKEN=pk.ci_dummy vhagar:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/api/health > /dev/null; then
+              echo "up after ${i} tries"; ok=1; break
+            fi
+            sleep 2
+          done
+          if [ "${ok:-0}" != "1" ]; then
+            echo "::error::health check never passed"; docker logs vhagar; exit 1
+          fi
+
+      - name: Assert the endpoints serve
+        run: |
+          set -euo pipefail
+          curl -sf http://127.0.0.1:8000/api/health -o /tmp/health.json
+          python3 - <<'PY'
+          import json
+          h = json.load(open("/tmp/health.json"))
+          assert h["status"] == "ok", h
+          assert h["detections"] > 0 and h["events"] > 0, h
+          print("health ok:", h["detections"], "detections,", h["events"], "events")
+          PY
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            'http://127.0.0.1:8000/api/events?region=conus&days=7')
+          [ "$code" = "200" ] || { echo "::error::/api/events returned $code"; exit 1; }
+          # the /console route must inject the Mapbox token and drop the placeholder
+          body=$(curl -s http://127.0.0.1:8000/console)
+          echo "$body" | grep -q 'pk.ci_dummy' \
+            || { echo "::error::token not injected into console"; exit 1; }
+          if echo "$body" | grep -q '__MAPBOX_TOKEN__'; then
+            echo "::error::token placeholder left in console"; exit 1
+          fi
+          kmz=$(curl -s -o /dev/null -w '%{http_code}' \
+            'http://127.0.0.1:8000/api/export/kmz?region=conus&days=7')
+          [ "$kmz" = "200" ] || { echo "::error::/api/export/kmz returned $kmz"; exit 1; }
+          echo "all endpoints served"
+
+      - name: Container logs
+        if: always()
+        run: docker logs vhagar || true
+
+      - name: Clean up
+        if: always()
+        run: docker rm -f vhagar || true
