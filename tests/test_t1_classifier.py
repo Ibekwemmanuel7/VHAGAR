@@ -6,7 +6,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from vhagar.eval.t1_classifier import LabeledSamples, build_samples
+pytest.importorskip("pyproj")  # geo CRS stack (geo extra); skip in a minimal env
+
+from vhagar.eval.t1_classifier import LabeledSamples, build_samples  # noqa: E402
 
 
 def test_build_samples_labels_viirs_coincidence():

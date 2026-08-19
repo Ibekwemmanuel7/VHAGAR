@@ -10,11 +10,14 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from _fixtures import _synthetic_fdc
 
-from vhagar.archive.backfill import BackfillConfig, _write_day, detection_table
-from vhagar.archive.compaction import compact_detections
-from vhagar.io.goes_reader import decode_fdc
+pytest.importorskip("xarray")  # archive/decode stack (geo extra); skip in a minimal env
+
+from _fixtures import _synthetic_fdc  # noqa: E402
+
+from vhagar.archive.backfill import BackfillConfig, _write_day, detection_table  # noqa: E402
+from vhagar.archive.compaction import compact_detections  # noqa: E402
+from vhagar.io.goes_reader import decode_fdc  # noqa: E402
 
 T0 = datetime(2026, 8, 1, tzinfo=UTC)
 

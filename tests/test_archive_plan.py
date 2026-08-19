@@ -165,6 +165,7 @@ def test_abi_products_are_distinct_prefixes():
 
 
 def test_measure_granule_rejects_unknown_product():
+    pytest.importorskip("s3fs")  # measure_granule reaches the S3 stack (archive extra)
     from vhagar.archive.plan import measure_granule
 
     with pytest.raises(ValueError, match="product"):

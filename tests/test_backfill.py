@@ -14,9 +14,12 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from _fixtures import _synthetic_fdc
 
-from vhagar.archive.backfill import (
+pytest.importorskip("xarray")  # archive/decode stack (geo extra); skip in a minimal env
+
+from _fixtures import _synthetic_fdc  # noqa: E402
+
+from vhagar.archive.backfill import (  # noqa: E402
     DETECTION_COLUMNS,
     MANIFEST_NAME,
     BackfillConfig,

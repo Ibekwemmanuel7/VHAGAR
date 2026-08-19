@@ -10,7 +10,9 @@ from datetime import date
 import numpy as np
 import pytest
 
-from vhagar.io.optical import (
+pytest.importorskip("pyproj")  # geo CRS / raster stack (geo extra); skip in a minimal env
+
+from vhagar.io.optical import (  # noqa: E402
     PRITHVI_BAND_ASSETS,
     SCL_KEEP,
     composite_nbr,
@@ -20,7 +22,7 @@ from vhagar.io.optical import (
     stream_band_composite,
     stream_nbr,
 )
-from vhagar.labels.registry import FireEventRecord, LabelSource
+from vhagar.labels.registry import FireEventRecord, LabelSource  # noqa: E402
 
 # ---------------------------------------------------- pure compositing ----
 

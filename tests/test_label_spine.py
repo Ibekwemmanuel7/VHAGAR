@@ -11,10 +11,12 @@ from datetime import date
 
 import pytest
 
-from vhagar.grid import AnalysisGrid
-from vhagar.labels.ingest import normalize_mtbs
-from vhagar.labels.registry import EventRegistry, LabelQuality, LabelSource
-from vhagar.labels.tiles import assign_tiles
+pytest.importorskip("pyproj")  # geo CRS stack (geo extra); skip in a minimal env
+
+from vhagar.grid import AnalysisGrid  # noqa: E402
+from vhagar.labels.ingest import normalize_mtbs  # noqa: E402
+from vhagar.labels.registry import EventRegistry, LabelQuality, LabelSource  # noqa: E402
+from vhagar.labels.tiles import assign_tiles  # noqa: E402
 
 
 def _mtbs_rows():
