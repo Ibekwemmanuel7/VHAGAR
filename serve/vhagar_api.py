@@ -386,6 +386,30 @@ def _start_refresher() -> None:
         print(f"[vhagar-api] live: background refresh every {sec:.0f}s", file=sys.stderr)
 
 
+@app.get("/api/debug/weather")
+def debug_weather():
+    """Ground-truth probe: hit Open-Meteo once from the server and report the raw
+    outcome, so a live weather failure is diagnosable without server logs."""
+    import urllib.parse
+    import urllib.request
+
+    from vhagar.weather.open_meteo import _CURRENT_VARS, OPEN_METEO_URL
+    enabled = bool(os.environ.get("VHAGAR_WEATHER"))
+    q = urllib.parse.urlencode({"latitude": "34.05", "longitude": "-118.24",
+                                "current": _CURRENT_VARS, "wind_speed_unit": "ms",
+                                "timezone": "UTC"})
+    url = f"{OPEN_METEO_URL}?{q}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "vhagar-fire/0.1"})
+        with urllib.request.urlopen(req, timeout=10) as r:  # noqa: S310
+            body = r.read(300).decode("utf-8", "replace")
+        return {"weather_enabled": enabled, "ok": True, "status": r.status,
+                "body_head": body}
+    except Exception as exc:  # noqa: BLE001
+        return {"weather_enabled": enabled, "ok": False,
+                "error": f"{type(exc).__name__}: {exc}", "url": url}
+
+
 @app.get("/api/health")
 def health():
     try:

@@ -79,7 +79,9 @@ def fetch_weather(points, timeout: float = 10.0):
                                 "current": _CURRENT_VARS, "wind_speed_unit": "ms",
                                 "timezone": "UTC"})
     try:
-        with urllib.request.urlopen(f"{OPEN_METEO_URL}?{q}", timeout=timeout) as r:  # noqa: S310
+        req = urllib.request.Request(f"{OPEN_METEO_URL}?{q}",
+                                     headers={"User-Agent": "vhagar-fire/0.1"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
             data = json.loads(r.read().decode("utf-8"))
     except Exception:            # noqa: BLE001 - degrade gracefully
         return out
