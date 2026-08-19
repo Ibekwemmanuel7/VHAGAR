@@ -3,7 +3,26 @@
 Last updated: 2026-08-18. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: Phase 5 -- operational parity with FirePerim (weather + spread-risk + KMZ) (2026-08-18)
+## Latest: Phase 5 -- console rebuilt on Mapbox GL (FirePerim layout) + blue ice-dragon rebrand (2026-08-18)
+
+Rebrand: replaced the gold/green dragon emblem with the user's blue ice-dragon art (icedragon-full.jpg);
+brand/ regenerated (circular mark 256/128/64/32 + favicon, ice-blue ring), console accent shifted
+green-flame -> ice-blue (--ice #5cc8ff). VHAGAR identity kept.
+
+Console rebuilt on Mapbox GL (user chose it for FirePerim's satellite-streets rendering), mirroring
+FirePerim's operator layout while keeping the blue VHAGAR identity and every existing feature.
+vhagar_console.html now: Mapbox GL v3 map (Satellite = satellite-streets-v12, Dark = dark-v11,
+Terrain = outdoors-v12), FirePerim-style layers (FRP glow + dot circle layers with zoom x FRP radius
+interpolation, event fill+line colored by peak FRP, a highlighted selected-event line, wind-arrow
+symbol layer), a per-satellite Sensor tab row (All / GOES-18 / GOES-19) that filters map + feed +
+KPIs, collapsible legend, click popups, prioritised incident feed, schema-aware KPIs/drawer, the T3
+danger strip, weather/spread-risk display when enriched, and GeoJSON + KMZ export. Token: the /console
+route injects VHAGAR_MAPBOX_TOKEN (env); without it a "token needed" panel shows and the rest still
+works. Verified: /console 200 with token injected + placeholder gone, Mapbox GL loaded, emblem
+embedded; console JS node-checked, no em dashes; ruff clean. Files: vhagar_console.html (full rewrite),
+serve/vhagar_api.py (/console token injection), serve/README, brand/, icedragon-full.jpg.
+
+## Phase 5 -- operational parity with FirePerim (weather + spread-risk + KMZ) (2026-08-18)
 
 Closed the three quick operational gaps a FirePerim review flagged, so the console reaches parity on
 the operational product. New package modules (dependency-light, pure-tested; the live fetch is a

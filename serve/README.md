@@ -8,9 +8,16 @@ Vercel, no Mapbox token.
 
 ```
 pip install -r serve/requirements.txt
+# the console renders on Mapbox GL; set a free token (mapbox.com/account/access-tokens):
+$env:VHAGAR_MAPBOX_TOKEN = "pk...."     # PowerShell; bash: export VHAGAR_MAPBOX_TOKEN=pk....
 uvicorn serve.vhagar_api:app --host 127.0.0.1 --port 8000
 # then open http://127.0.0.1:8000/console
 ```
+
+The `/console` route injects `VHAGAR_MAPBOX_TOKEN` into the page. Without it the
+console shows a "token needed" panel (the KPIs, feed and danger strip still work).
+Basemaps: Satellite (satellite-streets), Dark, Terrain. A per-satellite Sensor
+tab row (All / GOES-18 / GOES-19) filters the map and feed.
 
 First request triggers a one-time load: it reads the FDC parquet under
 `data/detections/detections` (about 188k detections for the cached Aug 2026

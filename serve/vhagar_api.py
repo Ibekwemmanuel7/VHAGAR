@@ -452,7 +452,11 @@ def export_kmz(region: str = Query("california"), days: int = Query(3, ge=1, le=
 
 @app.get("/console")
 def console():
-    return FileResponse(CONSOLE, media_type="text/html")
+    """Serve the console, injecting the Mapbox token from VHAGAR_MAPBOX_TOKEN."""
+    from fastapi.responses import HTMLResponse
+    html = CONSOLE.read_text(encoding="utf-8")
+    html = html.replace("__MAPBOX_TOKEN__", os.environ.get("VHAGAR_MAPBOX_TOKEN", ""))
+    return HTMLResponse(html)
 
 
 @app.get("/favicon.ico")
