@@ -109,15 +109,21 @@ def build(sats: list[int], domain: str, regions: list[str], lookback_hours: floa
 
     if not firms_key:
         _log("FIRMS_MAP_KEY not set; VIIRS/MODIS skipped (GOES only)")
+    # GOES (GOES-East/West) only sees the Americas; skip the geostationary pull
+    # for regions it cannot observe (Europe is VIIRS/MODIS only).
+    geo_regions = {"conus", "canada", "california", "us_west"}
     frames = []
     for region in regions:
         _log(f"region: {region}")
         bbox = api.REGIONS.get(region, api.REGIONS["conus"])["bbox"]
         # GEO: each GOES satellite, clipped + tiled into this region's grid.
-        for sat in sats:
-            g = _ingest_goes(sat, domain, region, lookback_hours, workers, bbox=bbox)
-            if g is not None and len(g):
-                frames.append(g)
+        if region in geo_regions:
+            for sat in sats:
+                g = _ingest_goes(sat, domain, region, lookback_hours, workers, bbox=bbox)
+                if g is not None and len(g):
+                    frames.append(g)
+        else:
+            _log(f"{region}: no GOES coverage; VIIRS/MODIS only")
         # LEO: VIIRS (S-NPP / NOAA-20 / NOAA-21) + MODIS via NASA FIRMS.
         if firms_key:
             from serve.firms_ingest import fetch_firms
@@ -166,7 +172,7 @@ def main() -> None:
     ap.add_argument("--sats", default="18,19",
                     help="comma list of GOES satellites (18=West, 19=East)")
     ap.add_argument("--domain", default="C", help="ABI domain: C, F, M1, M2")
-    ap.add_argument("--regions", default="conus,canada",
+    ap.add_argument("--regions", default="conus,canada,europe",
                     help="comma list of analysis regions to build and fuse")
     ap.add_argument("--lookback-hours", type=float, default=12.0,
                     help="how far back to pull each run (self-contained window)")

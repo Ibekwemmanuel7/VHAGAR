@@ -47,7 +47,7 @@ jobs:
           FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
         run: |
           set +e
-          python -m serve.build_snapshot --sats 18,19 --regions conus,canada \
+          python -m serve.build_snapshot --sats 18,19 --regions conus,canada,europe \
             --lookback-hours 12 --out snapshot.tgz
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"

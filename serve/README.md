@@ -115,10 +115,13 @@ The build fuses one or more analysis regions in a single pass
   southern border (the GOES CONUS scan reaches roughly 50 N; the boreal north is
   VIIRS/MODIS only). GOES geostationary genuinely cannot see northern Canada.
 
+- `europe` (EPSG:3035): VIIRS + MODIS. GOES cannot see Europe, so the build skips
+  the geostationary pull there; the geostationary complement would be Meteosat
+  (SEVIRI / FCI), which has no ingester yet.
+
 Each region clusters independently (tile ids are region-prefixed), and the API's
-region picker (California / US West / CONUS / Canada) selects events by bbox.
-`europe` (EPSG:3035) has a grid defined but no live feed: its GEO source is
-Meteosat (SEVIRI / FCI), which has no ingester yet; VIIRS/MODIS would cover it.
+region picker (California / US West / CONUS / Canada / Europe) selects events by
+bbox.
 
 ## Hosted live, free (scheduled snapshot)
 
