@@ -28,6 +28,7 @@ WEATHER_KEYS = ["temp_c", "rh_pct", "wind_speed_ms", "wind_dir_deg", "wind_gust_
 _CACHE: dict = {}          # coarse (lat, lon) -> (timestamp, weather dict)
 _TTL = 900                 # 15 min: weather changes slowly, quota is shared
 _MAX_POINTS = 100
+_CHUNK_PAUSE_S = 1.2       # spacing between chunks so Open-Meteo does not throttle
 
 
 def _num(v):
@@ -71,21 +72,30 @@ def fetch_weather(points, timeout: float = 10.0):
             out[i] = hit[1]
         else:
             need.append(i)
-    # Fetch in chunks of _MAX_POINTS so every uncached point is covered, not just
-    # the first batch. Each chunk degrades independently on failure.
-    for start in range(0, len(need), _MAX_POINTS):
+    # Fetch in chunks of _MAX_POINTS so every uncached point is covered. Pace the
+    # chunks and retry on failure: Open-Meteo throttles bursts (HTTP 429) once a
+    # few hundred locations go out back to back, which otherwise left later chunks
+    # (and their events) without weather.
+    for ci, start in enumerate(range(0, len(need), _MAX_POINTS)):
         idx = need[start:start + _MAX_POINTS]
+        if ci:
+            time.sleep(_CHUNK_PAUSE_S)      # stay under the per-minute rate
         lats = ",".join(f"{pts[i][0]:.4f}" for i in idx)
         lons = ",".join(f"{pts[i][1]:.4f}" for i in idx)
         q = urllib.parse.urlencode({"latitude": lats, "longitude": lons,
                                     "current": _CURRENT_VARS, "wind_speed_unit": "ms",
                                     "timezone": "UTC"})
-        try:
-            req = urllib.request.Request(f"{OPEN_METEO_URL}?{q}",
-                                         headers={"User-Agent": "vhagar-fire/0.1"})
-            with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
-                data = json.loads(r.read().decode("utf-8"))
-        except Exception:            # noqa: BLE001 - degrade gracefully
+        data = None
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(f"{OPEN_METEO_URL}?{q}",
+                                             headers={"User-Agent": "vhagar-fire/0.1"})
+                with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
+                    data = json.loads(r.read().decode("utf-8"))
+                break
+            except Exception:            # noqa: BLE001 - throttle or transient
+                time.sleep(2.0 * (attempt + 1))
+        if data is None:
             continue
         arr = data if isinstance(data, list) else [data]
         for k, i in enumerate(idx):
