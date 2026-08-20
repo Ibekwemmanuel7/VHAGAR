@@ -68,11 +68,11 @@ def fetch_firms(map_key: str, bbox, region: str = "conus", hours: float = 12.0,
     from vhagar.labels.tiles import _transformer
     grid = AnalysisGrid(region)
     tf = _transformer(region)
-    # FIRMS day_range already bounds the window; do not add a now-based cutoff
-    # (this environment's clock can differ from the live service, which would
-    # silently drop every row). Keep the freshest `hours` relative to the data's
-    # own newest acquisition instead.
-    day_range = max(1, min(10, round(hours / 24) or 1))
+    # FIRMS NRT lags by up to a day (today's polar passes are not processed yet),
+    # so day_range=1 ("today") is usually empty. Always ask for at least 2 days so
+    # yesterday is included, then trim to the freshest `hours` client-side. No
+    # now-based cutoff: this environment's clock can differ from the live service.
+    day_range = min(10, int(hours // 24) + 2)
     rows: list[dict] = []
     for src in (sources or SOURCES):
         label = SOURCES[src]
