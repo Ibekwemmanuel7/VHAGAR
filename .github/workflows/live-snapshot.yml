@@ -47,7 +47,8 @@ jobs:
           FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
         run: |
           set +e
-          python -m serve.build_snapshot --sats 18,19 --lookback-hours 12 --out snapshot.tgz
+          python -m serve.build_snapshot --sats 18,19 --regions conus,canada \
+            --lookback-hours 12 --out snapshot.tgz
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" = "3" ]; then

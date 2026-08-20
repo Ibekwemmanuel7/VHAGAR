@@ -70,6 +70,7 @@ REGIONS: dict[str, dict] = {
     "california": {"label": "California / US West", "bbox": (-124.6, 32.0, -114.0, 42.3)},
     "us_west":    {"label": "US West",             "bbox": (-125.0, 31.0, -102.0, 49.2)},
     "conus":      {"label": "Continental US",      "bbox": (-125.0, 24.0, -66.5, 50.0)},
+    "canada":     {"label": "Canada",              "bbox": (-141.0, 41.7, -52.0, 83.5)},
 }
 
 # Minimum detections before a cluster is drawn as an event polygon; smaller

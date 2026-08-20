@@ -57,16 +57,17 @@ def _fetch_source(map_key: str, source: str, bbox, day_range: int, timeout: floa
     return list(csv.DictReader(io.StringIO(text)))
 
 
-def fetch_firms(map_key: str, bbox, hours: float = 12.0, sources=None,
-                timeout: float = 30.0) -> pd.DataFrame:
-    """Detections from FIRMS within ``bbox`` over the last ``hours``, as a
-    DataFrame in VHAGAR's detection schema. Empty DataFrame on any failure."""
+def fetch_firms(map_key: str, bbox, region: str = "conus", hours: float = 12.0,
+                sources=None, timeout: float = 30.0) -> pd.DataFrame:
+    """Detections from FIRMS within ``bbox`` over the last ``hours``, placed on
+    ``region``'s analysis grid, as a DataFrame in VHAGAR's detection schema.
+    Empty DataFrame on any failure."""
     if not map_key:
         return pd.DataFrame()
     from vhagar.grid import AnalysisGrid
     from vhagar.labels.tiles import _transformer
-    grid = AnalysisGrid("conus")
-    tf = _transformer("conus")
+    grid = AnalysisGrid(region)
+    tf = _transformer(region)
     cutoff = datetime.now(UTC) - timedelta(hours=hours)
     rows: list[dict] = []
     for src in (sources or SOURCES):

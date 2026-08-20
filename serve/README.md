@@ -101,9 +101,24 @@ tolerance (GOES parallax-corrected, VIIRS ~1.1 km, MODIS ~3 km):
   Set it as a repo secret named `FIRMS_MAP_KEY` (used by the live-snapshot
   workflow). Without the key the feed is GOES-18 + GOES-19 only.
 
-Every source is mapped into the shared CONUS analysis grid (x/y + tile_id), so
+Every source is mapped into a shared analysis grid (x/y + tile_id) per region, so
 the fusion treats a VIIRS pixel and a GOES pixel identically. The console's
 Sensor dropdown lists whatever sensors are present in the current snapshot.
+
+### Regions
+
+The build fuses one or more analysis regions in a single pass
+(`--regions conus,canada`), each with its own projected grid:
+
+- `conus` (EPSG:5070): GOES-18 + GOES-19 + VIIRS + MODIS.
+- `canada` (EPSG:3979): VIIRS + MODIS everywhere, plus GOES-18/19 along the
+  southern border (the GOES CONUS scan reaches roughly 50 N; the boreal north is
+  VIIRS/MODIS only). GOES geostationary genuinely cannot see northern Canada.
+
+Each region clusters independently (tile ids are region-prefixed), and the API's
+region picker (California / US West / CONUS / Canada) selects events by bbox.
+`europe` (EPSG:3035) has a grid defined but no live feed: its GEO source is
+Meteosat (SEVIRI / FCI), which has no ingester yet; VIIRS/MODIS would cover it.
 
 ## Hosted live, free (scheduled snapshot)
 

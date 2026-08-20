@@ -95,7 +95,7 @@ def _bake_weather(events) -> int:
         return 0
 
 
-def build(sats: list[int], domain: str, region: str, lookback_hours: float,
+def build(sats: list[int], domain: str, regions: list[str], lookback_hours: float,
           workers: int, out: Path, min_detections: int, firms_key: str | None = None) -> int:
     import pandas as pd
 
@@ -104,23 +104,26 @@ def build(sats: list[int], domain: str, region: str, lookback_hours: float,
     os.environ.pop("VHAGAR_FROZEN", None)
     from serve import vhagar_api as api
 
-    frames = []
-    # GEO: each GOES satellite, pulled into its own store, then fused together.
-    for sat in sats:
-        g = _ingest_goes(sat, domain, region, lookback_hours, workers)
-        if g is not None and len(g):
-            frames.append(g)
-    # LEO: VIIRS (S-NPP / NOAA-20 / NOAA-21) + MODIS via NASA FIRMS.
-    if firms_key:
-        from serve.firms_ingest import fetch_firms
-        bbox = api.REGIONS.get(region, api.REGIONS["conus"])["bbox"]
-        leo = fetch_firms(firms_key, bbox, hours=lookback_hours)
-        if len(leo):
-            leo["t"] = pd.to_datetime(leo["t"], utc=True).dt.tz_localize(None)
-            _log(f"FIRMS LEO: {len(leo)} detections across {leo['sensor'].nunique()} sensor(s)")
-            frames.append(leo)
-    else:
+    if not firms_key:
         _log("FIRMS_MAP_KEY not set; VIIRS/MODIS skipped (GOES only)")
+    frames = []
+    for region in regions:
+        _log(f"region: {region}")
+        # GEO: each GOES satellite, tiled into this region's grid.
+        for sat in sats:
+            g = _ingest_goes(sat, domain, region, lookback_hours, workers)
+            if g is not None and len(g):
+                frames.append(g)
+        # LEO: VIIRS (S-NPP / NOAA-20 / NOAA-21) + MODIS via NASA FIRMS.
+        if firms_key:
+            from serve.firms_ingest import fetch_firms
+            bbox = api.REGIONS.get(region, api.REGIONS["conus"])["bbox"]
+            leo = fetch_firms(firms_key, bbox, region=region, hours=lookback_hours)
+            if len(leo):
+                leo["t"] = pd.to_datetime(leo["t"], utc=True).dt.tz_localize(None)
+                _log(f"FIRMS LEO [{region}]: {len(leo)} detections "
+                     f"across {leo['sensor'].nunique()} sensor(s)")
+                frames.append(leo)
 
     if not frames:
         _log("no detections from any source (quiet period or fetch failed); not publishing")
@@ -160,7 +163,8 @@ def main() -> None:
     ap.add_argument("--sats", default="18,19",
                     help="comma list of GOES satellites (18=West, 19=East)")
     ap.add_argument("--domain", default="C", help="ABI domain: C, F, M1, M2")
-    ap.add_argument("--region", default="conus")
+    ap.add_argument("--regions", default="conus,canada",
+                    help="comma list of analysis regions to build and fuse")
     ap.add_argument("--lookback-hours", type=float, default=12.0,
                     help="how far back to pull each run (self-contained window)")
     ap.add_argument("--workers", type=int, default=8)
@@ -169,8 +173,9 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=_ROOT / "snapshot.tgz")
     a = ap.parse_args()
     sats = [int(s) for s in a.sats.split(",") if s.strip()]
+    regions = [r.strip() for r in a.regions.split(",") if r.strip()]
     firms_key = os.environ.get("FIRMS_MAP_KEY", "").strip() or None
-    code = build(sats, a.domain, a.region, a.lookback_hours, a.workers, a.out,
+    code = build(sats, a.domain, regions, a.lookback_hours, a.workers, a.out,
                  a.min_detections, firms_key)
     sys.exit(code)
 
