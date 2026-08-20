@@ -1,8 +1,10 @@
-"""Build a near-real-time VHAGAR snapshot for the live console.
+"""Build a near-real-time, multi-sensor VHAGAR snapshot for the live console.
 
-Pulls the newest GOES ABI L2 FDC granules from the public NOAA S3 buckets
-(anonymous, no credentials), clusters them into fire events with VHAGAR's own
-parallax-aware fusion, and packages the result as ``snapshot.tgz``
+Pulls the newest fire detections from every configured source, GOES-18 and
+GOES-19 ABI FDC off the public NOAA S3 buckets (anonymous), plus VIIRS
+(S-NPP / NOAA-20 / NOAA-21) and MODIS off NASA FIRMS when FIRMS_MAP_KEY is set,
+then fuses them in one parallax-aware clustering pass and packages the result as
+``snapshot.tgz``
 (``detections.parquet`` + ``events.pkl``) that ``serve/vhagar_api.py`` serves
 when ``VHAGAR_SNAPSHOT_URL`` points at it.
 
@@ -35,21 +37,36 @@ def _log(msg: str) -> None:
     print(f"[vhagar-snapshot] {msg}", flush=True)
 
 
-def _ingest(store: Path, sats: list[int], domain: str, region: str,
-            lookback_hours: float, workers: int) -> None:
-    """Pull the lookback window for each satellite into one rolling store."""
-    from serve.ingest import ingest_once
+def _ingest_goes(sat: int, domain: str, region: str, lookback_hours: float, workers: int):
+    """Pull one GOES satellite into its own store (backfill refuses to mix
+    satellites in one directory) and return its detections as a post-processed
+    DataFrame with t + sensor columns, or None if nothing landed."""
+    import pandas as pd
 
-    for sat in sats:
-        _log(f"pulling GOES-{sat} {domain} last {lookback_hours:g} h ...")
-        try:
-            ingest_once(
-                out_dir=store, satellite=sat, domain=domain, region=region, bbox=None,
-                lookback_min=lookback_hours * 60.0, workers=workers, min_confidence=0.0,
-                drop_filtered=False, retention_days=0.0,  # each run is self-contained
-            )
-        except Exception as exc:  # one unavailable feed must not sink the run
-            _log(f"GOES-{sat} pull failed ({type(exc).__name__}: {exc}); continuing")
+    from serve.ingest import ingest_once
+    from serve.vhagar_api import _sensor_from_granule
+
+    sub = Path(tempfile.mkdtemp(prefix=f"vhagar_g{sat}_"))
+    _log(f"pulling GOES-{sat} {domain} last {lookback_hours:g} h ...")
+    try:
+        ingest_once(
+            out_dir=sub, satellite=sat, domain=domain, region=region, bbox=None,
+            lookback_min=lookback_hours * 60.0, workers=workers, min_confidence=0.0,
+            drop_filtered=False, retention_days=0.0,  # each run is self-contained
+        )
+    except Exception as exc:  # one unavailable feed must not sink the run
+        _log(f"GOES-{sat} pull failed ({type(exc).__name__}: {exc}); continuing")
+        return None
+    det = sub / "detections"
+    parts = list(det.glob("year=*/tile=*/part-*.parquet")) if det.exists() else []
+    if not parts:
+        _log(f"GOES-{sat}: no granules in the window")
+        return None
+    g = pd.read_parquet(det)
+    g["t"] = pd.to_datetime(g["t"], utc=False)
+    g["sensor"] = g["granule_key"].map(_sensor_from_granule)
+    _log(f"GOES-{sat}: {len(g)} detections")
+    return g
 
 
 def _bake_weather(events) -> int:
@@ -79,31 +96,46 @@ def _bake_weather(events) -> int:
 
 
 def build(sats: list[int], domain: str, region: str, lookback_hours: float,
-          workers: int, out: Path, min_detections: int) -> int:
-    store = Path(tempfile.mkdtemp(prefix="vhagar_nrt_"))
-    _ingest(store, sats, domain, region, lookback_hours, workers)
+          workers: int, out: Path, min_detections: int, firms_key: str | None = None) -> int:
+    import pandas as pd
 
-    det_dir = store / "detections"
-    parts = list(det_dir.glob("year=*/tile=*/part-*.parquet")) if det_dir.exists() else []
-    if not parts:
-        _log("no FDC granules in the window (quiet period or fetch failed); not publishing")
-        return 3
-
-    # Cluster through the exact serving path so the snapshot matches what the API
-    # expects. DET_DIR / NO_CACHE must be set before importing the API module,
-    # since it reads them at import time. SNAPSHOT_URL / FROZEN are cleared so the
-    # build does not recurse into a fetch or the committed demo.
-    os.environ["VHAGAR_DET_DIR"] = str(det_dir)
-    os.environ["VHAGAR_NO_CACHE"] = "1"
+    # Do not let the build recurse into a published snapshot or the committed demo.
     os.environ.pop("VHAGAR_SNAPSHOT_URL", None)
     os.environ.pop("VHAGAR_FROZEN", None)
     from serve import vhagar_api as api
 
-    df, events = api._build_state()
+    frames = []
+    # GEO: each GOES satellite, pulled into its own store, then fused together.
+    for sat in sats:
+        g = _ingest_goes(sat, domain, region, lookback_hours, workers)
+        if g is not None and len(g):
+            frames.append(g)
+    # LEO: VIIRS (S-NPP / NOAA-20 / NOAA-21) + MODIS via NASA FIRMS.
+    if firms_key:
+        from serve.firms_ingest import fetch_firms
+        bbox = api.REGIONS.get(region, api.REGIONS["conus"])["bbox"]
+        leo = fetch_firms(firms_key, bbox, hours=lookback_hours)
+        if len(leo):
+            leo["t"] = pd.to_datetime(leo["t"], utc=True).dt.tz_localize(None)
+            _log(f"FIRMS LEO: {len(leo)} detections across {leo['sensor'].nunique()} sensor(s)")
+            frames.append(leo)
+    else:
+        _log("FIRMS_MAP_KEY not set; VIIRS/MODIS skipped (GOES only)")
+
+    if not frames:
+        _log("no detections from any source (quiet period or fetch failed); not publishing")
+        return 3
+    df = pd.concat(frames, ignore_index=True)
     if len(df) < min_detections:
         _log(f"only {len(df)} detections (< {min_detections}); not publishing")
         return 3
-    _log(f"clustered {len(df)} detections into {len(events)} events")
+    if "confidence" in df.columns:                 # mixed str (VIIRS) / numeric (GOES)
+        df["confidence"] = df["confidence"].astype("string")
+
+    # One fused clustering pass across every sensor (parallax-aware tolerances).
+    events = api._cluster_all(df)
+    sensors = ", ".join(sorted(df["sensor"].astype(str).unique()))
+    _log(f"clustered {len(df)} detections [{sensors}] into {len(events)} events")
 
     # Bake current weather + spread risk into each event here, on the runner, so
     # the deployed API never calls the weather service (whose free tier rate-
@@ -137,8 +169,9 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=_ROOT / "snapshot.tgz")
     a = ap.parse_args()
     sats = [int(s) for s in a.sats.split(",") if s.strip()]
+    firms_key = os.environ.get("FIRMS_MAP_KEY", "").strip() or None
     code = build(sats, a.domain, a.region, a.lookback_hours, a.workers, a.out,
-                 a.min_detections)
+                 a.min_detections, firms_key)
     sys.exit(code)
 
 

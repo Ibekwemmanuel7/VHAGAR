@@ -40,6 +40,11 @@ jobs:
 
       - name: Build the snapshot (pull + cluster the latest window)
         id: build
+        env:
+          # Optional: a free NASA FIRMS key adds VIIRS (S-NPP / NOAA-20 / NOAA-21)
+          # and MODIS to the fused feed. Set it as a repo secret named FIRMS_MAP_KEY.
+          # Without it the build is GOES-18 + GOES-19 only.
+          FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
         run: |
           set +e
           python -m serve.build_snapshot --sats 18,19 --lookback-hours 12 --out snapshot.tgz

@@ -88,6 +88,23 @@ The `.github/workflows/deploy-check.yml` workflow reproduces the native deploy
 (install `serve/requirements.txt`, start uvicorn in frozen mode) and asserts the
 endpoints serve, so a broken deploy path fails CI before it reaches Render.
 
+## Sensors (multi-sensor fusion)
+
+The live build fuses every configured source in one parallax-aware clustering
+pass (`serve/build_snapshot.py`), each detection carrying its own matching
+tolerance (GOES parallax-corrected, VIIRS ~1.1 km, MODIS ~3 km):
+
+- GOES-18 and GOES-19 ABI FDC, geostationary, off the public NOAA S3 buckets
+  (anonymous, no key). Each satellite is pulled into its own store and merged.
+- VIIRS (S-NPP, NOAA-20, NOAA-21) and MODIS, polar-orbiting, off NASA FIRMS.
+  This needs a free key from https://firms.modaps.eosdis.nasa.gov/api/ (instant).
+  Set it as a repo secret named `FIRMS_MAP_KEY` (used by the live-snapshot
+  workflow). Without the key the feed is GOES-18 + GOES-19 only.
+
+Every source is mapped into the shared CONUS analysis grid (x/y + tile_id), so
+the fusion treats a VIIRS pixel and a GOES pixel identically. The console's
+Sensor dropdown lists whatever sensors are present in the current snapshot.
+
 ## Hosted live, free (scheduled snapshot)
 
 The free Render tier cannot run an always-on ingester (it sleeps when idle and

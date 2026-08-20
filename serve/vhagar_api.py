@@ -190,11 +190,28 @@ def _build_state() -> tuple[pd.DataFrame, list[dict]]:
     return df, events
 
 
-def _tol_vector(vza: np.ndarray) -> np.ndarray:
-    """Per-detection matching radius (m): VHAGAR's parallax-aware GEO tolerance
-    where a view zenith is known, else the flat 3x2 km GOES buffer."""
-    out = np.where(np.isnan(vza), SENSOR_TOLERANCE_M["goes"],
-                   geo_leo_tolerance_m(np.nan_to_num(vza, nan=45.0), 1000.0))
+def _sensor_family(name) -> str:
+    """Map a display sensor name (GOES-18, VIIRS-SNPP, MODIS) to the family key
+    used in SENSOR_TOLERANCE_M."""
+    n = str(name).lower()
+    if "viirs" in n:
+        return "viirs"
+    if "modis" in n:
+        return "modis"
+    return "goes"
+
+
+def _tol_vector(vza: np.ndarray, sensor: np.ndarray | None = None) -> np.ndarray:
+    """Per-detection matching radius (m). Where a GEO view zenith is known, use
+    VHAGAR's parallax-aware tolerance; otherwise fall back to the detection's own
+    sensor footprint (VIIRS ~1.1 km, MODIS ~3 km, GOES ~6 km), so a polar (LEO)
+    detection is not matched with the coarse GEO buffer."""
+    par = geo_leo_tolerance_m(np.nan_to_num(vza, nan=45.0), 1000.0)
+    if sensor is None:
+        base = np.full(np.shape(vza), SENSOR_TOLERANCE_M["goes"], dtype=float)
+    else:
+        base = np.array([SENSOR_TOLERANCE_M[_sensor_family(s)] for s in sensor], dtype=float)
+    out = np.where(np.isnan(vza), base, par)
     return np.maximum(out.astype(float), 1000.0)
 
 
@@ -238,7 +255,8 @@ def _cluster_all(df: pd.DataFrame) -> list[dict]:
         x = g["x"].to_numpy(float)
         y = g["y"].to_numpy(float)
         tsec = (g["t"].astype("int64").to_numpy()) / 1e9
-        tol = _tol_vector(g["view_zenith_deg"].to_numpy(float))
+        sens = g["sensor"].to_numpy() if "sensor" in g else None
+        tol = _tol_vector(g["view_zenith_deg"].to_numpy(float), sens)
         for members in _fast_groups(x, y, tsec, tol):
             if len(members) < MIN_EVENT_DETECTIONS:
                 continue
