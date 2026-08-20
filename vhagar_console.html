@@ -241,7 +241,8 @@ function renderTabs(){
 }
 function renderFeed(){
  const fdc=isFDC();
- const ev=[...filterSensor(state.events,false).features].sort((a,b)=>fdc?(+b.properties.max_frp_mw||0)-(+a.properties.max_frp_mw||0):(+b.properties.risk_score||0)-(+a.properties.risk_score||0));
+ const rank=p=>({Extreme:4,High:3,Moderate:2,Low:1}[p.risk_class])||((+p.max_frp_mw||0)>1000?3:(+p.max_frp_mw||0)>200?2:1);
+ const ev=[...filterSensor(state.events,false).features].sort((a,b)=>rank(b.properties)-rank(a.properties)||(+b.properties.max_frp_mw||0)-(+a.properties.max_frp_mw||0)||(+b.properties.risk_score||0)-(+a.properties.risk_score||0));
  document.getElementById("cnt").textContent=ev.length+" events "+(state.mode==="live"?"· live":"· sample");
  const el=document.getElementById("cards");
  if(!ev.length){el.innerHTML='<div class="empty">No fire events in this region and window.</div>';return;}
