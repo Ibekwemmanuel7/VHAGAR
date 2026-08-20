@@ -530,10 +530,19 @@ def _events_fc(region: str, days: int) -> dict:
     # Serve baked weather when the snapshot already carries it; only fetch live
     # (self-hosted path) when it does not, since a shared cloud IP gets rate-limited.
     wx_status = f"baked:{baked}/{len(feats)}" if baked else _enrich_weather(feats)
+    # Per-sensor detection counts inside this region + window, so multi-sensor
+    # coverage is visible (which sensors actually contribute here, not just which
+    # cluster into events).
+    w, s, e, n = bbox
+    win = df[df["t"] >= cut]
+    inr = win[(win["lon"] >= w) & (win["lon"] <= e) & (win["lat"] >= s) & (win["lat"] <= n)]
+    sensor_counts = {str(k): int(v) for k, v in inr["sensor"].value_counts().items()} \
+        if "sensor" in inr else {}
     return {"type": "FeatureCollection", "features": feats,
             "metadata": {"mode": "live", "schema": "fdc", "region": region,
                          "source": "GOES-18/19 ABI FDC (VHAGAR)", "event_count": len(feats),
                          "detection_count": int((df["t"] >= cut).sum()),
+                         "sensor_detections": sensor_counts,
                          "weather": wx_status}}
 
 

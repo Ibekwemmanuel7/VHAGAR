@@ -69,26 +69,28 @@ def fetch_weather(points, timeout: float = 10.0):
         hit = _CACHE.get((round(la, 2), round(lo, 2)))
         if hit and now - hit[0] < _TTL:
             out[i] = hit[1]
-        elif len(need) < _MAX_POINTS:
+        else:
             need.append(i)
-    if not need:
-        return out
-    lats = ",".join(f"{pts[i][0]:.4f}" for i in need)
-    lons = ",".join(f"{pts[i][1]:.4f}" for i in need)
-    q = urllib.parse.urlencode({"latitude": lats, "longitude": lons,
-                                "current": _CURRENT_VARS, "wind_speed_unit": "ms",
-                                "timezone": "UTC"})
-    try:
-        req = urllib.request.Request(f"{OPEN_METEO_URL}?{q}",
-                                     headers={"User-Agent": "vhagar-fire/0.1"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
-            data = json.loads(r.read().decode("utf-8"))
-    except Exception:            # noqa: BLE001 - degrade gracefully
-        return out
-    arr = data if isinstance(data, list) else [data]
-    for k, i in enumerate(need):
-        w = parse_current(arr[k]) if k < len(arr) else None
-        out[i] = w
-        if w is not None:
-            _CACHE[(round(pts[i][0], 2), round(pts[i][1], 2))] = (now, w)
+    # Fetch in chunks of _MAX_POINTS so every uncached point is covered, not just
+    # the first batch. Each chunk degrades independently on failure.
+    for start in range(0, len(need), _MAX_POINTS):
+        idx = need[start:start + _MAX_POINTS]
+        lats = ",".join(f"{pts[i][0]:.4f}" for i in idx)
+        lons = ",".join(f"{pts[i][1]:.4f}" for i in idx)
+        q = urllib.parse.urlencode({"latitude": lats, "longitude": lons,
+                                    "current": _CURRENT_VARS, "wind_speed_unit": "ms",
+                                    "timezone": "UTC"})
+        try:
+            req = urllib.request.Request(f"{OPEN_METEO_URL}?{q}",
+                                         headers={"User-Agent": "vhagar-fire/0.1"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
+                data = json.loads(r.read().decode("utf-8"))
+        except Exception:            # noqa: BLE001 - degrade gracefully
+            continue
+        arr = data if isinstance(data, list) else [data]
+        for k, i in enumerate(idx):
+            w = parse_current(arr[k]) if k < len(arr) else None
+            out[i] = w
+            if w is not None:
+                _CACHE[(round(pts[i][0], 2), round(pts[i][1], 2))] = (now, w)
     return out
