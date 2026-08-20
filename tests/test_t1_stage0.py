@@ -39,10 +39,10 @@ def test_match_pairs_close_events_and_counts_misses_and_false_alarms():
 
 
 def test_parallax_aware_tolerance_matches_where_naive_2km_does_not():
-    # A GOES event at 48 deg view zenith has a ~4.25 km tolerance; a truth fire 3 km
+    # A GOES event at 48 deg view zenith has a ~2.9 km tolerance; a truth fire 2.4 km
     # away is the same fire, but a flat 2 km match would call it a false alarm.
     truth = [_event("t", 0, 0, sensor="viirs")]
-    pred = [_event("p", 3_000, 0, vza=48.0)]
+    pred = [_event("p", 2_400, 0, vza=48.0)]
     aware, _ = match_events(pred, truth, parallax_aware=True)
     naive, _ = match_events(pred, truth, parallax_aware=False, flat_tolerance_m=2_000.0)
     assert aware.tp == 1 and aware.far == 0.0        # parallax-aware: matched
@@ -137,7 +137,7 @@ def test_fdc_window_reads_dates_and_padded_bbox(tmp_path):
 
 def test_run_reports_far_reduction_from_parallax():
     truth = [_event("t", 0, 0, sensor="viirs")]
-    pred = [_event("p", 3_000, 0, vza=48.0)]
+    pred = [_event("p", 2_400, 0, vza=48.0)]
     out = run_t1_stage0(pred, truth)
     assert out["parallax_aware"]["far"] == 0.0
     assert out["naive_2km"]["far"] == 1.0

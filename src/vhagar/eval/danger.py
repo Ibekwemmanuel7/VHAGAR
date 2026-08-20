@@ -78,7 +78,11 @@ def ignition_scorecard(y, prob, tau: float, ybar: float, prior_correct: bool) ->
     if prior_correct:
         p = rare_event_correction(p, tau, ybar)
     base = float(y.mean()) if not prior_correct else tau
-    brier_ref = brier_score(y, np.full_like(p, float(y.mean())))
+    # The climatology reference must sit on the SAME probability scale as p: the
+    # population base rate tau when p is prior-corrected, else the design mean.
+    # Using y.mean() unconditionally scored a tau-scale p (~0.01) against a
+    # ~0.25 constant, making the reference absurdly bad and inflating the skill.
+    brier_ref = brier_score(y, np.full_like(p, base))
     dec = brier_decomposition(y, p, n_bins=10)
     return {
         "auprc": average_precision(y, prob),   # ranking is correction-invariant

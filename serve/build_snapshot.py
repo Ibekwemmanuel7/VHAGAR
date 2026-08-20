@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import pickle
 import sys
 import tarfile
 import tempfile
@@ -157,11 +156,13 @@ def build(sats: list[int], domain: str, regions: list[str], lookback_hours: floa
 
     work = Path(tempfile.mkdtemp(prefix="vhagar_pack_"))
     df.to_parquet(work / "detections.parquet")
-    (work / "events.pkl").write_bytes(pickle.dumps(events))
+    # JSON, not pickle: the API downloads this asset over the network, so it must
+    # never be able to execute code on load (see vhagar_api._events_from_json).
+    (work / "events.json").write_bytes(api._events_to_json(events))
     out.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(out, "w:gz") as tf:
         tf.add(work / "detections.parquet", arcname="detections.parquet")
-        tf.add(work / "events.pkl", arcname="events.pkl")
+        tf.add(work / "events.json", arcname="events.json")
     _log(f"wrote {out} ({out.stat().st_size / 1e6:.1f} MB): "
          f"{len(df)} detections, {len(events)} events, window {lookback_hours:g} h")
     return 0

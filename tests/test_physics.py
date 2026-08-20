@@ -287,6 +287,51 @@ def test_pixel_area_grows_off_nadir_and_viirs_growth_is_capped():
     assert float(G.viirs_pixel_area_m2(70.0)) <= 4.0 * 375.0**2 + 1e-6
 
 
+def test_pixel_area_growth_matches_published_footprint_anchors():
+    """Golden anchors for the slant-range footprint model. If one fails the
+    geometry is wrong; do not adjust the expected value.
+
+    MODIS (nadir 1 km, h=705 km) at its scan-edge view zenith (~65.5 deg) has a
+    published footprint of ~2.0 km along-track and ~4.8 km along-scan, so the
+    area grows ~9.7x. A geostationary sensor (h=35786 km) grows ~2.33x at 60 deg
+    view zenith. The earlier secant form overstated these (~14x and ~7.9x).
+    """
+    # MODIS scan edge: area ~9.7x nadir.
+    assert float(G.pixel_area_growth(65.5, orbit_altitude_km=705.0)) == pytest.approx(9.7, abs=0.4)
+    # Geostationary at 60 deg view zenith: ~2.33x, NOT the old ~7.9x.
+    geo = float(G.pixel_area_growth(60.0, orbit_altitude_km=35786.0))
+    assert geo == pytest.approx(2.33, abs=0.1)
+    assert geo < 3.0  # guards against a regression to the secant overestimate
+    # Nadir is exactly 1 and growth is monotonic in view zenith.
+    z = np.array([0.0, 20.0, 40.0, 60.0, 75.0])
+    g = G.pixel_area_growth(z, orbit_altitude_km=705.0)
+    assert g[0] == pytest.approx(1.0, abs=1e-6)
+    assert np.all(np.diff(g) > 0.0)
+
+
+def test_abi_pixel_area_matches_geometry_model():
+    """The ABI grid's pixel_area_m2 must agree with the shared geometry model
+    (both were fixed together); ~2.33x growth at 60 deg view zenith for a 2 km
+    nominal pixel."""
+    from vhagar.io.abi_grid import ABIProjection
+
+    proj = ABIProjection(lon_origin_deg=-75.0)
+    # Sub-satellite point is nadir: area == nominal.
+    nadir = float(proj.pixel_area_m2(0.0, -75.0))
+    assert nadir == pytest.approx(2000.0**2, rel=0.02)
+    # ~2.33x growth at 60 deg view zenith, matching the shared geometry model.
+    lat60 = float(_lat_for_view_zenith(proj, 60.0))
+    area60 = float(proj.pixel_area_m2(lat60, -75.0))
+    assert area60 / (2000.0**2) == pytest.approx(2.33, abs=0.15)
+
+
+def _lat_for_view_zenith(proj, target_deg: float) -> float:
+    """Latitude on the sub-satellite meridian with the given ABI view zenith."""
+    lats = np.linspace(0.0, 80.0, 4001)
+    vz = proj.view_zenith_deg(lats, np.full_like(lats, -75.0))
+    return float(lats[int(np.argmin(np.abs(vz - target_deg)))])
+
+
 def test_frp_survives_noise_that_destroys_the_p_tf_split():
     """The empirical case for reporting FRP and not (p, T_f).
 

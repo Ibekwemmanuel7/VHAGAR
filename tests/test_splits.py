@@ -73,6 +73,12 @@ def test_leave_year_out_is_chronologically_disjoint():
         test_years = {by_uid[u] for u in fold["test"]}
         train_years = {by_uid[u] for u in fold["train"]}
         assert not (test_years & train_years)
+        # Validation must PRECEDE the test block (no future leakage into model
+        # selection): every val year is strictly earlier than every test year.
+        val_years = {by_uid[u] for u in fold.get("val", [])}
+        if val_years:
+            assert max(val_years) < min(test_years)
+            assert not (val_years & test_years)
 
 
 def test_verify_no_overlap_detects_leakage():

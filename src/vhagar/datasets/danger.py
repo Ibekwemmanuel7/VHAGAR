@@ -202,16 +202,24 @@ def assemble_ignition_samples(
     cand_stratum = np.asarray(candidates.get("stratum", np.zeros(cand_id.size)))
     weight = candidates.get("weight")
 
+    # A presence (a real ignition) must never be drawn as a label-0 background.
+    # Exclude presence ids from the sampling pool in EVERY branch; the row-index
+    # map below is still built over the full candidate set, so ids map correctly.
+    avail = ~np.isin(cand_id, pres_id)
+    pool_id = cand_id[avail]
+    pool_stratum = cand_stratum[avail]
+    pool_weight = None if weight is None else np.asarray(weight)[avail]
+
     if stratify:
         neg_ids = stratify_negatives(
             np.asarray(presence.get("stratum", np.zeros(n_pos))),
-            cand_id, cand_stratum, rng, ratio=neg_per_pos,
+            pool_id, pool_stratum, rng, ratio=neg_per_pos,
         )
     elif use_target_group:
-        neg_ids = target_group_background(pres_id, cand_id, n_neg, rng, pool_weight=weight)
+        neg_ids = target_group_background(pres_id, pool_id, n_neg, rng, pool_weight=pool_weight)
     else:
         # Naive random background: ignores the observation process entirely.
-        neg_ids = rng.choice(cand_id, size=int(min(n_neg, cand_id.size)), replace=False)
+        neg_ids = rng.choice(pool_id, size=int(min(n_neg, pool_id.size)), replace=False)
 
     cand_pos = {cid: k for k, cid in enumerate(cand_id)}
     neg_rows = np.array([cand_pos[i] for i in neg_ids], dtype=np.int64)

@@ -177,10 +177,11 @@ def geo_leo_tolerance_m(
     Two effects produce that separation and both scale with view zenith angle.
 
     **Footprint quantisation.** At 48 degrees view zenith a nominally 2 km ABI
-    pixel covers 13.3 km2, an effective side of 3.6 km. A VIIRS detection
-    anywhere inside that footprint is legitimately the same fire, yet it can
-    sit 1.8 km from the pixel centre and 2.6 km at the corner. A 2 km tolerance
-    is therefore smaller than a single GOES pixel at this geometry.
+    pixel covers about 6.6 km2, an effective side of 2.6 km (slant-range
+    geometry; see :func:`vhagar.physics.geometry.pixel_area_growth`). A VIIRS
+    detection anywhere inside that footprint is legitimately the same fire, yet
+    it can sit ~1.3 km from the pixel centre and ~1.8 km at the corner, so the
+    footprint alone is comparable to a flat 2 km tolerance at this geometry.
 
     **Terrain parallax.** ABI navigation solves for the ellipsoid, so ground at
     elevation h appears displaced by ``h * tan(vza)``. Over the Sierra at
@@ -199,15 +200,17 @@ def geo_leo_tolerance_m(
     Central Valley or the Gulf coast, where it overstates the tolerance.
 
     >>> float(round(geo_leo_tolerance_m(48.1, elevation_m=1500) / 1000, 2))
-    4.25
+    3.49
     >>> float(round(geo_leo_tolerance_m(0.0, elevation_m=0) / 1000, 2))
     1.41
     """
     from vhagar.physics.geometry import pixel_area_growth
 
     # The geostationary altitude matters: pixel_area_growth defaults to a polar
-    # orbit at 833 km, which understates ABI footprint growth by nearly a
-    # factor of two at 48 degrees (1.90x versus the correct 3.32x).
+    # orbit at 833 km. Because a nearer satellite has a faster-growing slant
+    # range with view zenith, the polar default OVERstates ABI growth at 48
+    # degrees (2.95x versus the correct geostationary 1.66x), so we pass the
+    # true GOES altitude.
     vza = np.clip(np.asarray(view_zenith_deg, dtype=np.float64), 0.0, 80.0)
     side = nominal_pixel_m * np.sqrt(pixel_area_growth(vza, orbit_altitude_km=orbit_altitude_km))
     quantisation = side * np.sqrt(2.0) / 2.0

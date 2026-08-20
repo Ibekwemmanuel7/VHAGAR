@@ -33,10 +33,14 @@ def test_normalize_arrival_roundtrip_and_inf():
 
 
 def test_make_training_pair_shapes():
-    cond, target, ros = make_training_pair(np.random.default_rng(0))
+    cond, target, ros, tmax = make_training_pair(np.random.default_rng(0))
     assert cond.shape[0] == 5 and cond.shape[1:] == target.shape == ros.shape
     assert target.min() >= 0.0 and target.max() <= 1.0
     assert (cond[0] >= 0).all() and (cond[0] <= 1).all()   # observed mask
+    # tmax is the real arrival-time scale used to normalise the target; the
+    # Eikonal physics term must rescale by it, so it must be a positive number
+    # (not the old hardcoded 1.0).
+    assert float(tmax) > 0.0
 
 
 def test_torch_generator_and_losses():
@@ -47,7 +51,7 @@ def test_torch_generator_and_losses():
         predict_arrival,
         train_arrival_gan,
     )
-    cond, target, ros = make_training_pair(np.random.default_rng(0))
+    cond, target, ros, _tmax = make_training_pair(np.random.default_rng(0))
     gen = ArrivalGenerator(cond.shape[0])
     pred = predict_arrival(gen, cond)
     assert pred.shape == target.shape and pred.min() >= 0.0 and pred.max() <= 1.0

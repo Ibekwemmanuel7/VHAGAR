@@ -245,11 +245,17 @@ def leave_year_out(
     folds = []
     for i in range(len(years) - n_test_years + 1):
         test_years = years[i : i + n_test_years]
-        remaining = [y for y in years if y not in test_years]
-        if len(remaining) <= n_val_years:
+        # Validation is the n_val_years immediately PRECEDING the test block, per
+        # the docstring: model selection must never see years after the test year.
+        # (The previous remaining[-n_val_years:] took the latest years overall,
+        # which placed validation *after* a mid-series test block.)
+        preceding = years[:i]
+        if len(preceding) < n_val_years:
+            continue  # not enough earlier years to validate without future leakage
+        val_years = preceding[-n_val_years:] if n_val_years else []
+        train_years = [y for y in years if y not in test_years and y not in val_years]
+        if not train_years:
             continue
-        val_years = remaining[-n_val_years:] if n_val_years else []
-        train_years = [y for y in remaining if y not in val_years]
         folds.append(
             {
                 "train": sorted(uid for y in train_years for uid in by_year[y]),

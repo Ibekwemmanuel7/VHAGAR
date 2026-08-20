@@ -74,6 +74,41 @@ def test_assemble_shapes_and_ybar():
     assert "lon" not in s.feature_names and "lat" not in s.feature_names
 
 
+def test_assemble_never_samples_a_presence_as_background():
+    """A real ignition must never re-enter the design as a label-0 background.
+    Encode each candidate's id in a feature so contamination is detectable, then
+    assert no negative row carries a presence id (all three sampling branches)."""
+    rng = np.random.default_rng(3)
+    n = 200
+    cand = {
+        "id": np.arange(n),
+        "fid": np.arange(n).astype(float),          # feature == id, to trace rows
+        "lon": rng.uniform(-120, -100, n),
+        "lat": rng.uniform(33, 48, n),
+        "year": np.full(n, 2020),
+        "stratum": (np.arange(n) % 4),
+        "weight": np.ones(n),
+    }
+    pres_ids = np.arange(15)                          # first 15 candidates are ignitions
+    pres = {
+        "id": pres_ids,
+        "fid": pres_ids.astype(float),
+        "lon": cand["lon"][pres_ids],
+        "lat": cand["lat"][pres_ids],
+        "year": np.full(pres_ids.size, 2020),
+        "stratum": (pres_ids % 4),
+        "cause": np.where(pres_ids % 2 == 0, "human", "lightning").astype(object),
+    }
+    for stratify, use_tg in [(True, False), (False, True), (False, False)]:
+        s = dg.assemble_ignition_samples(
+            pres, cand, ["fid"], np.random.default_rng(1), tau=0.01,
+            neg_per_pos=3.0, stratify=stratify, use_target_group=use_tg,
+        )
+        neg_fids = set(s.X[s.y == 0, 0].astype(int).tolist())
+        assert neg_fids.isdisjoint(set(pres_ids.tolist())), (
+            f"presence leaked into negatives (stratify={stratify}, tg={use_tg})")
+
+
 def test_block_group_and_cause_mask():
     rng = np.random.default_rng(2)
     pres, cand, fn, tau = dg.synthetic_reporting_scenario(rng, n_cells=1200)

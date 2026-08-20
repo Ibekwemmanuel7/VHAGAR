@@ -139,15 +139,15 @@ def test_empty_input():
 
 
 def test_tolerance_grows_with_view_zenith():
-    """A 2 km ABI pixel covers 13.3 km2 at 48 degrees. A flat tolerance
-    smaller than one pixel cannot be right."""
+    """The ABI footprint grows with view zenith (slant-range geometry), so the
+    tolerance must too. By ~70 deg the footprint alone exceeds a flat 2 km."""
     from vhagar.harmonize.fusion import geo_leo_tolerance_m
 
     nadir = float(geo_leo_tolerance_m(0.0, elevation_m=0.0))
     mid = float(geo_leo_tolerance_m(48.1, elevation_m=0.0))
     edge = float(geo_leo_tolerance_m(70.0, elevation_m=0.0))
     assert nadir < mid < edge
-    assert mid > 2000.0, "at 48 deg the tolerance must exceed the old flat 2 km"
+    assert edge > 2000.0, "at 70 deg the footprint alone must exceed a flat 2 km"
 
 
 def test_tolerance_matches_the_measured_california_geometry():
@@ -159,7 +159,7 @@ def test_tolerance_matches_the_measured_california_geometry():
     from vhagar.harmonize.fusion import geo_leo_tolerance_m
 
     tol = float(geo_leo_tolerance_m(48.1, elevation_m=1500.0))
-    assert tol == pytest.approx(4250.0, rel=0.02)
+    assert tol == pytest.approx(3500.0, rel=0.02)
     assert tol > 2800.0, "must cover the observed p75, not just the median"
 
 

@@ -91,7 +91,9 @@ def make_training_pair(rng, regime: str = "wind", t0_q: float = 0.12):
                     np.full_like(ros, 0.5)], axis=0).astype(np.float32)
     cond = build_conditioning(observed, det_time.astype(np.float32), cov)
     target = normalize_arrival(T_true, tmax)
-    return cond, target, ros.astype(np.float32)
+    # Return tmax too: the Eikonal physics term must rescale the normalised field
+    # by the SAME tmax used here, or |grad T| is off by a factor of tmax.
+    return cond, target, ros.astype(np.float32), float(tmax)
 
 
 # --------------------------------------------------------------- torch pieces
@@ -178,7 +180,11 @@ def train_arrival_gan(pairs, epochs: int = 30, lr: float = 2e-4,
         return torch.as_tensor(np.asarray(a), dtype=torch.float32)
 
     for _ in range(epochs):
-        for cond, target, ros in pairs:
+        for pair in pairs:
+            # Accept 4-tuples (cond, target, ros, tmax); tolerate legacy 3-tuples
+            # by falling back to tmax=1.0 (the old, physically-inconsistent scale).
+            cond, target, ros = pair[0], pair[1], pair[2]
+            tmax = float(pair[3]) if len(pair) > 3 else 1.0
             c = to_t(cond)[None]
             y = to_t(target)[None, None]
             r = to_t(ros)[None, None]
@@ -194,7 +200,6 @@ def train_arrival_gan(pairs, epochs: int = 30, lr: float = 2e-4,
             # generator
             og.zero_grad()
             d_fake = disc(torch.cat([c, fake], 1))
-            tmax = 1.0
             loss_g = (F.mse_loss(d_fake, torch.ones_like(d_fake))
                       + l1_weight * F.l1_loss(fake, y)
                       + eik_weight * eikonal_residual_loss(fake[0], r[0], tmax))

@@ -62,7 +62,9 @@ archive = [
 serve = [
   "fastapi>=0.111",
   "uvicorn[standard]>=0.30",
-  "psycopg[binary]>=3.1",
+  # scikit-learn backs the lazily-trained /v1/danger models; psycopg was never
+  # used (no database in the serving path), so it is dropped.
+  "scikit-learn>=1.5",
 ]
 dev = [
   "pytest>=8.2",

@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import math
 import os
-import pickle
+import shutil
 import sys
 import threading
 import time
@@ -133,9 +133,55 @@ def _dataset_sig() -> list:
     return marks
 
 
+def _events_to_json(events: list[dict]) -> bytes:
+    """Serialise event records as JSON. Used instead of pickle so a snapshot
+    fetched over the network can never execute code on load. The private
+    ``_t0``/``_t1`` timestamps are dropped and reconstructed from
+    ``first_seen``/``last_seen`` on read."""
+    def enc(o):
+        if isinstance(o, pd.Timestamp):
+            return o.isoformat()
+        if isinstance(o, np.generic):
+            return o.item()
+        raise TypeError(f"not JSON serialisable: {type(o)}")
+
+    slim = []
+    for e in events:
+        d = {k: v for k, v in e.items() if k not in ("_t0", "_t1")}
+        if "bbox" in d:
+            d["bbox"] = list(d["bbox"])
+        slim.append(d)
+    return json.dumps(slim, default=enc).encode("utf-8")
+
+
+def _events_from_json(raw: bytes) -> list[dict]:
+    """Inverse of ``_events_to_json``; rebuilds the private timestamp fields and
+    the bbox tuple the serving code expects."""
+    events = json.loads(raw)
+    for e in events:
+        e["_t0"] = pd.Timestamp(e["first_seen"])
+        e["_t1"] = pd.Timestamp(e["last_seen"])
+        if "bbox" in e:
+            e["bbox"] = tuple(e["bbox"])
+    return events
+
+
+def _read_events_file(path: Path) -> list[dict]:
+    """Load an events sidecar, preferring JSON. A legacy ``events.pkl`` is only
+    read from a local, trusted path (frozen demo / on-disk cache), never from a
+    network download."""
+    js = path.with_suffix(".json")
+    if js.exists():
+        return _events_from_json(js.read_bytes())
+    if path.exists():  # legacy local pickle; trusted local file only
+        import pickle
+        return pickle.loads(path.read_bytes())
+    raise FileNotFoundError(f"no events sidecar at {js} or {path}")
+
+
 def _load_snapshot_url(url: str) -> tuple[pd.DataFrame, list[dict]]:
     """Download a snapshot tarball and load it. The tarball holds a
-    ``detections.parquet`` and an ``events.pkl`` at any depth; we extract by
+    ``detections.parquet`` and an ``events.json`` at any depth; we extract by
     basename only (no path traversal) into a temp dir. The source is our own
     published asset, but the extraction is sanitised regardless."""
     import io
@@ -147,17 +193,21 @@ def _load_snapshot_url(url: str) -> tuple[pd.DataFrame, list[dict]]:
     with urllib.request.urlopen(req, timeout=90) as resp:  # noqa: S310 (our asset)
         raw = resp.read()
     dest = Path(tempfile.mkdtemp(prefix="vhagar_snap_"))
-    wanted = {"detections.parquet", "events.pkl"}
-    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as tf:
-        for member in tf.getmembers():
-            base = os.path.basename(member.name)
-            if member.isfile() and base in wanted:
-                member.name = base  # flatten, drop any directory component
-                tf.extract(member, dest)
-    df_p, ev_p = dest / "detections.parquet", dest / "events.pkl"
-    if not (df_p.exists() and ev_p.exists()):
-        raise FileNotFoundError("snapshot tarball missing detections.parquet or events.pkl")
-    return pd.read_parquet(df_p), pickle.loads(ev_p.read_bytes())
+    wanted = {"detections.parquet", "events.json"}
+    try:
+        with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as tf:
+            for member in tf.getmembers():
+                base = os.path.basename(member.name)
+                if member.isfile() and base in wanted:
+                    member.name = base  # flatten, drop any directory component
+                    tf.extract(member, dest)
+        df_p, ev_p = dest / "detections.parquet", dest / "events.json"
+        if not (df_p.exists() and ev_p.exists()):
+            raise FileNotFoundError("snapshot tarball missing detections.parquet or events.json")
+        # JSON, never pickle: a network-fetched asset must not be able to run code.
+        return pd.read_parquet(df_p), _events_from_json(ev_p.read_bytes())
+    finally:
+        shutil.rmtree(dest, ignore_errors=True)
 
 
 def _build_state() -> tuple[pd.DataFrame, list[dict]]:
@@ -170,7 +220,7 @@ def _build_state() -> tuple[pd.DataFrame, list[dict]]:
     # the committed demo (below) rather than taking the service down.
     if SNAPSHOT_URL:
         try:
-            return _load_snapshot_url(SNAPSHOT_URL)
+            return _tag("snapshot", *_load_snapshot_url(SNAPSHOT_URL))
         except Exception as exc:  # network / format problem: keep serving
             print(f"[vhagar-api] snapshot fetch failed ({exc}); using fallback",
                   file=sys.stderr)
@@ -179,8 +229,9 @@ def _build_state() -> tuple[pd.DataFrame, list[dict]]:
     # + clustering entirely. Explicit via VHAGAR_FROZEN, or automatic when the
     # raw dataset is missing but a bundled snapshot is present.
     fz_df, fz_ev = FROZEN_DIR / "detections.parquet", FROZEN_DIR / "events.pkl"
-    if (os.environ.get("VHAGAR_FROZEN") or not DET_DIR.exists()) and fz_df.exists() and fz_ev.exists():
-        return pd.read_parquet(fz_df), pickle.loads(fz_ev.read_bytes())
+    fz_has_events = fz_ev.exists() or fz_ev.with_suffix(".json").exists()
+    if (os.environ.get("VHAGAR_FROZEN") or not DET_DIR.exists()) and fz_df.exists() and fz_has_events:
+        return _tag("frozen", pd.read_parquet(fz_df), _read_events_file(fz_ev))
 
     if not DET_DIR.exists():
         raise FileNotFoundError(f"no FDC parquet under {DET_DIR}")
@@ -192,13 +243,14 @@ def _build_state() -> tuple[pd.DataFrame, list[dict]]:
     # clean recompute.
     sig = _dataset_sig()
     df_cache, ev_cache, sig_cache = (CACHE_DIR / "detections.parquet",
-                                     CACHE_DIR / "events.pkl", CACHE_DIR / "sig.json")
+                                     CACHE_DIR / "events.json", CACHE_DIR / "sig.json")
     if not os.environ.get("VHAGAR_NO_CACHE") and df_cache.exists() and ev_cache.exists() and sig_cache.exists():
         try:
             if json.loads(sig_cache.read_text()) == sig:
-                return pd.read_parquet(df_cache), pickle.loads(ev_cache.read_bytes())
-        except (OSError, ValueError, pickle.UnpicklingError):
-            pass
+                return _tag("cache", pd.read_parquet(df_cache),
+                            _events_from_json(ev_cache.read_bytes()))
+        except (OSError, ValueError) as exc:
+            print(f"[vhagar-api] cache read failed ({exc}); rebuilding", file=sys.stderr)
 
     df = pd.read_parquet(DET_DIR)
     df["t"] = pd.to_datetime(df["t"], utc=False)
@@ -207,11 +259,11 @@ def _build_state() -> tuple[pd.DataFrame, list[dict]]:
     try:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         df.to_parquet(df_cache)
-        ev_cache.write_bytes(pickle.dumps(events))
+        ev_cache.write_bytes(_events_to_json(events))
         sig_cache.write_text(json.dumps(sig))
     except OSError:
         pass
-    return df, events
+    return _tag("raw", df, events)
 
 
 def _sensor_family(name) -> str:
@@ -379,6 +431,43 @@ _STATE: tuple[pd.DataFrame, list[dict]] | None = None
 _BUILD_LOCK = threading.Lock()
 _REFRESH_COUNT = 0
 _LAST_REFRESH: float | None = None
+# Provenance of the current _STATE: "snapshot" (live network pull), "cache"/"raw"
+# (local live rebuild), or "frozen" (the committed demo bundle). Used to label the
+# feed honestly and to refuse downgrading a live feed to the demo on a blip.
+_STATE_SOURCE: str | None = None
+# A live feed whose newest detection is older than this is reported "stale"
+# (e.g. the snapshot cron died). GOES FDC is near-real-time, so a healthy feed is
+# minutes old; FIRMS NRT can lag, hence a generous bound.
+STALE_HOURS = float(os.environ.get("VHAGAR_STALE_HOURS", "12") or 12)
+
+
+def _tag(source: str, df: pd.DataFrame, events: list[dict]) -> tuple[pd.DataFrame, list[dict]]:
+    """Record where the just-built state came from, then return it unchanged."""
+    global _STATE_SOURCE
+    _STATE_SOURCE = source
+    return df, events
+
+
+def _data_age_hours() -> float | None:
+    """Hours between now (UTC) and the newest detection in the current state."""
+    if _STATE is None:
+        return None
+    try:
+        newest = _STATE[0]["t"].max()
+        return float((pd.Timestamp.utcnow().tz_localize(None) - newest) / pd.Timedelta(hours=1))
+    except Exception:  # noqa: BLE001 - never let a label crash a response
+        return None
+
+
+def _state_mode() -> str:
+    """Honest feed label: 'sample' for the committed demo, else 'live' or 'stale'
+    judged by how old the newest detection is (not a hardcoded string)."""
+    if _STATE_SOURCE == "frozen":
+        return "sample"
+    age = _data_age_hours()
+    if age is None:
+        return "live"
+    return "stale" if age > STALE_HOURS else "live"
 
 
 def get_state() -> tuple[pd.DataFrame, list[dict]]:
@@ -391,10 +480,20 @@ def get_state() -> tuple[pd.DataFrame, list[dict]]:
 
 
 def refresh_state() -> None:
-    """Rebuild the snapshot (cheap when the dataset fingerprint is unchanged)
-    and swap it in. Built outside the lock so reads are never blocked."""
-    new = _build_state()
-    global _STATE, _REFRESH_COUNT, _LAST_REFRESH
+    """Rebuild the snapshot (cheap when the dataset fingerprint is unchanged) and
+    swap it in. Built outside the lock so reads are never blocked. A refresh that
+    can only fall back to the committed demo (e.g. a transient snapshot-fetch
+    failure) must NOT clobber a good live feed: for a fire product, stale-but-real
+    beats silently swapping in months-old demo data."""
+    global _STATE, _STATE_SOURCE, _REFRESH_COUNT, _LAST_REFRESH
+    prev_state, prev_source = _STATE, _STATE_SOURCE
+    new = _build_state()  # sets _STATE_SOURCE to the new source
+    if (prev_state is not None and prev_source in ("snapshot", "cache", "raw")
+            and _STATE_SOURCE == "frozen"):
+        _STATE_SOURCE = prev_source  # keep last-good live provenance
+        print("[vhagar-api] refresh could only reach the demo bundle; "
+              "keeping last-good live state", file=sys.stderr)
+        return
     _STATE = new
     _REFRESH_COUNT += 1
     _LAST_REFRESH = time.time()
@@ -466,9 +565,12 @@ def debug_weather():
 def health():
     try:
         df, ev = get_state()
+        age = _data_age_hours()
         return {"status": "ok", "detections": int(len(df)), "events": len(ev),
                 "window": [str(df["t"].min()), str(df["t"].max())],
                 "regions": list(REGIONS),
+                "mode": _state_mode(), "source": _STATE_SOURCE,
+                "data_age_hours": None if age is None else round(age, 2),
                 "refreshes": _REFRESH_COUNT,
                 "last_refresh": _LAST_REFRESH}
     except FileNotFoundError as e:
@@ -499,7 +601,7 @@ def detections(region: str = Query("california"), days: int = Query(3, ge=1, le=
                 "view_zenith_deg": None if pd.isna(r.view_zenith_deg) else round(float(r.view_zenith_deg), 1),
                 "is_false_alarm": False}})
     return JSONResponse({"type": "FeatureCollection", "features": feats,
-        "metadata": {"mode": "live", "schema": "fdc", "region": region,
+        "metadata": {"mode": _state_mode(), "schema": "fdc", "region": region,
                      "source": "GOES-18/19 ABI FDC (VHAGAR)", "count": len(feats)}})
 
 
@@ -575,7 +677,7 @@ def _events_fc(region: str, days: int) -> dict:
     sensor_totals = {str(k): int(v) for k, v in win["sensor"].value_counts().items()} \
         if "sensor" in win else {}
     return {"type": "FeatureCollection", "features": feats,
-            "metadata": {"mode": "live", "schema": "fdc", "region": region,
+            "metadata": {"mode": _state_mode(), "schema": "fdc", "region": region,
                          "source": "GOES-18/19 ABI FDC (VHAGAR)", "event_count": len(feats),
                          "detection_count": int((df["t"] >= cut).sum()),
                          "sensor_detections": sensor_counts,   # this region + window

@@ -127,26 +127,36 @@ def day_of_year_encoding(day_of_year) -> tuple[np.ndarray, np.ndarray]:
 def pixel_area_growth(view_zenith_deg, orbit_altitude_km: float = 833.0) -> np.ndarray:
     """Along-scan x along-track pixel area growth factor relative to nadir.
 
-    For a scanning radiometer the along-scan dimension grows as
-    ``sec(theta_scan) / cos(theta_v)`` and the along-track as ``sec(theta_v)``,
-    including Earth curvature via the scan-to-view-angle relation.
+    Derived from slant-range geometry, not a small-angle secant approximation.
+    Let ``rho`` be the slant range to the ground pixel and ``h`` the nadir
+    altitude. The along-track footprint stretches with the range ratio,
+    ``rho / h``; the along-scan footprint stretches by a further ``1 / cos(z)``
+    as the line of sight grazes the surface. So the area growth is
+
+        (rho / h)**2 / cos(z),
+
+    where ``rho`` follows from the Earth triangle (scan angle at the sensor,
+    Earth-central angle, sine rule). This reproduces the published anchors:
+    MODIS (h=705 km) reaches ~9.7x area (~2.0x along-track, ~4.8x along-scan) at
+    its ~65 deg scan-edge view zenith, and a geostationary sensor reaches ~2.33x
+    at 60 deg view zenith. The previous ``cos(scan)/cos(z)**2`` form overstated
+    both (~14x MODIS edge, ~7.9x GEO at 60 deg) because it applied secant growth
+    to the wide ground incidence angle rather than to the range ratio.
 
     This matters twice over: FRP is proportional to pixel area, and detection
-    sensitivity degrades as the fire's fractional coverage shrinks. MODIS grows
-    ~8x nadir to scan edge; VIIRS' aggregation scheme holds it to ~4x, which is
-    the entire reason VIIRS beats MODIS on small fires at swath edge.
+    sensitivity degrades as the fire's fractional coverage shrinks.
     """
     r_e = 6371.0
     z = np.radians(np.clip(np.asarray(view_zenith_deg, dtype=np.float64), 0.0, 80.0))
-    h = orbit_altitude_km
-    # Scan angle from view zenith angle, via the sine rule on the Earth triangle.
-    sin_scan = np.clip(r_e * np.sin(z) / (r_e + h), -1.0, 1.0)
-    scan = np.arcsin(sin_scan)
-    # Along-scan: the projected footprint stretches as the line of sight
-    # becomes oblique to the surface. Along-track: simple secant growth.
-    along_scan = np.cos(scan) / np.cos(z) ** 2
-    along_track = np.cos(scan) / np.cos(z)
-    return along_scan * along_track
+    h = float(orbit_altitude_km)
+    # Earth triangle: scan angle at the sensor from the view zenith (sine rule),
+    # then the Earth-central angle, then slant range over nadir altitude.
+    alpha = np.arcsin(np.clip(r_e * np.sin(z) / (r_e + h), -1.0, 1.0))
+    gamma = z - alpha
+    with np.errstate(invalid="ignore", divide="ignore"):
+        rho_over_h = np.where(z > 0.0, (r_e + h) * np.sin(gamma) / (h * np.sin(z)), 1.0)
+    # area = along_track * along_scan = (rho/h) * (rho/h / cos z)
+    return rho_over_h**2 / np.cos(z)
 
 
 def viirs_pixel_area_m2(view_zenith_deg, nominal_m: float = 375.0) -> np.ndarray:

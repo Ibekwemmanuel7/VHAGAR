@@ -177,9 +177,14 @@ class ABIProjection:
         grows, a factor of several near the disk edge.
         """
         z = np.radians(np.clip(self.view_zenith_deg(lat_deg, lon_deg), 0.0, 85.0))
-        re, h = self.semi_major_axis, self.h
-        sin_scan = np.clip(re * np.sin(z) / h, -1.0, 1.0)
-        scan = np.arcsin(sin_scan)
-        # Along-scan stretches as 1/cos of the incidence angle; along-track as sec.
-        growth = (np.cos(scan) / np.cos(z) ** 2) * (np.cos(scan) / np.cos(z))
+        re, rsat = self.semi_major_axis, self.h  # rsat is geocentric (re + nadir altitude)
+        h_nadir = self.perspective_point_height
+        # Slant-range geometry (see physics.geometry.pixel_area_growth): area grows
+        # as (rho / h)**2 / cos(z), reproducing ~2.33x at 60 deg view zenith for a
+        # geostationary sensor rather than the ~7.9x the old secant form gave.
+        alpha = np.arcsin(np.clip(re * np.sin(z) / rsat, -1.0, 1.0))
+        gamma = z - alpha
+        with np.errstate(invalid="ignore", divide="ignore"):
+            rho_over_h = np.where(z > 0.0, rsat * np.sin(gamma) / (h_nadir * np.sin(z)), 1.0)
+        growth = rho_over_h**2 / np.cos(z)
         return nominal_m**2 * growth
