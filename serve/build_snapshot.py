@@ -37,10 +37,13 @@ def _log(msg: str) -> None:
     print(f"[vhagar-snapshot] {msg}", flush=True)
 
 
-def _ingest_goes(sat: int, domain: str, region: str, lookback_hours: float, workers: int):
+def _ingest_goes(sat: int, domain: str, region: str, lookback_hours: float, workers: int,
+                 bbox=None):
     """Pull one GOES satellite into its own store (backfill refuses to mix
     satellites in one directory) and return its detections as a post-processed
-    DataFrame with t + sensor columns, or None if nothing landed."""
+    DataFrame with t + sensor columns, or None if nothing landed. ``bbox`` clips
+    the pull to the region so neighbouring regions do not double-cluster the same
+    fire (their grids overlap)."""
     import pandas as pd
 
     from serve.ingest import ingest_once
@@ -50,7 +53,7 @@ def _ingest_goes(sat: int, domain: str, region: str, lookback_hours: float, work
     _log(f"pulling GOES-{sat} {domain} last {lookback_hours:g} h ...")
     try:
         ingest_once(
-            out_dir=sub, satellite=sat, domain=domain, region=region, bbox=None,
+            out_dir=sub, satellite=sat, domain=domain, region=region, bbox=bbox,
             lookback_min=lookback_hours * 60.0, workers=workers, min_confidence=0.0,
             drop_filtered=False, retention_days=0.0,  # each run is self-contained
         )
@@ -109,15 +112,15 @@ def build(sats: list[int], domain: str, regions: list[str], lookback_hours: floa
     frames = []
     for region in regions:
         _log(f"region: {region}")
-        # GEO: each GOES satellite, tiled into this region's grid.
+        bbox = api.REGIONS.get(region, api.REGIONS["conus"])["bbox"]
+        # GEO: each GOES satellite, clipped + tiled into this region's grid.
         for sat in sats:
-            g = _ingest_goes(sat, domain, region, lookback_hours, workers)
+            g = _ingest_goes(sat, domain, region, lookback_hours, workers, bbox=bbox)
             if g is not None and len(g):
                 frames.append(g)
         # LEO: VIIRS (S-NPP / NOAA-20 / NOAA-21) + MODIS via NASA FIRMS.
         if firms_key:
             from serve.firms_ingest import fetch_firms
-            bbox = api.REGIONS.get(region, api.REGIONS["conus"])["bbox"]
             leo = fetch_firms(firms_key, bbox, region=region, hours=lookback_hours)
             if len(leo):
                 leo["t"] = pd.to_datetime(leo["t"], utc=True).dt.tz_localize(None)
