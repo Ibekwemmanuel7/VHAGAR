@@ -48,7 +48,9 @@ select{font-family:inherit}
 .danger{flex:none;display:flex;align-items:center;gap:1rem;flex-wrap:wrap;font-size:.78rem;color:var(--muted);
  border-bottom:1px solid var(--line);padding:.4rem 1rem;background:#0b0e14}
 .danger .lab{font-size:.6rem;text-transform:uppercase;letter-spacing:.1em;color:var(--ice);font-weight:700}
-.danger b{color:var(--text);font-weight:700}.danger .fine{color:var(--dim);font-size:.66rem}
+.danger b{color:var(--text);font-weight:700}
+.danger .dq{padding-left:.9rem;border-left:1px solid var(--line2);white-space:nowrap}
+.danger .fine{color:var(--dim);font-size:.66rem;font-style:italic;margin-left:auto;text-align:right;max-width:24rem}
 .body{flex:1;display:flex;min-height:0}
 .side{width:320px;flex:none;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column}
 .side .title{padding:.9rem 1rem;border-bottom:1px solid var(--line)}
@@ -262,9 +264,10 @@ async function loadDanger(){
  try{const d=await getJSON("/v1/danger");const fd=d.fire_danger||{};
   const igp=d.ignition_probability!=null?(d.ignition_probability*100).toFixed(2)+"%":"n/a";
   el.innerHTML='<span class="lab">Fire danger &middot; T3 (demo)</span>'
-   +`<span>FWI <b>${num(fd.fwi)}</b> ${fd.class||""}</span><span>Ignition <b>${igp}</b></span>`
-   +`<span>Expected burned area <b>${num(d.expected_burned_area_ha,0)}</b> ha</span>`
-   +'<span class="fine">three separate quantities, never one risk number; synthetic-trained demo</span>';
+   +`<span class="dq">FWI <b>${num(fd.fwi)}</b> ${fd.class||""}</span>`
+   +`<span class="dq">Ignition prob. <b>${igp}</b></span>`
+   +`<span class="dq">Expected burned area <b>${num(d.expected_burned_area_ha,0)}</b> ha</span>`
+   +'<span class="fine">Three separate quantities, never one combined risk score. Synthetic-trained demo.</span>';
   el.style.display="flex";}catch(e){el.style.display="none";}
 }
 
@@ -306,11 +309,17 @@ function showErr(m){const e=document.getElementById("err");if(!m){e.style.displa
 async function load(){
  const btn=document.getElementById("refresh");btn.classList.add("spin");showErr("");
  const q=`region=${state.region}&days=${state.days}`;
- try{const [ev,det]=await Promise.all([getJSON("/api/events?"+q),getJSON("/api/detections?"+q)]);
-  state.events=ev;state.dets=det;state.mode=(ev.metadata&&ev.metadata.mode)||"live";
-  state.schema=(ev.metadata&&ev.metadata.schema)||"events";state.source=(ev.metadata&&ev.metadata.source)||"";setLive(state.mode,false);
- }catch(e){state.events=SAMPLE_EVENTS;state.dets=SAMPLE_DETS;state.mode="sample";state.schema="events";state.source="";setLive("sample",true);
-  showErr("Backend not reachable, showing bundled sample. Start it with: uvicorn serve.vhagar_api:app");}
+ let ok=false;
+ for(let attempt=0;attempt<4&&!ok;attempt++){
+  if(attempt){showErr("Waking the live service, retrying...");await new Promise(r=>setTimeout(r,3000*attempt));}
+  try{const [ev,det]=await Promise.all([getJSON("/api/events?"+q),getJSON("/api/detections?"+q)]);
+   state.events=ev;state.dets=det;state.mode=(ev.metadata&&ev.metadata.mode)||"live";
+   state.schema=(ev.metadata&&ev.metadata.schema)||"events";state.source=(ev.metadata&&ev.metadata.source)||"";
+   setLive(state.mode,false);showErr("");ok=true;
+  }catch(e){/* free-tier cold start can take up to a minute; retry with backoff */}
+ }
+ if(!ok){state.events=SAMPLE_EVENTS;state.dets=SAMPLE_DETS;state.mode="sample";state.schema="events";state.source="";setLive("sample",true);
+  showErr("Live backend not reachable right now, showing a bundled sample. Press Refresh to retry.");}
  render();document.getElementById("updated").textContent="updated "+new Date().toLocaleTimeString();
  btn.classList.remove("spin");
 }
