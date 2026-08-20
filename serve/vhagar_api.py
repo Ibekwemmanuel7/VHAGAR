@@ -84,6 +84,28 @@ MAX_POINTS = 5000
 MAX_DET_PER_TILE = 3000
 
 
+def _conf_pct(v):
+    """Normalize a detection confidence to a 0-100 percent, or None.
+
+    The sources disagree: GOES ABI FDC gives a 0-1 fraction, MODIS FIRMS a
+    0-100 integer, and VIIRS FIRMS a category ('l'/'n'/'h' = low/nominal/high).
+    A blind float() on the VIIRS category raises and 500s the endpoint, which
+    dropped every source (GOES included) from the console. Handle all three."""
+    try:
+        if v is None or pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    s = str(v).strip().lower()
+    if s in ("", "nan", "<na>", "none"):
+        return None
+    try:
+        x = float(s)
+        return round(x * 100) if x <= 1.0 else round(x)
+    except ValueError:
+        return {"l": 30, "n": 70, "h": 95, "low": 30, "nominal": 70, "high": 95}.get(s)
+
+
 def _sensor_from_granule(key: str) -> str:
     if not isinstance(key, str):
         return "GOES"
@@ -472,7 +494,7 @@ def detections(region: str = Query("california"), days: int = Query(3, ge=1, le=
             "properties": {
                 "frp_mw": None if pd.isna(r.frp_mw) else round(float(r.frp_mw), 1),
                 "brightness_k": None if pd.isna(r.temp_k) else round(float(r.temp_k), 1),
-                "confidence": None if pd.isna(r.confidence) else round(float(r.confidence) * 100),
+                "confidence": _conf_pct(r.confidence),
                 "sensor": r.sensor, "acq_datetime": r.t.isoformat(),
                 "view_zenith_deg": None if pd.isna(r.view_zenith_deg) else round(float(r.view_zenith_deg), 1),
                 "is_false_alarm": False}})
