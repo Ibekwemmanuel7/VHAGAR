@@ -539,11 +539,14 @@ def _events_fc(region: str, days: int) -> dict:
     inr = win[(win["lon"] >= w) & (win["lon"] <= e) & (win["lat"] >= s) & (win["lat"] <= n)]
     sensor_counts = {str(k): int(v) for k, v in inr["sensor"].value_counts().items()} \
         if "sensor" in inr else {}
+    sensor_totals = {str(k): int(v) for k, v in win["sensor"].value_counts().items()} \
+        if "sensor" in win else {}
     return {"type": "FeatureCollection", "features": feats,
             "metadata": {"mode": "live", "schema": "fdc", "region": region,
                          "source": "GOES-18/19 ABI FDC (VHAGAR)", "event_count": len(feats),
                          "detection_count": int((df["t"] >= cut).sum()),
-                         "sensor_detections": sensor_counts,
+                         "sensor_detections": sensor_counts,   # this region + window
+                         "sensor_totals": sensor_totals,       # whole snapshot, this window
                          "weather": wx_status}}
 
 
