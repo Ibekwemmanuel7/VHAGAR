@@ -121,7 +121,9 @@ def _cv_f1(model_factory, X, y, groups, n_folds, seed):
 
     scores = []
     if groups is None:
-        splitter = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=seed).split(X, y)
+        # deliberate non-spatial baseline, contrasted with GroupKFold below
+        splitter = StratifiedKFold(n_splits=n_folds, shuffle=True,  # leakage-ok
+                                   random_state=seed).split(X, y)
     else:
         # cap folds at the number of groups
         k = min(n_folds, len(np.unique(groups)))

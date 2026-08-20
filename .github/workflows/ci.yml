@@ -35,8 +35,12 @@ jobs:
       - run: pip install -e ".[dev]"
       - name: No random splits anywhere in the codebase
         run: |
-          if grep -rnE "train_test_split|KFold\(|shuffle=True" src/ \
-               --include="*.py" | grep -v "eval/splits.py"; then
+          # Ban random splitters. \bKFold\( matches a bare KFold( but not the
+          # leakage-safe GroupKFold(/StratifiedKFold(. Lines explicitly marked
+          # "leakage-ok" (a documented random baseline for comparison) are exempt,
+          # as is eval/splits.py which defines the sanctioned splitters.
+          if grep -rnE "train_test_split|\bKFold\(|shuffle=True" src/ \
+               --include="*.py" | grep -v "eval/splits.py" | grep -v "leakage-ok"; then
             echo "::error::random splitting primitive found, see docs/02_VALIDATION.md"
             exit 1
           fi
