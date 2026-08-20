@@ -2640,5 +2640,185 @@ def coverage_cmd(
             console.print(f"[dim]  ...and {len(failed) - 20} more[/dim]")
 
 
+@app.command("t3-ignition-ingest")
+def t3_ignition_ingest_cmd(
+    sqlite: Path = typer.Option(..., help="FPA-FOD SQLite (RDS-2013-0009)"),
+    out_dir: Path = typer.Option(Path("data/t3_real"), help="where to write the parquet pair"),
+    bbox: str = typer.Option("-124,32,-114,42", help="west,south,east,north"),
+    years: str = typer.Option("2018,2019,2020,2021,2022", help="comma-separated fire years"),
+    cell_deg: float = typer.Option(0.25, help="candidate background grid resolution"),
+    block_deg: float = typer.Option(5.0, help="spatial stratum block size"),
+    seed: int = typer.Option(0),
+) -> None:
+    """Build the T3 presence/candidate parquet from FPA-FOD occurrences.
+
+    Reads real fire occurrences, lays down a candidate background grid, attaches
+    covariates (a labelled synthetic surface until real fuel/wind/population
+    rasters are wired), and writes occurrence.parquet + candidates.parquet for
+    ``t3-ignition --no-synthetic``. Covariates are the one remaining stub: swap
+    ``covariate_fn`` for real layers before quoting numbers.
+    """
+    from vhagar.datasets.ignition_ingest import ingest_fpa_fod
+
+    bb = tuple(float(x) for x in bbox.split(","))
+    yrs = [int(y) for y in years.split(",") if y.strip()]
+    if len(bb) != 4:
+        console.print("[red]bbox must be west,south,east,north[/red]")
+        raise typer.Exit(1)
+    try:
+        out = ingest_fpa_fod(sqlite, bbox=bb, years=yrs, out_dir=out_dir,
+                             cell_deg=cell_deg, block_deg=block_deg, seed=seed)
+    except (FileNotFoundError, ValueError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(
+        f"[green]wrote[/green] {out['n_presence']:,} presences + "
+        f"{out['n_candidates']:,} candidates to {out_dir}")
+    console.print(f"[dim]  features: {', '.join(out['features'])}"
+                  + ("  (SYNTHETIC covariates)" if out["synthetic_covariates"] else "") + "[/dim]")
+    console.print("[dim]  next: vhagar t3-ignition --no-synthetic "
+                  f"--occurrence {out['paths']['occurrence']} "
+                  f"--candidates {out['paths']['candidates']} "
+                  f"--features {','.join(out['features'])}[/dim]")
+
+
+@app.command("t4-assimilate-real")
+def t4_assimilate_real_cmd(
+    points: Path = typer.Option(None, help="active-fire points parquet (lon, lat, t)"),
+    bbox: str = typer.Option(None, help="west,south,east,north (defaults to the points' extent)"),
+    cell_deg: float = typer.Option(0.01, help="analysis grid resolution (~1 km)"),
+    split_frac: float = typer.Option(0.5, help="time quantile splitting calibrate vs score"),
+    seed: int = typer.Option(0),
+) -> None:
+    """Assimilate a real fire's timed detections into an arrival-time analysis.
+
+    Rasterises VIIRS/MODIS (or perimeter) detections onto a grid, calibrates the
+    per-fire ROS scale on an early time slice, and scores the forecast against the
+    held-out later detections with Sorensen/Dice and the false-alarm ratio, the
+    same metrics as the synthetic ``t4-assimilate`` so real and synthetic runs are
+    comparable. Prior ROS uses a labelled synthetic fuel/wind field until real
+    rasters are wired. Needs scipy.
+    """
+    try:
+        import scipy  # noqa: F401
+    except ImportError as exc:
+        console.print("[red]t4-assimilate-real needs scipy[/red]")
+        raise typer.Exit(1) from exc
+    if points is None:
+        console.print("[red]need --points (an active-fire parquet with lon, lat, t)[/red]")
+        raise typer.Exit(1)
+
+    import numpy as _np
+
+    from vhagar.datasets.spread_ingest import (
+        GridSpec,
+        assimilate_real,
+        build_spread_case,
+        read_firms_points_parquet,
+    )
+
+    bb = tuple(float(x) for x in bbox.split(",")) if bbox else None
+    try:
+        lon, lat, hours = read_firms_points_parquet(points, bbox=bb)
+    except (FileNotFoundError, ValueError, KeyError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+    if bb is None:
+        pad = 0.02
+        bb = (float(lon.min()) - pad, float(lat.min()) - pad,
+              float(lon.max()) + pad, float(lat.max()) + pad)
+    spec = GridSpec.from_bbox_res(bb, cell_deg=cell_deg)
+    try:
+        case = build_spread_case(lon, lat, hours, spec, seed=seed)
+        out = assimilate_real(case, split_frac=split_frac)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    dy, dx = spec.cell_size_m()
+    console.print(f"[bold]Real spread assimilation[/bold]: {len(lon):,} points, "
+                  f"grid {spec.shape[0]}x{spec.shape[1]} (~{_np.hypot(dy, dx) / _np.sqrt(2):.0f} m/cell)")
+    if case.get("synthetic_ros"):
+        console.print("[dim]  prior ROS is a SYNTHETIC fuel/wind field (stub)[/dim]")
+    t = Table(title="Arrival-time analysis vs held-out later detections")
+    for c in ("ROS scale k", "Dice", "POD", "FAR", "early / late dets"):
+        t.add_column(c, justify="right")
+    t.add_row(f"{out['k']:.3f}", f"{out['dice']:.3f}", f"{out['pod']:.3f}",
+              f"{out['far']:.3f}", f"{out['n_early']} / {out['n_late']}")
+    console.print(t)
+
+
+@app.command("t2-head-to-head")
+def t2_head_to_head_cmd(
+    cache_dir: Path = typer.Option(Path("data/t2_cache"), help="cached T2 samples (.npz)"),
+    pattern: str = typer.Option("mtbs_*_w15bg.npz", help="glob for samples to use"),
+    prithvi_dir: Path = typer.Option(None, help="dir of Prithvi per-fire masks <event_id>.npy"),
+    val_frac: float = typer.Option(0.15, help="grouped split validation fraction"),
+    test_frac: float = typer.Option(0.15, help="grouped split test fraction"),
+    epochs: int = typer.Option(20, help="U-Net epochs (needs torch)"),
+    no_unet: bool = typer.Option(False, "--no-unet", help="skip the U-Net leg"),
+    n_boot: int = typer.Option(10000, help="bootstrap resamples for the CIs"),
+    seed: int = typer.Option(0),
+) -> None:
+    """The decisive T2 test: Prithvi vs U-Net vs RBR on the same transfer fires.
+
+    One leakage-proof grouped split, per-fire skill-over-naive for each model
+    through the identical metric, and paired bootstrap CIs on the differences.
+    RBR is always run; U-Net needs torch; Prithvi masks are loaded from
+    ``--prithvi-dir`` (produced by the out-of-repo TerraTorch inference +
+    ``t2_prithvi.stitch_chip_predictions``). A model only appears if it actually
+    predicted the held-out fire. docs/11.
+    """
+    import glob as _glob
+
+    from vhagar.datasets.burned_area import T2Sample
+    from vhagar.eval.t2_headtohead import head_to_head
+
+    paths = sorted(_glob.glob(str(cache_dir / pattern)))
+    samples = {}
+    for p in paths:
+        s = T2Sample.load(p)
+        if s.is_usable:
+            samples[s.event_id] = s
+    if len(samples) < 3:
+        console.print(f"[red]only {len(samples)} usable fires; need at least 3[/red]")
+        raise typer.Exit(1)
+
+    prithvi_pred = None
+    if prithvi_dir is not None:
+        prithvi_pred = {}
+        for eid in samples:
+            f = prithvi_dir / f"{eid}.npy"
+            if f.exists():
+                prithvi_pred[eid] = np.load(f)
+        console.print(f"[dim]  loaded {len(prithvi_pred)} Prithvi masks from {prithvi_dir}[/dim]")
+
+    console.print(f"[bold]T2 head-to-head[/bold]: {len(samples)} fires, "
+                  f"grouped split (test {test_frac:.0%})")
+    rep = head_to_head(samples, prithvi_pred_by_event=prithvi_pred, val_frac=val_frac,
+                       test_frac=test_frac, seed=seed, n_boot=n_boot, run_unet=not no_unet,
+                       unet_kw={"epochs": epochs})
+
+    mt = Table(title=f"Mean per-fire skill over {rep['n_test_fires']} held-out fires")
+    mt.add_column("model")
+    mt.add_column("mean skill", justify="right")
+    for m, v in rep["mean_skill"].items():
+        mt.add_row(m, f"{v:+.3f}")
+    console.print(mt)
+
+    dt = Table(title="Paired bootstrap differences (95% CI)")
+    for c in ("comparison", "mean diff", "CI low", "CI high", "P(a>b)", "separable"):
+        dt.add_column(c, justify="right")
+    for d in rep["paired_diffs"]:
+        sep = "[green]yes[/green]" if d.separable else "[dim]no[/dim]"
+        dt.add_row(f"{d.a} - {d.b}", f"{d.mean_diff:+.3f}", f"{d.ci_lo:+.3f}",
+                   f"{d.ci_hi:+.3f}", f"{d.prob_a_better:.2f}", sep)
+    console.print(dt)
+    for n in rep["notes"]:
+        console.print(f"[dim]  {n}[/dim]")
+    console.print("[dim]  A margin is real only if its CI excludes zero; on a handful of\n"
+                  "  fires the honest verdict is often 'not separable'. Scale fires to sharpen it.[/dim]")
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()
