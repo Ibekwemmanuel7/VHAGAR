@@ -68,28 +68,30 @@ def fetch_firms(map_key: str, bbox, region: str = "conus", hours: float = 12.0,
     from vhagar.labels.tiles import _transformer
     grid = AnalysisGrid(region)
     tf = _transformer(region)
-    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+    # FIRMS day_range already bounds the window; do not add a now-based cutoff
+    # (this environment's clock can differ from the live service, which would
+    # silently drop every row). Keep the freshest `hours` relative to the data's
+    # own newest acquisition instead.
+    day_range = max(1, min(10, round(hours / 24) or 1))
     rows: list[dict] = []
     for src in (sources or SOURCES):
         label = SOURCES[src]
         try:
-            recs = _fetch_source(map_key, src, bbox, day_range=1, timeout=timeout)
+            recs = _fetch_source(map_key, src, bbox, day_range=day_range, timeout=timeout)
         except Exception as exc:  # noqa: BLE001 - degrade gracefully
             _log(f"{src} fetch failed ({type(exc).__name__}: {exc})")
             continue
-        got = 0
+        parsed = []
         for d in recs:
             try:
                 lat, lon = float(d["latitude"]), float(d["longitude"])
                 t = _acq_dt(d["acq_date"], d["acq_time"])
             except (KeyError, ValueError):
                 continue
-            if t < cutoff:
-                continue
             frp = d.get("frp")
             bright = d.get("bright_ti4") or d.get("brightness")
             scan, track = d.get("scan"), d.get("track")
-            rows.append({
+            parsed.append({
                 "lon": lon, "lat": lat, "t": t,
                 "frp_mw": float(frp) if frp not in (None, "", "nan") else np.nan,
                 "temp_k": float(bright) if bright not in (None, "", "nan") else np.nan,
@@ -98,8 +100,17 @@ def fetch_firms(map_key: str, bbox, region: str = "conus", hours: float = 12.0,
                 "sensor": label, "granule_key": src,
                 "area_m2": (float(scan) * float(track) * 1e6) if scan and track else np.nan,
             })
-            got += 1
-        _log(f"{label}: {got} detections in the last {hours:g} h")
+        # Keep only the freshest `hours` relative to this source's own newest row.
+        if parsed:
+            newest = max(r["t"] for r in parsed)
+            cutoff = newest - timedelta(hours=hours)
+            kept = [r for r in parsed if r["t"] >= cutoff]
+        else:
+            newest, kept = None, []
+        rows.extend(kept)
+        stamp = newest.strftime("%Y-%m-%d %H:%MZ") if newest else "n/a"
+        _log(f"{label}: {len(recs)} rows returned, kept {len(kept)} within {hours:g} h "
+             f"(day_range={day_range}, newest={stamp})")
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
