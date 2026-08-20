@@ -400,6 +400,16 @@ def _start_refresher() -> None:
     """When VHAGAR_REFRESH_SEC>0 (live mode), rebuild the snapshot on that cadence
     so newly ingested granules appear without a restart. Off by default so the
     static demo does not re-cluster pointlessly."""
+    # Warm the snapshot at boot so the first request after a (free-tier) cold
+    # start does not race the snapshot download; the client would otherwise time
+    # out and fall back to the bundled sample.
+    def _warm() -> None:
+        try:
+            get_state()
+        except Exception as exc:  # noqa: BLE001 - keep the server up
+            print(f"[vhagar-api] warm failed: {exc}", file=sys.stderr)
+    threading.Thread(target=_warm, daemon=True).start()
+
     sec = float(os.environ.get("VHAGAR_REFRESH_SEC", "0") or 0)
     if sec > 0:
         threading.Thread(target=_refresh_loop, args=(sec,), daemon=True).start()

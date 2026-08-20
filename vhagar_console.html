@@ -300,7 +300,7 @@ function openDrawer(p){const fdc=isFDC();
 }
 document.getElementById("d_x").onclick=()=>{document.getElementById("drawer").classList.remove("open");state.sel=null;if(map&&map.getLayer("events-sel"))map.setFilter("events-sel",["==",["get","event_id"],-1]);renderFeed();};
 
-async function getJSON(path){const c=new AbortController();const t=setTimeout(()=>c.abort(),9000);
+async function getJSON(path){const c=new AbortController();const t=setTimeout(()=>c.abort(),25000);
  try{const r=await fetch(API+path,{signal:c.signal});if(!r.ok)throw new Error(r.status);return await r.json();}finally{clearTimeout(t);}}
 function setLive(mode,offline){const w=document.getElementById("livewrap"),x=document.getElementById("livetxt");
  if(!w||!x)return;
