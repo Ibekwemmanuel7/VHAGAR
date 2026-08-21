@@ -268,11 +268,11 @@ async function loadDanger(){
  const el=document.getElementById("danger");
  try{const d=await getJSON("/v1/danger");const fd=d.fire_danger||{};
   const igp=d.ignition_probability!=null?(d.ignition_probability*100).toFixed(2)+"%":"n/a";
-  el.innerHTML='<span class="lab">Fire danger &middot; T3 (demo)</span>'
+  el.innerHTML='<span class="lab">Fire danger &middot; T3</span>'
    +`<span class="dq">FWI <b>${num(fd.fwi)}</b> ${fd.class||""}</span>`
    +`<span class="dq">Ignition prob. <b>${igp}</b></span>`
    +`<span class="dq">Expected burned area <b>${num(d.expected_burned_area_ha,0)}</b> ha</span>`
-   +'<span class="fine">Three separate quantities, never one combined risk score. Synthetic-trained demo.</span>';
+   +'<span class="fine">Three separate quantities, never one combined risk score. FWI from live weather; ignition and burned-area models pending real-data training.</span>';
   el.style.display="flex";}catch(e){el.style.display="none";}
 }
 
