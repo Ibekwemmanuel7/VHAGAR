@@ -2820,5 +2820,58 @@ def t2_head_to_head_cmd(
                   "  fires the honest verdict is often 'not separable'. Scale fires to sharpen it.[/dim]")
 
 
+@app.command("t4-nextday")
+def t4_nextday_cmd(
+    n_fires: int = typer.Option(20, help="synthetic fires to evaluate"),
+    folds: int = typer.Option(5, help="leave-fire-out CV folds"),
+    horizon: float = typer.Option(18.0, help="physics-prior forecast horizon (arrival units)"),
+    corrector: bool = typer.Option(False, "--corrector", help="also train the U-Net corrector (needs torch)"),
+    epochs: int = typer.Option(25, help="corrector epochs"),
+    seed: int = typer.Option(0),
+) -> None:
+    """Next-day fire spread: calibrated physics prior vs persistence, +optional corrector.
+
+    The frontier task (WildfireSpreadTS-style) done the VHAGAR way: the fast-marching
+    front is a physics prior, temperature-calibrated on train fires, optionally refined
+    by a U-Net that also sees the barrier channel the prior ignores. Scored on the
+    incremental new-burn region with discrimination (AP, F1, IoU) and calibration
+    (Brier, ECE) proper scores, under leave-fire-out CV. Synthetic demo here; point
+    the loader at real WildfireSpreadTS GeoTIFFs for real numbers. Needs scipy (+torch
+    for the corrector).
+    """
+    try:
+        import scipy  # noqa: F401
+    except ImportError as exc:
+        console.print("[red]t4-nextday needs scipy[/red]")
+        raise typer.Exit(1) from exc
+
+    from vhagar.datasets.wildfirespread import synthetic_wfs_fire
+    from vhagar.eval.wildfirespread import evaluate_nextday
+
+    samples = {}
+    for i in range(n_fires):
+        s, _ = synthetic_wfs_fire(np.random.default_rng(500 + i), fire_id=f"fire{i:02d}")
+        samples[s.fire_id] = s
+    console.print(f"[bold]Next-day spread[/bold]: {len(samples)} synthetic fires, "
+                  f"leave-fire-out {folds}-fold, horizon {horizon:g}"
+                  + (" (+U-Net corrector)" if corrector else ""))
+    rep = evaluate_nextday(samples, k=folds, horizon=horizon, calibrate=True,
+                           with_corrector=corrector, seed=seed,
+                           corrector_kw={"epochs": epochs})
+    t = Table(title="Next-day spread (incremental new-burn region, leave-fire-out)")
+    for c in ("method", "AP", "F1", "IoU", "Brier", "ECE", "fires"):
+        t.add_column(c, justify="right")
+    for m, s in rep["summary"].items():
+        t.add_row(m, f"{s['ap_mean']:.3f}", f"{s['f1_mean']:.3f}", f"{s['iou_mean']:.3f}",
+                  f"{s['brier_mean']:.4f}", f"{s['ece_mean']:.3f}", str(s["fires"]))
+    console.print(t)
+    console.print(f"[dim]  physics prior temperature (last fold) {rep['temperature_last']:.2f}; "
+                  "lower Brier/ECE = better calibrated.[/dim]")
+    for n in rep["notes"]:
+        console.print(f"[dim]  {n}[/dim]")
+    console.print("[dim]  Synthetic barrier layer gives the corrector room to beat the prior;\n"
+                  "  on real WildfireSpreadTS this is the physics-informed vs pure-ML question.[/dim]")
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()
