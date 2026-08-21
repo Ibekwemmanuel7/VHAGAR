@@ -68,6 +68,7 @@ select{font-family:inherit}
 .card .r1{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
 .card .name{font-weight:700;font-size:.88rem}
 .badge{font-size:.62rem;font-weight:700;padding:2px 8px;border-radius:99px;border:1px solid;white-space:nowrap}
+.blab{font-size:.5rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-right:5px;vertical-align:middle;cursor:help}
 .card .grid{margin-top:.45rem;display:grid;grid-template-columns:1fr 1fr;gap:.15rem .8rem;font-size:.74rem;color:var(--muted)}
 .card .grid b{color:var(--text);font-weight:600}
 .empty{padding:1.2rem;color:var(--dim);font-size:.82rem;text-align:center}
@@ -156,8 +157,8 @@ const state={region:"california",days:3,basemap:"Dark",sensor:"all",events:null,
 const isFDC=()=>state.schema==="fdc";
 const frpFill=f=>(+f>1000)?"#E8552B":(+f>200)?"#E0B43A":"#8fa0c0";
 function frpBadge(f){const [t,c]=(+f>1000)?["High","#E8552B"]:(+f>200)?["Moderate","#E0B43A"]:["Low","#8fa0c0"];
- return `<span class="badge" style="color:${c};border-color:${c};background:${c}22">${t}</span>`;}
-function riskBadge(rc){const c=RISK[rc]||"#8A8F98";return `<span class="badge" style="color:${c};border-color:${c};background:${c}22">${rc||"n/a"}</span>`;}
+ return `<span class="badge" title="Peak fire radiative power tier (fire power now), not spread risk" style="color:${c};border-color:${c};background:${c}22">${t}</span>`;}
+function riskBadge(rc){const c=RISK[rc]||"#8A8F98";return `<span class="badge" title="Spread-risk class from current weather (wind, RH, temp), not fire power" style="color:${c};border-color:${c};background:${c}22">${rc||"n/a"}</span>`;}
 const num=(v,d=1)=>v==null||isNaN(+v)?"-":(+v).toLocaleString(undefined,{maximumFractionDigits:d});
 const empty=()=>({type:"FeatureCollection",features:[]});
 function esc(v){return String(v==null?"":v).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
@@ -251,7 +252,11 @@ function renderFeed(){
  el.innerHTML=ev.map(f=>{const p=f.properties;
   const hasRisk=p.risk_class&&p.risk_class!=="Unknown";
   const c=hasRisk?(RISK[p.risk_class]||"#8A8F98"):(fdc?frpFill(p.max_frp_mw):"#8A8F98");
-  const badge=hasRisk?riskBadge(p.risk_class):(fdc?frpBadge(p.max_frp_mw):riskBadge(p.risk_class));
+  // Self-label the tier so spread risk (weather-driven) is never read as fire
+  // power: a 2 MW fire can be Low FRP but High spread risk. Two quantities, named.
+  const badge=hasRisk
+   ? `<span class="blab" title="Spread-risk class from current weather (wind, RH, temp), not fire power">risk</span>${riskBadge(p.risk_class)}`
+   : (fdc?`<span class="blab" title="Peak fire radiative power tier">FRP</span>${frpBadge(p.max_frp_mw)}`:riskBadge(p.risk_class));
   const grid=fdc
    ? `<span>Area: <b>${num(p.footprint_ha,0)}</b> ha</span><span>FRP: <b>${num(p.max_frp_mw,0)}</b> MW</span><span>Wind: <b>${num(p.wind_speed_ms)}</b> m/s</span><span>RH: <b>${num(p.rh_pct,0)}</b>%</span><span>Detections: <b>${num(p.n_detections,0)}</b></span><span>Sensor: <b>${(p.sensors||"-").replace("GOES-","G")}</b></span>`
    : `<span>Area: <b>${num(p.area_ha,0)}</b> ha</span><span>FRP: <b>${num(p.total_frp_mw)}</b> MW</span><span>Wind: <b>${num(p.wind_speed_ms)}</b> m/s</span><span>RH: <b>${num(p.rh_pct,0)}</b>%</span>`;
