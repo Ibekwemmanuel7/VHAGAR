@@ -40,3 +40,5 @@ serve/.cache/
 # service (Render / container) starts with no raw data and no clustering.
 !serve/demo/
 !serve/demo/detections.parquet
+
+demo/
