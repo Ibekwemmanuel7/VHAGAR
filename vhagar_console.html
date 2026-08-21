@@ -156,7 +156,9 @@ const RISK={Low:"#2E9E5B",Moderate:"#E0B43A",High:"#E8552B",Extreme:"#B71C1C",Un
 const state={region:"california",days:3,basemap:"Dark",sensor:"all",events:null,dets:null,sel:null,mode:"sample",schema:"events",source:""};
 const isFDC=()=>state.schema==="fdc";
 const frpFill=f=>(+f>1000)?"#E8552B":(+f>200)?"#E0B43A":"#8fa0c0";
-function frpBadge(f){const [t,c]=(+f>1000)?["High","#E8552B"]:(+f>200)?["Moderate","#E0B43A"]:["Low","#8fa0c0"];
+function frpBadge(f){const v=+f;
+ if(f==null||f===""||isNaN(v))return `<span class="badge" title="No FRP reported for this detection (GOES FDC can flag a pixel without a radiative-power retrieval)" style="color:#8A8F98;border-color:#8A8F98;background:#8A8F9822">n/a</span>`;
+ const [t,c]=(v>1000)?["High","#E8552B"]:(v>200)?["Moderate","#E0B43A"]:["Low","#8fa0c0"];
  return `<span class="badge" title="Peak fire radiative power tier (fire power now), not spread risk" style="color:${c};border-color:${c};background:${c}22">${t}</span>`;}
 function riskBadge(rc){const c=RISK[rc]||"#8A8F98";return `<span class="badge" title="Spread-risk class from current weather (wind, RH, temp), not fire power" style="color:${c};border-color:${c};background:${c}22">${rc||"n/a"}</span>`;}
 const num=(v,d=1)=>v==null||isNaN(+v)?"-":(+v).toLocaleString(undefined,{maximumFractionDigits:d});
