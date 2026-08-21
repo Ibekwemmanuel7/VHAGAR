@@ -177,7 +177,18 @@ def labels_build(
 @splits_app.command("verify")
 def splits_verify(manifest: Path = typer.Argument(..., exists=True)) -> None:
     """Assert train/val/test disjointness. Exit code 1 on failure, use in CI."""
+    import json as _json
+
     from vhagar.eval.splits import SplitManifest, summarise, verify_no_overlap
+
+    # A split manifest is a JSON object with scheme/folds; a top-level list is a
+    # units/records input file (e.g. example_units.json), not a manifest, so the
+    # CI "verify every splits/*.json" loop should skip it rather than crash.
+    data = _json.loads(manifest.read_text())
+    if not (isinstance(data, dict) and "folds" in data):
+        console.print(f"[dim]skip {manifest.name}: not a split manifest "
+                      "(no scheme/folds); looks like a units/records file[/dim]")
+        return
 
     m = SplitManifest.from_json(manifest)
     try:
