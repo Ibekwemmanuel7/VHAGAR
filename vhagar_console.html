@@ -360,8 +360,19 @@ async function jumpTo(q){
     }catch(e){}
   }
   if(lat==null||lon==null||isNaN(lat)||isNaN(lon)){ locEl.style.borderColor="#c0392b"; setTimeout(()=>locEl.style.borderColor="#24405f",1200); return; }
-  locEl.style.borderColor="#2e8b57"; setTimeout(()=>locEl.style.borderColor="#24405f",1200);
-  if(map) map.flyTo({center:[lon,lat],zoom:9,duration:900});
+  // Snap to the nearest fire cluster within range and open it; else just fly there.
+  const _R=6371,_d=x=>x*Math.PI/180;
+  const _km=(la,lo)=>{const dLa=_d(la-lat),dLo=_d(lo-lon);const q=Math.sin(dLa/2)**2+Math.cos(_d(lat))*Math.cos(_d(la))*Math.sin(dLo/2)**2;return 2*_R*Math.asin(Math.sqrt(q));};
+  const feats=((state.events&&state.events.features)||[]);
+  let best=null,bestd=1e9;
+  for(const f of feats){const p=f.properties;const km=_km(p.centroid_lat,p.centroid_lon);if(km<bestd){bestd=km;best=p;}}
+  if(best && bestd<=75 && typeof selectEvent==="function"){
+    locEl.style.borderColor="#2e8b57"; setTimeout(()=>locEl.style.borderColor="#24405f",1200);
+    selectEvent(best.event_id);
+  } else {
+    locEl.style.borderColor="#c99a2e"; setTimeout(()=>locEl.style.borderColor="#24405f",1400);  // amber: no cluster near, moved map only
+    if(map) map.flyTo({center:[lon,lat],zoom:9,duration:900});
+  }
 }
 if(locEl){ locEl.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); jumpTo(locEl.value); } }); }
 document.getElementById("days").onchange=e=>{state.days=+e.target.value;load();};
