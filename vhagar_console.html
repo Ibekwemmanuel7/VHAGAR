@@ -112,6 +112,7 @@ select{font-family:inherit}
   <div class="field"><label>Region</label><select id="region"></select></div>
   <div class="field"><label>Days</label><select id="days"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div>
   <div class="field"><label>Basemap</label><select id="basemap"><option>Dark</option><option>Satellite</option><option>Terrain</option></select></div>
+  <div class="field"><label>Find</label><input id="locSearch" type="text" autocomplete="off" spellcheck="false" placeholder="lat,lon or city" title="Type a place name or 'lat,lon' (e.g. Reno NV, or 39.5,-119.8) and press Enter" style="background:#0d1b2a;color:#e6eef8;border:1px solid #24405f;border-radius:6px;padding:5px 9px;min-width:168px;font:inherit;outline:none"/></div>
   <div class="spacer"></div>
   <span class="updated" id="updated"></span>
   <button class="refresh" id="refresh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/></svg>Refresh</button>
@@ -343,6 +344,26 @@ const rsel=document.getElementById("region");
 rsel.innerHTML=Object.entries(REGIONS).map(([k,v])=>`<option value="${k}">${v}</option>`).join("");
 rsel.value=state.region;
 rsel.onchange=()=>{state.region=rsel.value;state.sel=null;fitted=null;const v=VIEW[state.region];if(map&&v)map.flyTo({center:[v[0],v[1]],zoom:v[2]});load();};
+// Find: jump the map to a "lat,lon" pair or a place name (Mapbox geocoding).
+const locEl=document.getElementById("locSearch");
+async function jumpTo(q){
+  if(!q) return; q=q.trim(); if(!q) return;
+  let lat=null,lon=null;
+  const m=q.match(/^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if(m){ lat=parseFloat(m[1]); lon=parseFloat(m[2]);
+    if(Math.abs(lat)>90 && Math.abs(lon)<=90){ const t=lat; lat=lon; lon=t; }  // tolerate lon,lat order
+  } else {
+    try{
+      const url="https://api.mapbox.com/geocoding/v5/mapbox.places/"+encodeURIComponent(q)+".json?limit=1&country=us,ca,mx&access_token="+MAPBOX_TOKEN;
+      const j=await (await fetch(url)).json();
+      if(j.features&&j.features[0]){ lon=j.features[0].center[0]; lat=j.features[0].center[1]; }
+    }catch(e){}
+  }
+  if(lat==null||lon==null||isNaN(lat)||isNaN(lon)){ locEl.style.borderColor="#c0392b"; setTimeout(()=>locEl.style.borderColor="#24405f",1200); return; }
+  locEl.style.borderColor="#2e8b57"; setTimeout(()=>locEl.style.borderColor="#24405f",1200);
+  if(map) map.flyTo({center:[lon,lat],zoom:9,duration:900});
+}
+if(locEl){ locEl.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); jumpTo(locEl.value); } }); }
 document.getElementById("days").onchange=e=>{state.days=+e.target.value;load();};
 document.getElementById("basemap").onchange=e=>setBasemap(e.target.value);
 document.getElementById("refresh").onclick=()=>load();
