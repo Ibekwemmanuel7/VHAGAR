@@ -691,6 +691,65 @@ def events(region: str = Query("california"), days: int = Query(3, ge=1, le=14),
     return JSONResponse(_events_fc(region, days))
 
 
+_GOES_SENSORS = ("GOES-18", "GOES-19")
+_CAND_CELL = 0.05          # ~5.5 km grid: corroboration search radius + dedupe
+_CAND_MAX = 1500
+
+
+@app.get("/api/candidates")
+def candidates(region: str = Query("california"), days: int = Query(1, ge=1, le=7)):
+    """Fast early-warning layer: single-sensor GOES fire pixels that are NOT yet
+    corroborated by a polar sensor (VIIRS/MODIS) and NOT inside a confirmed event.
+
+    These surface a fire the moment GOES sees it, ahead of the corroboration gate,
+    at the cost of more false alarms, so every point is flagged status=unconfirmed.
+    Deduped onto a ~5.5 km grid, keeping the strongest FRP per cell."""
+    df, evs = get_state()
+    bbox = REGIONS.get(region, REGIONS["california"])["bbox"]
+    w, s, e, n = bbox
+    if df is None or len(df) == 0 or "sensor" not in df:
+        return JSONResponse({"type": "FeatureCollection", "features": [],
+            "metadata": {"mode": _state_mode(), "region": region, "count": 0}})
+    cut = _window(df, days)
+    win = df.loc[(df["t"] >= cut) & (df["lon"] >= w) & (df["lon"] <= e)
+                 & (df["lat"] >= s) & (df["lat"] <= n)]
+    goes = win[win["sensor"].isin(_GOES_SENSORS)]
+    polar = win[win["sensor"].astype(str).str.contains("VIIRS|MODIS", na=False, regex=True)]
+    pcells = set(zip((polar["lon"] / _CAND_CELL).round().astype(int),
+                     (polar["lat"] / _CAND_CELL).round().astype(int))) if len(polar) else set()
+    ev_boxes = []
+    for r in evs:
+        if not _in_bbox(r["centroid_lon"], r["centroid_lat"], bbox):
+            continue
+        rad = max(0.06, float(r.get("perimeter_km") or 12.0) / 111.0 / 2.0 + 0.03)
+        ev_boxes.append((r["centroid_lon"], r["centroid_lat"], rad))
+    best: dict = {}
+    for r in goes.itertuples():
+        ci = (int(round(r.lon / _CAND_CELL)), int(round(r.lat / _CAND_CELL)))
+        if any((ci[0] + dx, ci[1] + dy) in pcells for dx in (-1, 0, 1) for dy in (-1, 0, 1)):
+            continue                                   # corroborated by a polar sensor nearby
+        if any(abs(r.lon - elon) <= rad and abs(r.lat - elat) <= rad
+               for (elon, elat, rad) in ev_boxes):
+            continue                                   # already inside a confirmed event
+        frp = 0.0 if pd.isna(r.frp_mw) else float(r.frp_mw)
+        cur = best.get(ci)
+        if cur is None or frp > cur["_f"]:
+            best[ci] = {"lon": round(float(r.lon), 4), "lat": round(float(r.lat), 4),
+                        "frp_mw": None if pd.isna(r.frp_mw) else round(frp, 1),
+                        "brightness_k": None if pd.isna(r.temp_k) else round(float(r.temp_k), 1),
+                        "sensor": r.sensor, "acq_datetime": r.t.isoformat(), "_f": frp}
+    cands = sorted(best.values(), key=lambda d: d["_f"], reverse=True)[:_CAND_MAX]
+    feats = [{"type": "Feature",
+              "geometry": {"type": "Point", "coordinates": [c["lon"], c["lat"]]},
+              "properties": {"frp_mw": c["frp_mw"], "brightness_k": c["brightness_k"],
+                             "sensor": c["sensor"], "acq_datetime": c["acq_datetime"],
+                             "status": "unconfirmed"}} for c in cands]
+    return JSONResponse({"type": "FeatureCollection", "features": feats,
+        "metadata": {"mode": _state_mode(), "region": region, "count": len(feats),
+                     "note": "single-sensor GOES fire pixels not yet corroborated by a "
+                             "polar sensor or clustered into an event (unconfirmed)"}})
+
+
 @app.get("/api/export/geojson")
 def export_geojson(region: str = Query("california"), days: int = Query(3, ge=1, le=14)):
     return Response(content=json.dumps(_events_fc(region, days)),
