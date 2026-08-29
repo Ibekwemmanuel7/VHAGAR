@@ -516,6 +516,15 @@ app = FastAPI(title="VHAGAR fire API", version="0.1",
               description="Real GOES FDC detections and clustered fire events.")
 
 
+@app.exception_handler(FileNotFoundError)
+def _missing_state_handler(request, exc: FileNotFoundError):
+    """No snapshot available yet (cold start, or the state file is missing): return
+    503 with the same no-data JSON shape as /api/health, rather than a bare 500, so
+    /api/detections, /api/events, /api/candidates, and /api/export/* degrade
+    gracefully instead of crashing."""
+    return JSONResponse({"status": "no_data", "detail": str(exc)}, status_code=503)
+
+
 @app.on_event("startup")
 def _start_refresher() -> None:
     """When VHAGAR_REFRESH_SEC>0 (live mode), rebuild the snapshot on that cadence
@@ -721,7 +730,13 @@ def candidates(region: str = Query("california"), days: int = Query(1, ge=1, le=
     for r in evs:
         if not _in_bbox(r["centroid_lon"], r["centroid_lat"], bbox):
             continue
-        rad = max(0.06, float(r.get("perimeter_km") or 12.0) / 111.0 / 2.0 + 0.03)
+        if r.get("_t1") is not None and r["_t1"] < cut:
+            continue                                   # event not active in the query window
+        # Suppression radius is the event's radius, not half its perimeter: for a
+        # roughly circular hull, radius = perimeter / (2*pi). Using perimeter / 2
+        # over-suppressed by ~pi (~3x) around large events. Convert km to degrees.
+        perim_km = float(r.get("perimeter_km") or 12.0)
+        rad = max(0.06, perim_km / 6.283185307179586 / 111.0 + 0.02)
         ev_boxes.append((r["centroid_lon"], r["centroid_lat"], rad))
     best: dict = {}
     for r in goes.itertuples():
