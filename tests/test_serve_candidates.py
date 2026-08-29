@@ -83,3 +83,38 @@ def test_candidates_suppression_radius_is_perimeter_over_2pi(monkeypatch):
     assert -98.05 not in lons, "detection inside the event radius must be suppressed"
     # every returned candidate is explicitly unconfirmed
     assert all(f["properties"]["status"] == "unconfirmed" for f in feats)
+
+
+@pytest.mark.slow
+def test_refresh_keeps_live_state_when_only_demo_reachable(monkeypatch):
+    """The downgrade guard: a refresh that can only reach the frozen demo must not
+    clobber a good live feed, and it must leave state and source consistent."""
+    m = _load_app()
+    monkeypatch.setattr(m, "_STATE", ("LIVE_DF", "LIVE_EV"))
+    monkeypatch.setattr(m, "_STATE_SOURCE", "snapshot")
+
+    def _build_demo():
+        m._build_ctx.source = "frozen"
+        return ("DEMO_DF", "DEMO_EV")
+
+    monkeypatch.setattr(m, "_build_state", _build_demo)
+    m.refresh_state()
+    assert m._STATE == ("LIVE_DF", "LIVE_EV")   # live state preserved
+    assert m._STATE_SOURCE == "snapshot"        # provenance preserved, not "frozen"
+
+
+@pytest.mark.slow
+def test_refresh_swaps_state_and_source_together(monkeypatch):
+    """A successful refresh swaps state and its provenance atomically (both new)."""
+    m = _load_app()
+    monkeypatch.setattr(m, "_STATE", ("OLD_DF", "OLD_EV"))
+    monkeypatch.setattr(m, "_STATE_SOURCE", "snapshot")
+
+    def _build_new():
+        m._build_ctx.source = "snapshot"
+        return ("NEW_DF", "NEW_EV")
+
+    monkeypatch.setattr(m, "_build_state", _build_new)
+    m.refresh_state()
+    assert m._STATE == ("NEW_DF", "NEW_EV")
+    assert m._STATE_SOURCE == "snapshot"

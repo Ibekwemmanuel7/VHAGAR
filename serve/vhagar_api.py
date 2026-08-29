@@ -441,10 +441,15 @@ _STATE_SOURCE: str | None = None
 STALE_HOURS = float(os.environ.get("VHAGAR_STALE_HOURS", "12") or 12)
 
 
+_build_ctx = threading.local()
+
+
 def _tag(source: str, df: pd.DataFrame, events: list[dict]) -> tuple[pd.DataFrame, list[dict]]:
-    """Record where the just-built state came from, then return it unchanged."""
-    global _STATE_SOURCE
-    _STATE_SOURCE = source
+    """Stash the just-built state's provenance on a thread-local, then return it
+    unchanged. The global ``_STATE_SOURCE`` is written only when the freshly built
+    state is swapped in (under ``_BUILD_LOCK``), so a concurrent reader never sees
+    the new provenance attached to the old data during a slow rebuild."""
+    _build_ctx.source = source
     return df, events
 
 
@@ -471,11 +476,13 @@ def _state_mode() -> str:
 
 
 def get_state() -> tuple[pd.DataFrame, list[dict]]:
-    global _STATE
+    global _STATE, _STATE_SOURCE
     if _STATE is None:
         with _BUILD_LOCK:
             if _STATE is None:
-                _STATE = _build_state()
+                new = _build_state()
+                _STATE_SOURCE = getattr(_build_ctx, "source", None)  # swap together
+                _STATE = new
     return _STATE
 
 
@@ -486,17 +493,19 @@ def refresh_state() -> None:
     failure) must NOT clobber a good live feed: for a fire product, stale-but-real
     beats silently swapping in months-old demo data."""
     global _STATE, _STATE_SOURCE, _REFRESH_COUNT, _LAST_REFRESH
-    prev_state, prev_source = _STATE, _STATE_SOURCE
-    new = _build_state()  # sets _STATE_SOURCE to the new source
-    if (prev_state is not None and prev_source in ("snapshot", "cache", "raw")
-            and _STATE_SOURCE == "frozen"):
-        _STATE_SOURCE = prev_source  # keep last-good live provenance
-        print("[vhagar-api] refresh could only reach the demo bundle; "
-              "keeping last-good live state", file=sys.stderr)
-        return
-    _STATE = new
-    _REFRESH_COUNT += 1
-    _LAST_REFRESH = time.time()
+    new = _build_state()                          # slow: build outside the lock
+    new_source = getattr(_build_ctx, "source", None)
+    with _BUILD_LOCK:                             # swap state + source atomically
+        prev_state, prev_source = _STATE, _STATE_SOURCE
+        if (prev_state is not None and prev_source in ("snapshot", "cache", "raw")
+                and new_source == "frozen"):
+            print("[vhagar-api] refresh could only reach the demo bundle; "
+                  "keeping last-good live state", file=sys.stderr)
+            return                                # keep last-good live state + source
+        _STATE = new
+        _STATE_SOURCE = new_source
+        _REFRESH_COUNT += 1
+        _LAST_REFRESH = time.time()
 
 
 def _refresh_loop(interval_s: float) -> None:
@@ -587,8 +596,7 @@ def health():
 
 
 @app.get("/api/detections")
-def detections(region: str = Query("california"), days: int = Query(3, ge=1, le=14),
-               filter_fa: bool = Query(False)):
+def detections(region: str = Query("california"), days: int = Query(3, ge=1, le=14)):
     df, _ = get_state()
     bbox = REGIONS.get(region, REGIONS["california"])["bbox"]
     w, s, e, n = bbox
@@ -695,8 +703,7 @@ def _events_fc(region: str, days: int) -> dict:
 
 
 @app.get("/api/events")
-def events(region: str = Query("california"), days: int = Query(3, ge=1, le=14),
-           filter_fa: bool = Query(False)):
+def events(region: str = Query("california"), days: int = Query(3, ge=1, le=14)):
     return JSONResponse(_events_fc(region, days))
 
 

@@ -5,7 +5,7 @@ GOES-19 ABI FDC off the public NOAA S3 buckets (anonymous), plus VIIRS
 (S-NPP / NOAA-20 / NOAA-21) and MODIS off NASA FIRMS when FIRMS_MAP_KEY is set,
 then fuses them in one parallax-aware clustering pass and packages the result as
 ``snapshot.tgz``
-(``detections.parquet`` + ``events.pkl``) that ``serve/vhagar_api.py`` serves
+(``detections.parquet`` + ``events.json``) that ``serve/vhagar_api.py`` serves
 when ``VHAGAR_SNAPSHOT_URL`` points at it.
 
 Designed for a scheduled job (see .github/workflows/live-snapshot.yml): each run

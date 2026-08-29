@@ -29,7 +29,7 @@ select{font-family:inherit}
 .livewrap{display:flex;align-items:center;gap:.4rem}
 .livewrap .dot{width:9px;height:9px;border-radius:50%}
 .livewrap.live .dot{background:#4ade80;animation:pulse 2s infinite}
-.livewrap.sample .dot{background:#facc15}.livewrap.offline .dot{background:#f87171}
+.livewrap.sample .dot{background:#facc15}.livewrap.stale .dot{background:#fb923c}.livewrap.offline .dot{background:#f87171}
 .livewrap span{font-size:.72rem;font-weight:700;color:#d5dae2}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(74,222,128,.5)}70%{box-shadow:0 0 0 6px rgba(74,222,128,0)}100%{box-shadow:0 0 0 0 rgba(74,222,128,0)}}
 .field{display:flex;align-items:center;gap:.4rem}
@@ -162,7 +162,7 @@ function frpBadge(f){const v=+f;
  if(f==null||f===""||isNaN(v))return `<span class="badge" title="No FRP reported for this detection (GOES FDC can flag a pixel without a radiative-power retrieval)" style="color:#8A8F98;border-color:#8A8F98;background:#8A8F9822">n/a</span>`;
  const [t,c]=(v>1000)?["High","#E8552B"]:(v>200)?["Moderate","#E0B43A"]:["Low","#8fa0c0"];
  return `<span class="badge" title="Peak fire radiative power tier (fire power now), not spread risk" style="color:${c};border-color:${c};background:${c}22">${t}</span>`;}
-function riskBadge(rc){const c=RISK[rc]||"#8A8F98";return `<span class="badge" title="Spread-risk class from current weather (wind, RH, temp), not fire power" style="color:${c};border-color:${c};background:${c}22">${rc||"n/a"}</span>`;}
+function riskBadge(rc){const c=RISK[rc]||"#8A8F98";return `<span class="badge" title="Spread-risk class from current weather (wind, RH, temp), not fire power" style="color:${c};border-color:${c};background:${c}22">${esc(rc)||"n/a"}</span>`;}
 const num=(v,d=1)=>v==null||isNaN(+v)?"-":(+v).toLocaleString(undefined,{maximumFractionDigits:d});
 const empty=()=>({type:"FeatureCollection",features:[]});
 function esc(v){return String(v==null?"":v).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
@@ -242,7 +242,7 @@ function setBasemap(b){state.basemap=b;if(!map)return;styleReady=false;map.setSt
 function popupHTML(p){const fdc=isFDC();
  return `<div style="min-width:190px"><div style="font-weight:700;font-size:13px;margin-bottom:3px">${esc(p.label||("Event "+p.event_id))}</div>`
   +(fdc?`<div>Peak FRP <b>${num(p.max_frp_mw)}</b> MW &middot; ${num(p.n_detections,0)} px</div><div>Footprint <b>${num(p.footprint_ha!=null?p.footprint_ha:p.area_ha,0)}</b> ha</div>`
-       :`<div>Spread risk ${p.risk_class} (${num(p.risk_score,0)})</div><div>Area <b>${num(p.area_ha,0)}</b> ha &middot; FRP <b>${num(p.total_frp_mw)}</b> MW</div>`)
+       :`<div>Spread risk ${esc(p.risk_class)} (${num(p.risk_score,0)})</div><div>Area <b>${num(p.area_ha,0)}</b> ha &middot; FRP <b>${num(p.total_frp_mw)}</b> MW</div>`)
   +(p.wind_speed_ms!=null?`<div>Wind <b>${num(p.wind_speed_ms)}</b> m/s @ ${num(p.wind_dir_deg,0)}&deg;</div>`:"")
   +`<div style="color:#9aa4b2">${esc(p.sensors||"")}</div></div>`;}
 
@@ -277,7 +277,7 @@ function renderFeed(){
    ? `<span class="blab" title="Spread-risk class from current weather (wind, RH, temp), not fire power">risk</span>${riskBadge(p.risk_class)}`
    : (fdc?`<span class="blab" title="Peak fire radiative power tier">FRP</span>${frpBadge(p.max_frp_mw)}`:riskBadge(p.risk_class));
   const grid=fdc
-   ? `<span>Area: <b>${num(p.footprint_ha,0)}</b> ha</span><span>FRP: <b>${num(p.max_frp_mw,0)}</b> MW</span><span>Wind: <b>${num(p.wind_speed_ms)}</b> m/s</span><span>RH: <b>${num(p.rh_pct,0)}</b>%</span><span>Detections: <b>${num(p.n_detections,0)}</b></span><span>Sensor: <b>${(p.sensors||"-").replace("GOES-","G")}</b></span>`
+   ? `<span>Area: <b>${num(p.footprint_ha,0)}</b> ha</span><span>FRP: <b>${num(p.max_frp_mw,0)}</b> MW</span><span>Wind: <b>${num(p.wind_speed_ms)}</b> m/s</span><span>RH: <b>${num(p.rh_pct,0)}</b>%</span><span>Detections: <b>${num(p.n_detections,0)}</b></span><span>Sensor: <b>${esc((p.sensors||"-").replace("GOES-","G"))}</b></span>`
    : `<span>Area: <b>${num(p.area_ha,0)}</b> ha</span><span>FRP: <b>${num(p.total_frp_mw)}</b> MW</span><span>Wind: <b>${num(p.wind_speed_ms)}</b> m/s</span><span>RH: <b>${num(p.rh_pct,0)}</b>%</span>`;
   return `<button class="card ${state.sel===p.event_id?"sel":""}" data-id="${p.event_id}" style="border-left-color:${c}">
    <div class="r1"><span class="name">${esc(p.label||("Event "+p.event_id))}</span>${badge}</div><div class="grid">${grid}</div></button>`;}).join("");
@@ -313,9 +313,9 @@ function openDrawer(p){const fdc=isFDC();
   ?`<div class="metrics">${metric("Detection footprint",num(p.footprint_ha!=null?p.footprint_ha:p.area_ha,0),"ha")}${metric("Hull perimeter",num(p.perimeter_km),"km")}${metric("Peak FRP",num(p.max_frp_mw),"MW")}${metric("Mean FRP",num(p.mean_frp_mw),"MW")}${metric("Detections",num(p.n_detections,0),"px")}${metric("Cumulative FRP",num(p.total_frp_mw,0),"MW")}</div>`
   :`<div class="metrics">${metric("Burned area",num(p.area_ha,0),"ha")}${metric("Perimeter",num(p.perimeter_km),"km")}${metric("Total FRP",num(p.total_frp_mw),"MW")}${metric("Max FRP",num(p.max_frp_mw),"MW")}${metric("Detections",num(p.n_detections,0),"")}${metric("Sensors",(p.sensors||"-").split(",").length,"feeds")}</div>`;
  const hasWx=p.wind_speed_ms!=null||p.temp_c!=null;
- const riskLine=(p.risk_class&&p.risk_class!=="Unknown")?`<div class="r"><span>Spread risk (current wx)</span><b>${p.risk_class} (${num(p.risk_score,0)})</b></div>`:"";
+ const riskLine=(p.risk_class&&p.risk_class!=="Unknown")?`<div class="r"><span>Spread risk (current wx)</span><b>${esc(p.risk_class)} (${num(p.risk_score,0)})</b></div>`:"";
  const wxLines=hasWx?`<div class="r"><span>Wind</span><b>${num(p.wind_speed_ms)} m/s @ ${num(p.wind_dir_deg,0)}&deg;</b></div><div class="r"><span>RH / Temp</span><b>${num(p.rh_pct,0)}% / ${num(p.temp_c)}&deg;C</b></div>`:"";
- const wx=`<div class="wx">${riskLine}${wxLines}<div class="r"><span>Sensors</span><b>${p.sensors||"-"}</b></div><div class="r"><span>First seen</span><b>${clean(p.first_seen)} UTC</b></div><div class="r"><span>Last seen</span><b>${clean(p.last_seen)} UTC</b></div></div>`;
+ const wx=`<div class="wx">${riskLine}${wxLines}<div class="r"><span>Sensors</span><b>${esc(p.sensors||"-")}</b></div><div class="r"><span>First seen</span><b>${clean(p.first_seen)} UTC</b></div><div class="r"><span>Last seen</span><b>${clean(p.last_seen)} UTC</b></div></div>`;
  const q=`region=${state.region}&days=${state.days}`;
  const exports=`<div class="exports" style="padding:0"><a href="${API}/api/export/geojson?${q}" target="_blank" rel="noopener">GeoJSON</a><a href="${API}/api/export/kmz?${q}" target="_blank" rel="noopener">KMZ</a></div>`;
  const note=fdc?`Perimeter: ${p.perimeter_method||"detection convex hull"}. The footprint is the hull of GOES FDC detection pixels, a detection extent, not a burned-area measurement.`:`Perimeter method: ${p.perimeter_method||"alpha-shape"}.`;
@@ -328,7 +328,10 @@ async function getJSON(path){const c=new AbortController();const t=setTimeout(()
  try{const r=await fetch(API+path,{signal:c.signal});if(!r.ok)throw new Error(r.status);return await r.json();}finally{clearTimeout(t);}}
 function setLive(mode,offline){const w=document.getElementById("livewrap"),x=document.getElementById("livetxt");
  if(!w||!x)return;
- w.className="livewrap "+(offline?"offline":mode==="live"?"live":"sample");x.textContent=offline?"OFFLINE":mode==="live"?"LIVE":"SAMPLE";}
+ const cls=offline?"offline":mode==="live"?"live":mode==="stale"?"stale":"sample";
+ const txt=offline?"OFFLINE":mode==="live"?"LIVE":mode==="stale"?"STALE":"SAMPLE";
+ w.className="livewrap "+cls;x.textContent=txt;
+ w.title=mode==="stale"?"Real data, but the newest detection is older than the freshness bound (the snapshot feed may have stalled).":"";}
 function showErr(m){const e=document.getElementById("err");if(!m){e.style.display="none";return;}e.textContent=m;e.style.display="block";}
 async function load(){
  const btn=document.getElementById("refresh");btn.classList.add("spin");showErr("");
