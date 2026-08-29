@@ -71,19 +71,49 @@ def _blocked_oof(X, y, groups, n_folds: int, seed: int):
     return oof
 
 
-def ignition_scorecard(y, prob, tau: float, ybar: float, prior_correct: bool) -> dict:
-    """Proper-scoring card for one set of out-of-fold probabilities."""
+def _blocked_climatology(y, groups) -> np.ndarray:
+    """Per-sample leave-one-out spatial-block event frequency: an honest, non-constant
+    climatology reference ("how often does this area ignite"), computed without
+    peeking at the sample's own label. Singleton blocks fall back to the global rate.
+    A month or land-cover dimension can be folded in here once those fields exist."""
+    y = np.asarray(y, dtype=np.float64)
+    groups = np.asarray(groups)
+    out = np.empty(y.shape[0], dtype=np.float64)
+    glob = float(y.mean()) if y.size else 0.0
+    for g in np.unique(groups):
+        m = groups == g
+        n = int(m.sum())
+        if n <= 1:
+            out[m] = glob
+        else:
+            out[m] = (float(y[m].sum()) - y[m]) / (n - 1)   # leave-one-out frequency
+    return out
+
+
+def ignition_scorecard(y, prob, tau: float, ybar: float, prior_correct: bool,
+                       climatology=None) -> dict:
+    """Proper-scoring card for one set of out-of-fold probabilities.
+
+    Two skill scores are reported against two references, both on the SAME
+    probability scale as ``p``: ``bss_vs_base_rate`` uses the constant base rate
+    (population ``tau`` when prior-corrected, else the design mean), and
+    ``bss_vs_climatology`` uses a real spatial-block climatology (a per-sample
+    reference, e.g. from :func:`_blocked_climatology`) when one is supplied, else
+    NaN. Skill over a spatially varying climatology is the honest bar; skill over a
+    single constant is easy and reported separately."""
     y = np.asarray(y)
     p = np.asarray(prob, dtype=np.float64)
+    clim = None if climatology is None else np.asarray(climatology, dtype=np.float64)
     if prior_correct:
         p = rare_event_correction(p, tau, ybar)
-    base = float(y.mean()) if not prior_correct else tau
-    # The climatology reference must sit on the SAME probability scale as p: the
-    # population base rate tau when p is prior-corrected, else the design mean.
-    # Using y.mean() unconditionally scored a tau-scale p (~0.01) against a
-    # ~0.25 constant, making the reference absurdly bad and inflating the skill.
-    brier_ref = brier_score(y, np.full_like(p, base))
+        if clim is not None:
+            clim = rare_event_correction(clim, tau, ybar)   # same scale as p
+    base = tau if prior_correct else float(y.mean())
+    brier_base = brier_score(y, np.full_like(p, base))       # constant reference
     dec = brier_decomposition(y, p, n_bins=10)
+    bss_clim = (skill_score(dec["brier"], brier_score(y, np.clip(clim, 1e-6, 1 - 1e-6)),
+                            perfect=0.0)
+                if clim is not None else float("nan"))
     return {
         "auprc": average_precision(y, prob),   # ranking is correction-invariant
         "brier": dec["brier"],
@@ -91,7 +121,8 @@ def ignition_scorecard(y, prob, tau: float, ybar: float, prior_correct: bool) ->
         "resolution": dec["resolution"],       # higher = more discriminating
         "ece": expected_calibration_error(y, p, n_bins=10, equal_mass=True),
         "log_loss": log_loss(y, p),
-        "bss_vs_climatology": skill_score(dec["brier"], brier_ref, perfect=0.0),
+        "bss_vs_base_rate": skill_score(dec["brier"], brier_base, perfect=0.0),
+        "bss_vs_climatology": bss_clim,
         "mean_prob": float(p.mean()),
         "base_rate": base,
     }
@@ -130,19 +161,25 @@ def evaluate_ignition(samples: IgnitionSamples, n_folds: int = 5, seed: int = 0,
     """
     out: dict = {"n": dict(samples.meta), "tau": samples.tau, "ybar": samples.ybar}
 
-    oof = _blocked_oof(samples.X, samples.y, samples.block_group(), n_folds, seed)
+    groups = samples.block_group()
+    oof = _blocked_oof(samples.X, samples.y, groups, n_folds, seed)
     ok = ~np.isnan(oof)
-    out["pooled"] = ignition_scorecard(samples.y[ok], oof[ok], samples.tau, samples.ybar, prior_correct)
+    clim = _blocked_climatology(samples.y[ok], groups[ok])
+    out["pooled"] = ignition_scorecard(samples.y[ok], oof[ok], samples.tau, samples.ybar,
+                                       prior_correct, climatology=clim)
 
     for cause in ("human", "lightning"):
         mask = samples.cause_mask(cause)
-        if int(samples.y[mask].sum()) < 10 or len(np.unique(samples.block_group()[mask])) < 2:
+        if int(samples.y[mask].sum()) < 10 or len(np.unique(groups[mask])) < 2:
             continue
         yc = samples.y[mask]
         ybar_c = float(yc.mean())
-        oofc = _blocked_oof(samples.X[mask], yc, samples.block_group()[mask], n_folds, seed)
+        gc = groups[mask]
+        oofc = _blocked_oof(samples.X[mask], yc, gc, n_folds, seed)
         okc = ~np.isnan(oofc)
-        out[cause] = ignition_scorecard(yc[okc], oofc[okc], samples.tau, ybar_c, prior_correct)
+        clim_c = _blocked_climatology(yc[okc], gc[okc])
+        out[cause] = ignition_scorecard(yc[okc], oofc[okc], samples.tau, ybar_c,
+                                        prior_correct, climatology=clim_c)
 
     out["top_features"] = top_features(samples, n_folds, seed)
     return out

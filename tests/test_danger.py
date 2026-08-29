@@ -177,6 +177,27 @@ def test_frames_to_records_roundtrip_and_autoweight():
     assert "lon" not in FN  # features stay clean
 
 
+def test_scorecard_reports_both_climatology_and_base_rate():
+    """The BSS reference must be a real, spatially varying climatology, not a
+    constant. A forecast equal to the block climatology beats the constant base
+    rate but scores ~0 against climatology itself, the honest, harder bar. Without
+    a climatology reference the field is NaN, not the base-rate value in disguise."""
+    import math
+
+    from vhagar.eval.danger import _blocked_climatology, ignition_scorecard
+    rng = np.random.default_rng(5)
+    y = np.concatenate([(rng.random(200) < 0.4).astype(int),     # high-frequency block
+                        (rng.random(200) < 0.05).astype(int)])   # low-frequency block
+    groups = np.concatenate([np.zeros(200, int), np.ones(200, int)])
+    clim = _blocked_climatology(y, groups)
+    card = ignition_scorecard(y, clim, tau=0.2, ybar=0.2, prior_correct=False, climatology=clim)
+    assert "bss_vs_base_rate" in card and "bss_vs_climatology" in card
+    assert card["bss_vs_base_rate"] > card["bss_vs_climatology"]  # climatology is harder
+    assert abs(card["bss_vs_climatology"]) < 1e-6                 # forecast == climatology
+    no_clim = ignition_scorecard(y, clim, tau=0.2, ybar=0.2, prior_correct=False)
+    assert math.isnan(no_clim["bss_vs_climatology"])
+
+
 @pytest.mark.slow
 def test_target_group_background_defuses_the_trap():
     """The regression that matters: target-group sampling collapses the model's
