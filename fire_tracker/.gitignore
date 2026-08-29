@@ -1,0 +1,10 @@
+# Rendered media and live-state scratch: keep the renderer code, not its outputs.
+*.mp4
+*.jpg
+*.jpeg
+*.png
+screenshot-*
+state.json
+texas_state.json
+update_*.txt
+config.json
