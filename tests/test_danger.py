@@ -52,6 +52,22 @@ def test_stratify_negatives_matches_positive_distribution():
     assert counts == {0: 6, 1: 4, 2: 2}
 
 
+def test_stratify_negatives_respects_reporting_weight():
+    """Within a stratum, the draw must follow reporting intensity (target-group
+    sampling), not be uniform. Concentrating the weight on the first 100 cells
+    should pull every negative from them."""
+    rng = np.random.default_rng(3)
+    pos_strata = np.zeros(50, dtype=int)
+    cand_ids = np.arange(1000)
+    cand_strata = np.zeros(1000, dtype=int)
+    weight = np.zeros(1000)
+    weight[:100] = 1.0                                  # reporting intensity only here
+    neg = dg.stratify_negatives(pos_strata, cand_ids, cand_strata, rng,
+                                ratio=1.0, cand_weight=weight)
+    assert len(neg) == 50
+    assert neg.max() < 100                              # all drawn from the weighted cells
+
+
 def test_synthetic_scenario_has_reporting_bias():
     rng = np.random.default_rng(1)
     pres, cand, fn, tau = dg.synthetic_reporting_scenario(rng, n_cells=2000)

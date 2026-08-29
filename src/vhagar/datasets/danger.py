@@ -113,6 +113,7 @@ def stratify_negatives(
     cand_strata,
     rng: np.random.Generator,
     ratio: float = 1.0,
+    cand_weight=None,
 ):
     """Sample negatives so their stratum distribution matches the positives'.
 
@@ -121,21 +122,34 @@ def stratify_negatives(
     presence sample from a naively drawn background, forcing the model onto
     weather and fuel-state signal instead of "fires are reported in this cover
     type".
+
+    ``cand_weight`` (optional, per candidate) is reporting intensity: within each
+    stratum the draw is weighted by it, so backgrounds are pulled from where the
+    reporting process is active, exactly as :func:`target_group_background` does.
+    Without it, or where a stratum's weights are degenerate, the draw is uniform.
     """
     pos_strata = np.asarray(pos_strata)
     cand_ids = np.asarray(cand_ids)
     cand_strata = np.asarray(cand_strata)
+    weight = None if cand_weight is None else np.asarray(cand_weight, dtype=np.float64)
     want: dict = {}
     labels, counts = np.unique(pos_strata, return_counts=True)
     for lab, c in zip(labels, counts, strict=True):
         want[lab] = int(round(ratio * c))
     chosen: list = []
     for lab, target in want.items():
-        pool = cand_ids[cand_strata == lab]
+        mask = cand_strata == lab
+        pool = cand_ids[mask]
         if pool.size == 0 or target <= 0:
             continue
         take = int(min(target, pool.size))
-        chosen.append(rng.choice(pool, size=take, replace=False))
+        p = None
+        if weight is not None:
+            w = weight[mask]
+            s = w.sum()
+            if np.isfinite(s) and s > 0:
+                p = w / s                            # reporting-intensity weighted draw
+        chosen.append(rng.choice(pool, size=take, replace=False, p=p))
     if not chosen:
         return np.array([], dtype=cand_ids.dtype)
     return np.concatenate(chosen)
@@ -213,7 +227,7 @@ def assemble_ignition_samples(
     if stratify:
         neg_ids = stratify_negatives(
             np.asarray(presence.get("stratum", np.zeros(n_pos))),
-            pool_id, pool_stratum, rng, ratio=neg_per_pos,
+            pool_id, pool_stratum, rng, ratio=neg_per_pos, cand_weight=pool_weight,
         )
     elif use_target_group:
         neg_ids = target_group_background(pres_id, pool_id, n_neg, rng, pool_weight=pool_weight)
