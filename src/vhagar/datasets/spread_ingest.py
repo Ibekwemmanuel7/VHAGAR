@@ -169,8 +169,11 @@ def assimilate_real(case: dict, *, split_frac: float = 0.5) -> dict:
 
     Detections are split in time at the ``split_frac`` quantile: the earlier
     fraction calibrates the per-fire ROS scale, the later fraction is truth for
-    the forecast. Scored with Sorensen/Dice and the false-alarm ratio over the
-    cells burned by the final observed time."""
+    the forecast. Scoring (Sorensen/Dice, POD, FAR) is restricted to NEW burn: the
+    cells first detected after the cutoff, over the region not already observed as
+    burned at the cutoff. This avoids the inflation of scoring against the
+    calibration detections the analysis was fit on. The returned dict records the
+    scoring convention and the number of evaluable cells."""
     from vhagar.eval.metrics import dice, pod_far
     from vhagar.models.state_estimation import estimate_arrival_field
 
@@ -186,18 +189,34 @@ def assimilate_real(case: dict, *, split_frac: float = 0.5) -> dict:
 
     state = estimate_arrival_field(prior_ros, ignition, det_rc[early], det_times[early])
 
-    # Truth: every detected cell burned by the final observed time.
+    # Score only NEW burn: cells first detected AFTER the calibration cutoff, and
+    # only over the region not already observed as burned at the cutoff. Scoring
+    # against every detected cell (including the calibration detections the analysis
+    # was fit on) inflates Dice/POD, since the forecast trivially recalls its own
+    # calibration footprint.
     t_eval = float(det_times.max())
     H, W = spec.shape
+    late = ~early
+    seen = np.zeros((H, W), dtype=bool)
+    seen[det_rc[early, 0], det_rc[early, 1]] = True        # burned as of the cutoff
     truth = np.zeros((H, W), dtype=bool)
-    truth[det_rc[:, 0], det_rc[:, 1]] = det_times <= t_eval
-    pred = state.burned_by(t_eval)
+    truth[det_rc[late, 0], det_rc[late, 1]] = True         # held-out later detections
+    eval_mask = ~seen                                      # never credit already-seen cells
+    truth &= eval_mask
+    pred = state.burned_by(t_eval) & eval_mask
 
-    d = float(dice(truth, pred))
-    pod, far = pod_far(truth, pred)
-    return {"k": float(state.k), "dice": d, "pod": float(pod), "far": float(far),
+    if truth.any():
+        d = float(dice(truth, pred))
+        pod, far = pod_far(truth, pred)
+        d_pod, d_far = float(pod), float(far)
+        scoring = "held-out post-cutoff new burn; calibration cells excluded"
+    else:
+        d = d_pod = d_far = float("nan")
+        scoring = "no held-out post-cutoff detections outside the calibration footprint"
+    return {"k": float(state.k), "dice": d, "pod": d_pod, "far": d_far,
             "t_split": t_split, "t_eval": t_eval,
-            "n_early": int(early.sum()), "n_late": int((~early).sum())}
+            "n_early": int(early.sum()), "n_late": int(late.sum()),
+            "n_eval_cells": int(truth.sum()), "scoring": scoring}
 
 
 def read_firms_points_parquet(

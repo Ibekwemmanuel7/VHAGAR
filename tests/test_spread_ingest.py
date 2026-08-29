@@ -49,3 +49,27 @@ def test_build_and_assimilate_real_scores_in_range():
     for key in ("dice", "pod", "far"):
         assert 0.0 <= out[key] <= 1.0
     assert out["n_early"] >= 1 and out["n_late"] >= 1
+
+
+def test_assimilate_excludes_calibration_cells_from_truth():
+    """Regression: Dice/POD must be scored on held-out post-cutoff NEW burn only,
+    not against the calibration detections the analysis was fit on (which inflated
+    the score). The evaluable region is exactly the later detections and is a
+    strict subset of all detected cells."""
+    pytest.importorskip("scipy")
+    spec = si.GridSpec.from_bbox_res((0.0, 0.0, 1.0, 1.0), cell_deg=0.05)
+    rng = np.random.default_rng(1)
+    lons, lats, times = [], [], []
+    for _ in range(400):
+        lo, la = rng.uniform(0.0, 1.0), rng.uniform(0.0, 1.0)
+        d = np.hypot(lo, la)
+        lons.append(lo)
+        lats.append(la)
+        times.append(d * 10 + rng.uniform(0, 0.5))
+    case = si.build_spread_case(lons, lats, times, spec, seed=1)
+    out = si.assimilate_real(case, split_frac=0.5)
+    assert out["scoring"].startswith("held-out")
+    # evaluable cells are the later detections, and exclude the calibration footprint
+    assert out["n_eval_cells"] == out["n_late"]
+    assert out["n_eval_cells"] < out["n_early"] + out["n_late"]
+    assert 0.0 <= out["dice"] <= 1.0
