@@ -43,7 +43,7 @@ from datetime import datetime, timedelta
 import numpy as np
 
 from vhagar.io.abi_grid import ABIProjection
-from vhagar.io.goes import GOES_BUCKETS, parse_goes_key
+from vhagar.io.goes import GOES_BUCKETS, _as_utc, parse_goes_key
 from vhagar.io.goes_reader import (
     _fixed_grid_navigation,
     _scan_start,
@@ -135,7 +135,7 @@ def cmip_key_prefix(satellite: int, when: datetime, domain: str = "C") -> str:
         raise ValueError(f"unknown GOES satellite {satellite}")
     if domain not in {"C", "F", "M1", "M2"}:
         raise ValueError(f"unknown ABI domain {domain!r}")
-    w = when.astimezone(when.tzinfo or None)
+    w = _as_utc(when)                                  # normalize to UTC, like FDC
     return f"ABI-L2-CMIP{domain}/{w.year:04d}/{w.timetuple().tm_yday:03d}/{w.hour:02d}/"
 
 
@@ -162,7 +162,8 @@ def list_cmip_granules(
     fs = s3fs.S3FileSystem(anon=anon)
     bucket = GOES_BUCKETS[satellite]
     out: list[str] = []
-    cursor = start.astimezone(start.tzinfo or None).replace(minute=0, second=0, microsecond=0)
+    start, end = _as_utc(start), _as_utc(end)          # naive is treated as UTC
+    cursor = start.replace(minute=0, second=0, microsecond=0)
     while cursor <= end:
         prefix = cmip_key_prefix(satellite, cursor, domain)
         try:

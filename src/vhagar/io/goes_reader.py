@@ -41,13 +41,25 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
+
+try:                                    # datetime.UTC is 3.11+; fall back on 3.10
+    from datetime import UTC
+except ImportError:                     # pragma: no cover
+    from datetime import timezone as _timezone
+    UTC = _timezone.utc
 
 import numpy as np
 
 from vhagar.harmonize.fusion import Detection
 from vhagar.io.abi_grid import ABIProjection
-from vhagar.io.goes import FDC_MASK_MEANINGS, GOES_BUCKETS, fdc_key_prefix, parse_goes_key
+from vhagar.io.goes import (
+    FDC_MASK_MEANINGS,
+    GOES_BUCKETS,
+    _as_utc,
+    fdc_key_prefix,
+    parse_goes_key,
+)
 
 log = logging.getLogger(__name__)
 
@@ -185,7 +197,8 @@ def list_fdc_granules(
     fs = s3fs.S3FileSystem(anon=anon)
     bucket = GOES_BUCKETS[satellite]
     out: list[str] = []
-    cursor = start.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+    start, end = _as_utc(start), _as_utc(end)          # naive is treated as UTC
+    cursor = start.replace(minute=0, second=0, microsecond=0)
     while cursor <= end:
         prefix = fdc_key_prefix(satellite, cursor, domain)
         try:

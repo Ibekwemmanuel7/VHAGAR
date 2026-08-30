@@ -26,7 +26,21 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
+
+try:                                    # datetime.UTC is 3.11+; fall back on 3.10
+    from datetime import UTC
+except ImportError:                     # pragma: no cover
+    from datetime import timezone as _timezone
+    UTC = _timezone.utc
+
+
+def _as_utc(when: datetime) -> datetime:
+    """Normalize to UTC. A naive datetime is ASSUMED to be UTC (the zone is
+    attached, not shifted through the machine's local time); an aware one is
+    converted. Using ``astimezone(UTC)`` on a naive value silently treats it as
+    local time, which corrupts the S3 day/hour key."""
+    return when.replace(tzinfo=UTC) if when.tzinfo is None else when.astimezone(UTC)
 
 __all__ = [
     "FDC_MASK_MEANINGS",
@@ -105,7 +119,7 @@ def fdc_key_prefix(satellite: int, when: datetime, domain: str = "C") -> str:
         raise ValueError(f"unknown GOES satellite {satellite}")
     if domain not in {"C", "F", "M1", "M2"}:
         raise ValueError(f"unknown ABI domain {domain!r}")
-    w = when.astimezone(UTC)
+    w = _as_utc(when)
     return f"ABI-L2-FDC{domain}/{w.year:04d}/{w.timetuple().tm_yday:03d}/{w.hour:02d}/"
 
 
@@ -173,7 +187,8 @@ def list_fdc_files(
 
     fs = s3fs.S3FileSystem(anon=anonymous)
     bucket = GOES_BUCKETS[satellite]
-    cursor = start.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+    start, end = _as_utc(start), _as_utc(end)          # naive is treated as UTC
+    cursor = start.replace(minute=0, second=0, microsecond=0)
     while cursor <= end:
         prefix = fdc_key_prefix(satellite, cursor, domain)
         try:
