@@ -114,8 +114,12 @@ def _oof_grid(design, y, groups, T, H, W, seed):
     from sklearn.model_selection import GroupKFold
 
     oof = np.full(y.shape[0], np.nan, dtype=np.float64)
-    folds = int(min(len(np.unique(groups)), max(2, len(np.unique(groups)))))
-    for tr, te in GroupKFold(n_splits=folds).split(design, y, groups):
+    # One fold per time block (leave-time-block-out). GroupKFold needs >= 2 groups;
+    # the old min(n, max(2, n)) just collapsed back to n and broke for a single block.
+    n_groups = len(np.unique(groups))
+    if n_groups < 2:
+        raise ValueError(f"grouped OOF needs >= 2 time blocks, found {n_groups}")
+    for tr, te in GroupKFold(n_splits=n_groups).split(design, y, groups):
         if len(np.unique(y[tr])) < 2:
             oof[te] = float(y[tr].mean())
             continue

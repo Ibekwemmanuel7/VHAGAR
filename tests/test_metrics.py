@@ -51,6 +51,23 @@ def test_average_precision_perfect_ranking():
     assert M.average_precision(y, s) == pytest.approx(1.0)
 
 
+def test_average_precision_handles_ties_like_sklearn():
+    """Tied scores must be grouped by threshold; the result must not depend on the
+    arbitrary order of positives and negatives sharing a score. All samples at one
+    score share one precision, exactly as sklearn does."""
+    sk = pytest.importorskip("sklearn.metrics")
+    rng = np.random.default_rng(7)
+    for _ in range(8):
+        n = 200
+        y = (rng.random(n) < 0.3).astype(int)
+        s = rng.integers(0, 4, size=n).astype(float)   # only 4 distinct scores: heavy ties
+        assert M.average_precision(y, s) == pytest.approx(
+            sk.average_precision_score(y, s), abs=1e-9)
+    # a fully tied score: AP equals the base rate
+    y = np.array([1, 0, 1, 0])
+    assert M.average_precision(y, np.full(4, 0.5)) == pytest.approx(0.5)
+
+
 def test_tolerance_rescues_a_one_cell_offset():
     t = np.zeros((16, 16), dtype=int)
     t[8, 8] = 1

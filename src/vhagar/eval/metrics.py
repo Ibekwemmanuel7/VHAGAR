@@ -161,11 +161,19 @@ def average_precision(y_true, y_score) -> float:
 
     order = np.argsort(-s, kind="mergesort")
     t = t[order]
+    s = s[order]
     tp = np.cumsum(t)
     fp = np.cumsum(~t)
+    # Group tied scores: evaluate precision/recall only at distinct thresholds,
+    # counting every sample at that score together (sklearn's convention). Summing
+    # per sample lets an arbitrary tie order between positives and negatives distort
+    # AP; taking the last index of each equal-score run removes that dependence.
+    distinct = np.concatenate([np.diff(s) != 0, [True]])   # last index of each tie run
+    tp = tp[distinct]
+    fp = fp[distinct]
     precision = tp / np.maximum(tp + fp, 1)
     recall = tp / n_pos
-    # Step-wise: sum over the recall increments.
+    # Step-wise: sum precision at each threshold over the recall increments.
     d_recall = np.diff(np.concatenate([[0.0], recall]))
     return float(np.sum(precision * d_recall))
 

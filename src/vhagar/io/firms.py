@@ -20,9 +20,18 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import os
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime
+
+try:                                    # datetime.UTC is 3.11+; fall back on 3.10
+    from datetime import UTC
+except ImportError:                     # pragma: no cover
+    from datetime import timezone as _timezone
+    UTC = _timezone.utc
+
+_LOG = logging.getLogger(__name__)
 
 __all__ = ["FIRMS_SOURCES", "FirmsClient", "FirmsRecord"]
 
@@ -137,7 +146,10 @@ def parse_firms_csv(text: str) -> list[FirmsRecord]:
     """
     out: list[FirmsRecord] = []
     reader = csv.DictReader(io.StringIO(text))
+    total = 0
+    dropped = 0
     for row in reader:
+        total += 1
         try:
             acq = datetime.strptime(
                 f"{row['acq_date']} {row['acq_time'].zfill(4)}", "%Y-%m-%d %H%M"
@@ -160,5 +172,10 @@ def parse_firms_csv(text: str) -> list[FirmsRecord]:
                 )
             )
         except (KeyError, ValueError):
+            dropped += 1
             continue
+    if dropped:
+        _LOG.warning(
+            "parse_firms_csv: dropped %d of %d rows (missing or unparseable "
+            "coordinates, acquisition time, or numeric fields)", dropped, total)
     return out
