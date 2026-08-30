@@ -133,6 +133,24 @@ the head-to-head scoring — is built and unit-tested. End-to-end: `t2-prithvi-b
 `t2-prithvi-export` → `terratorch fit` → `t2-prithvi-score --chips-manifest`, then compare the
 mean skill to `t2-unet`/`t2-stage0` on the same test fires.
 
+### Leakage guard: score Prithvi only on the fires it held out
+
+The Prithvi fine-tune's held-out fires are fixed by *its own* training split (the
+`_split.json` that `t2-prithvi-export` writes), not by anything the scorer recomputes. If a
+prediction for a fire the model trained on is scored, its skill is inflated — an in-sample
+number wearing a held-out label. Two enforcement points close this:
+
+- `t2-prithvi-score --split <export/_split.json>` restricts scoring to the `test` fires and
+  makes a prediction for any `train`/`val` fire a hard error (`t2_prithvi.restrict_to_heldout`,
+  `strict=True`). Run without `--split` and the command prints an "unverified" warning and
+  suppresses the U-Net comparison line, because it cannot prove the masks are out-of-sample.
+- `eval.t2_headtohead.head_to_head` **requires** `prithvi_split` whenever Prithvi masks are
+  supplied. That split becomes authoritative for the whole comparison: RBR and the U-Net are
+  trained on its train+val fires and all three models are scored on its exact test fires, so no
+  model is ever evaluated on a fire Prithvi trained on, and a supplied in-sample mask raises.
+
+So "Prithvi +X on the same fires" is now a claim the code checks, not a convention.
+
 ### First real fine-tune result (2026-08-16): honest underperformance, and the fix
 
 The full pipeline ran end to end on a Colab T4: 20 CONUS-2021 fires -> 470/75/138 chips ->

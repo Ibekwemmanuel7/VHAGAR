@@ -23,6 +23,8 @@ import numpy as np
 
 __all__ = [
     "grouped_split",
+    "load_split",
+    "restrict_to_heldout",
     "chip_sample",
     "write_chip_geotiffs",
     "export_prithvi_chips",
@@ -54,6 +56,48 @@ def grouped_split(
     val = ids[n_test:n_test + n_val]
     train = ids[n_test + n_val:]
     return {"train": sorted(train), "val": sorted(val), "test": sorted(test)}
+
+
+def load_split(path) -> dict[str, list[str]]:
+    """Read an ``export_prithvi_chips`` ``_split.json`` into a train/val/test dict.
+
+    This is the record of *which fires the Prithvi fine-tune actually saw*. Scoring or
+    comparing Prithvi without it is the leak: a prediction on a fire that was in the
+    fine-tune's train (or val) split is an in-sample fit and its skill is inflated. The
+    keys are validated so a hand-edited or truncated file fails loudly.
+    """
+    import json
+    from pathlib import Path
+
+    split = json.loads(Path(path).read_text(encoding="utf-8"))
+    missing = {"train", "val", "test"} - set(split)
+    if missing:
+        raise ValueError(f"split file {path} is missing keys {sorted(missing)}")
+    return {k: list(split[k]) for k in ("train", "val", "test")}
+
+
+def restrict_to_heldout(pred_by_event: dict, split: dict, *, strict: bool = True) -> dict:
+    """Keep only predictions for the fine-tune's held-out (test) fires; reject in-sample ones.
+
+    ``split`` is a train/val/test partition (from :func:`grouped_split` or :func:`load_split`),
+    i.e. the split the Prithvi model was trained under. Returns the subset of
+    ``pred_by_event`` whose fires are in ``split["test"]``. When ``strict`` (the default), a
+    prediction for any fire in ``split["train"]`` or ``split["val"]`` raises ``ValueError``:
+    those are in-sample predictions and scoring them would inflate the model's skill, the exact
+    leak this guard exists to prevent. Set ``strict=False`` only to silently drop the in-sample
+    fires (e.g. when a prediction directory deliberately mixes train and test chips).
+    """
+    seen = set(split.get("train", [])) | set(split.get("val", []))
+    test = set(split.get("test", []))
+    leaked = sorted(set(pred_by_event) & seen)
+    if leaked and strict:
+        raise ValueError(
+            f"{len(leaked)} prediction(s) are for fires the model trained on "
+            f"(train/val), which would inflate its skill: {leaked[:5]}"
+            + (" ..." if len(leaked) > 5 else "")
+            + ". Score only held-out (test) fires, or pass strict=False to drop them."
+        )
+    return {e: m for e, m in pred_by_event.items() if e in test}
 
 
 def chip_sample(

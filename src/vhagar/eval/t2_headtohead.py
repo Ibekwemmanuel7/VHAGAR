@@ -129,6 +129,7 @@ def head_to_head(
     samples_by_id: Mapping,
     *,
     prithvi_pred_by_event: Mapping | None = None,
+    prithvi_split: Mapping | None = None,
     val_frac: float = 0.15,
     test_frac: float = 0.15,
     seed: int = 0,
@@ -142,10 +143,34 @@ def head_to_head(
     ``samples_by_id`` maps event id -> :class:`vhagar.datasets.burned_area.T2Sample`.
     The report holds each model's mean per-fire skill, the held-out fire list, and
     the paired bootstrap differences among whichever models produced predictions.
-    """
-    from vhagar.eval.t2_prithvi import grouped_split
 
-    split = grouped_split(list(samples_by_id), val_frac=val_frac, test_frac=test_frac, seed=seed)
+    Prithvi is fine-tuned out of repo, so its held-out fires are fixed by *its own*
+    training split, not by anything this function recomputes. To keep the comparison
+    honest, whenever ``prithvi_pred_by_event`` is supplied you must also pass
+    ``prithvi_split`` (the export's ``_split.json``, loadable with
+    ``t2_prithvi.load_split``). That split then becomes authoritative for the whole
+    head-to-head: RBR and the U-Net are trained on its train+val fires and every model
+    is scored on its exact test fires, so no model is evaluated on a fire Prithvi
+    trained on. A supplied Prithvi mask for a train/val fire raises ``ValueError``
+    rather than being silently scored in-sample. Without Prithvi predictions the split
+    is generated here as before.
+    """
+    from vhagar.eval.t2_prithvi import grouped_split, restrict_to_heldout
+
+    if prithvi_pred_by_event and prithvi_split is None:
+        raise ValueError(
+            "prithvi_pred_by_event was supplied without prithvi_split. The Prithvi "
+            "fine-tune's held-out fires are defined by its own training split; pass it "
+            "(t2_prithvi.load_split on the export's _split.json) so RBR/U-Net share the "
+            "identical held-out fires and no fire Prithvi trained on is scored."
+        )
+
+    if prithvi_split is not None:
+        # Adopt Prithvi's split as authoritative: all three models on the same fires.
+        split = {k: [i for i in prithvi_split.get(k, []) if i in samples_by_id]
+                 for k in ("train", "val", "test")}
+    else:
+        split = grouped_split(list(samples_by_id), val_frac=val_frac, test_frac=test_frac, seed=seed)
     train_ids = list(split["train"]) + list(split["val"])
     test_ids = list(split["test"])
     train_samples = [samples_by_id[i] for i in train_ids]
@@ -168,9 +193,11 @@ def head_to_head(
     else:
         notes.append("u-net skipped: run_unet=False")
 
-    # Prithvi: only if external predictions were supplied.
+    # Prithvi: only if external predictions were supplied. restrict_to_heldout raises if any
+    # supplied mask is for a fire in train/val (in-sample), and drops preds outside the split.
     if prithvi_pred_by_event:
-        skills["prithvi"] = per_fire_skill_prithvi(prithvi_pred_by_event, test_by_id)
+        held_out = restrict_to_heldout(dict(prithvi_pred_by_event), split, strict=True)
+        skills["prithvi"] = per_fire_skill_prithvi(held_out, test_by_id)
     else:
         notes.append("prithvi skipped: no predicted masks supplied")
 

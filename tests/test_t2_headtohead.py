@@ -6,6 +6,28 @@ import pytest
 
 from vhagar.datasets.burned_area import T2Sample
 from vhagar.eval import t2_headtohead as hh
+from vhagar.eval import t2_prithvi as t2p
+
+
+def test_restrict_to_heldout_filters_and_guards():
+    split = {"train": ["a", "b"], "val": ["c"], "test": ["d", "e"]}
+    # strict: a prediction for a train/val fire is a hard error
+    with pytest.raises(ValueError, match="trained on"):
+        t2p.restrict_to_heldout({"a": 1, "d": 1}, split, strict=True)
+    # non-strict: in-sample fires are dropped, only test fires survive
+    kept = t2p.restrict_to_heldout({"a": 1, "d": 1, "e": 1, "z": 1}, split, strict=False)
+    assert set(kept) == {"d", "e"}                      # "z" is outside the split entirely
+
+
+def test_load_split_validates_keys(tmp_path):
+    import json
+    good = tmp_path / "s.json"
+    good.write_text(json.dumps({"train": ["a"], "val": [], "test": ["b"]}), encoding="utf-8")
+    assert t2p.load_split(good)["test"] == ["b"]
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"train": ["a"]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="missing keys"):
+        t2p.load_split(bad)
 
 
 def test_bootstrap_paired_diff_separates_a_clear_winner():
@@ -59,13 +81,37 @@ def test_per_fire_skill_prithvi_scores_supplied_masks():
 def test_head_to_head_runs_rbr_and_prithvi_without_torch():
     # enough fires that grouped_split yields a non-empty test set
     samples = {f"f{i}": _burn_sample(f"f{i}", burned_frac=0.4, seed=i) for i in range(8)}
-    preds = {eid: s.reference.copy() for eid, s in samples.items()}
-    rep = hh.head_to_head(samples, prithvi_pred_by_event=preds, run_unet=False,
-                          n_boot=500, seed=0)
+    split = t2p.grouped_split(list(samples), seed=0)
+    # Prithvi only ever predicts the fires IT held out (the test split).
+    preds = {eid: samples[eid].reference.copy() for eid in split["test"]}
+    rep = hh.head_to_head(samples, prithvi_pred_by_event=preds, prithvi_split=split,
+                          run_unet=False, n_boot=500, seed=0)
     assert rep["n_test_fires"] >= 1
     assert "rbr" in rep["per_fire_skill"] and "prithvi" in rep["per_fire_skill"]
     assert "rbr" in rep["mean_skill"] and "prithvi" in rep["mean_skill"]
+    # every scored Prithvi fire is a held-out test fire, none from train/val
+    assert set(rep["per_fire_skill"]["prithvi"]) <= set(split["test"])
     # a Prithvi-vs-RBR paired diff is produced over the shared test fires
     names = {(d.a, d.b) for d in rep["paired_diffs"]}
     assert ("prithvi", "rbr") in names
     assert any("u-net skipped" in n for n in rep["notes"])
+
+
+def test_head_to_head_requires_split_when_prithvi_supplied():
+    # Supplying Prithvi masks without its split cannot be verified out-of-sample -> hard error.
+    samples = {f"f{i}": _burn_sample(f"f{i}", burned_frac=0.4, seed=i) for i in range(8)}
+    preds = {eid: s.reference.copy() for eid, s in samples.items()}
+    with pytest.raises(ValueError, match="without prithvi_split"):
+        hh.head_to_head(samples, prithvi_pred_by_event=preds, run_unet=False, seed=0)
+
+
+def test_head_to_head_rejects_in_sample_prithvi_prediction():
+    # A Prithvi mask for a TRAIN fire is in-sample; the harness must refuse to score it.
+    samples = {f"f{i}": _burn_sample(f"f{i}", burned_frac=0.4, seed=i) for i in range(8)}
+    split = t2p.grouped_split(list(samples), seed=0)
+    leaked_fire = split["train"][0]
+    preds = {eid: samples[eid].reference.copy() for eid in split["test"]}
+    preds[leaked_fire] = samples[leaked_fire].reference.copy()   # the leak
+    with pytest.raises(ValueError, match="trained on"):
+        hh.head_to_head(samples, prithvi_pred_by_event=preds, prithvi_split=split,
+                        run_unet=False, seed=0)

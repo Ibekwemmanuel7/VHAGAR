@@ -777,6 +777,9 @@ def t2_prithvi_score_cmd(
     chips_manifest: Path = typer.Option(
         None, help="chips _chips.json to stitch PER-CHIP preds ({stem}_*.tif) into per-fire masks"
     ),
+    split: Path = typer.Option(
+        None, help="export _split.json: restrict scoring to held-out TEST fires (leakage guard)"
+    ),
 ) -> None:
     """Score Prithvi predictions with the SAME skill-over-naive metric as RBR / U-Net.
 
@@ -786,13 +789,25 @@ def t2_prithvi_score_cmd(
     stitched back into per-fire masks first. Either way, F1/IoU and skill over the predict-
     all-burned baseline are scored on the identical valid pixels and averaged. Compare the
     mean to t2-unet / t2-stage0 on the same fires: the honest head-to-head. See docs/13.
+
+    Pass ``--split`` (the export's ``_split.json``) to keep the number honest: scoring is
+    restricted to the held-out TEST fires and any prediction for a fire the model trained on
+    (train/val) is a hard error, since an in-sample mask inflates the skill. Without it the
+    score may silently include training fires, so a warning is printed and the U-Net
+    comparison line is suppressed.
     """
     import glob as _glob
     import json as _json
 
     import rasterio
 
-    from vhagar.eval.t2_prithvi import score_masks, stitch_chip_predictions, summarise_scores
+    from vhagar.eval.t2_prithvi import (
+        load_split,
+        restrict_to_heldout,
+        score_masks,
+        stitch_chip_predictions,
+        summarise_scores,
+    )
 
     samples = _load_prithvi_cache(cache_dir)
     if chips_manifest is not None:
@@ -817,6 +832,20 @@ def t2_prithvi_score_cmd(
                 continue
             with rasterio.open(p) as src:
                 matched[eid] = src.read(1)
+    verified = False
+    if split is not None:
+        sp = load_split(split)
+        try:
+            matched = restrict_to_heldout(matched, sp, strict=True)
+        except ValueError as exc:
+            console.print(f"[red]leakage guard: {exc}[/red]")
+            raise typer.Exit(1) from exc
+        verified = True
+        console.print(f"[green]leakage guard: scoring {len(matched)} held-out test fire(s) "
+                      "only (train/val excluded).[/green]")
+    else:
+        console.print("[yellow]no --split given: this score is only honest if pred_dir holds "
+                      "held-out fires exclusively. Pass the export's _split.json to verify.[/yellow]")
     scores = score_masks(matched, samples)
     if not scores:
         console.print("[yellow]no predictions matched cached fires; check pred filenames "
@@ -831,8 +860,10 @@ def t2_prithvi_score_cmd(
         t.add_row(s.event_id[:22], f"{s.f1:.3f}", f"{s.iou:.3f}", f"{s.naive_f1:.3f}",
                   f"[green]{sk}[/green]" if s.skill_f1 > 0 else f"[red]{sk}[/red]")
     console.print(t)
+    tail = (" Compare to U-Net +0.54 on the same fires."
+            if verified else " (unverified: pass --split before comparing to U-Net.)")
     console.print(f"[bold]mean skill {summ['skill_mean']:+.3f}[/bold] over {summ['fires']} fires "
-                  f"({summ['fires_positive_skill']} positive). Compare to U-Net +0.54 on the same fires.")
+                  f"({summ['fires_positive_skill']} positive).{tail}")
 
 
 @app.command("t2-prithvi-build-emsr")
