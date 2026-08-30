@@ -24,6 +24,12 @@ jobs:
         run: ruff check src tests
       - name: Test
         run: pytest -q --cov=vhagar --cov-report=term-missing
+      - name: Doctests (physics core)
+        # The physics package is pure-numpy and has no optional-dep imports, so
+        # its doctests are safe to collect in the core (no-torch/no-GDAL) env.
+        # These are worked examples in the docstrings; keep them executable so
+        # they cannot rot against a numpy bump.
+        run: pytest -q --doctest-modules src/vhagar/physics
 
   leakage-gate:
     # The validation contract is a build gate, not a convention.
