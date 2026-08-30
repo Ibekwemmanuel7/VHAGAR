@@ -173,6 +173,17 @@ def fetch_patch(image: Any, req: PatchRequest) -> np.ndarray:
     return with_retry(ee.data.computePixels, request)
 
 
+def _fetch_patch_worker(image_factory: Callable[[], Any],
+                        req: PatchRequest) -> tuple[str, np.ndarray]:
+    """Worker body, at MODULE scope so ``ProcessPoolExecutor`` can pickle it (a
+    nested closure cannot be pickled and breaks under the spawn/forkserver start
+    methods). ``image_factory`` is called here, inside the worker, so it must
+    itself be picklable: pass a module-level function or a picklable callable,
+    not a lambda or a closure."""
+    initialize(high_volume=True)
+    return req.uid, fetch_patch(image_factory(), req)
+
+
 def fetch_patches(
     image_factory: Callable[[], Any],
     requests: Sequence[PatchRequest],
@@ -181,14 +192,15 @@ def fetch_patches(
     """Fetch many chips concurrently.
 
     ``image_factory`` is called *inside* each worker, because ``ee`` objects
-    do not survive pickling across processes. ``n_workers`` should stay at or
-    below the documented 40 concurrent-request limit; 25 leaves headroom for
-    retries.
+    do not survive pickling across processes; the factory itself must be
+    picklable (a module-level function, not a lambda or closure). ``n_workers``
+    should stay at or below the documented 40 concurrent-request limit; 25 leaves
+    headroom for retries.
 
-    Yields ``(uid, array)`` as results arrive. Failures are logged and skipped
-    rather than aborting the export -- the caller is expected to diff requested
-    against received uids and re-run, which is why the whole pipeline is
-    resumable.
+    Yields ``(uid, array)`` as results arrive. Individual failures are logged and
+    skipped so a resumable export is not aborted by one bad chip, but if EVERY
+    request fails the generator raises ``RuntimeError`` at the end rather than
+    yielding nothing silently.
     """
     from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -198,18 +210,23 @@ def fetch_patches(
             f"({GEE_LIMITS['concurrent_requests']})"
         )
 
-    def _worker(req: PatchRequest) -> tuple[str, np.ndarray]:
-        initialize(high_volume=True)
-        return req.uid, fetch_patch(image_factory(), req)
-
+    n_total = len(requests)
+    n_ok = 0
     with ProcessPoolExecutor(max_workers=n_workers) as pool:
-        futures = {pool.submit(_worker, r): r for r in requests}
+        futures = {pool.submit(_fetch_patch_worker, image_factory, r): r for r in requests}
         for fut in as_completed(futures):
             req = futures[fut]
             try:
-                yield fut.result()
+                res = fut.result()
             except Exception as exc:  # noqa: BLE001
                 log.warning("patch %s failed: %s", req.uid, exc)
+                continue
+            n_ok += 1
+            yield res
+    if n_total and n_ok == 0:
+        raise RuntimeError(
+            f"all {n_total} GEE patch requests failed; see the warnings above for the "
+            "per-patch errors (auth, quota, or a bad image factory)")
 
 
 def structured_to_stack(arr: np.ndarray, bands: Sequence[str]) -> np.ndarray:
