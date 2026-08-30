@@ -71,9 +71,9 @@ def planck_radiance(wavelength_um, temperature_k) -> np.ndarray:
 
     Returns W m^-2 sr^-1 um^-1.
 
-    >>> float(round(planck_radiance(3.9, 300.0), 4))
+    >>> round(float(planck_radiance(3.9, 300.0)), 4)
     0.6025
-    >>> float(round(planck_radiance(11.0, 300.0), 4))
+    >>> round(float(planck_radiance(11.0, 300.0)), 4)
     9.5732
     """
     lam = _f(wavelength_um)
@@ -90,7 +90,7 @@ def brightness_temperature(wavelength_um, radiance) -> np.ndarray:
     Non-positive radiance returns NaN rather than a complex or negative
     temperature -- a silently negative BT is how nodata becomes "cold ground".
 
-    >>> float(round(brightness_temperature(3.9, planck_radiance(3.9, 412.0)), 6))
+    >>> round(float(brightness_temperature(3.9, planck_radiance(3.9, 412.0))), 6)
     412.0
     """
     lam = _f(wavelength_um)
@@ -126,7 +126,7 @@ def dozier_contrast_ratio(wavelength_um, t_fire_k, t_background_k) -> np.ndarray
 
     >>> r39 = dozier_contrast_ratio(3.9, 1000.0, 300.0)
     >>> r11 = dozier_contrast_ratio(11.0, 1000.0, 300.0)
-    >>> bool(r39 / r11 > 200)
+    >>> bool(190 < r39 / r11 < 200)
     True
     """
     return planck_radiance(wavelength_um, t_fire_k) / planck_radiance(
