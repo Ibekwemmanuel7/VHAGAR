@@ -55,17 +55,27 @@ drive.mount('/content/drive')
 ```
 
 ```python
-import os
+import os, zipfile
 !mkdir -p /content/work
 !cp /content/drive/MyDrive/vhagar/prithvi_colab_bundle.zip /content/work/
-!cd /content/work && unzip -q -o prithvi_colab_bundle.zip
+# PowerShell's Compress-Archive writes backslash path separators, so plain `unzip` on Linux
+# makes literal-backslash filenames instead of folders. Extract with Python to rebuild the tree.
+with zipfile.ZipFile('/content/work/prithvi_colab_bundle.zip') as z:
+    for info in z.infolist():
+        name = info.filename.replace('\\', '/')
+        if name.endswith('/'):
+            continue
+        target = os.path.join('/content/work', name)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with z.open(info) as fsrc, open(target, 'wb') as fdst:
+            fdst.write(fsrc.read())
 os.chdir('/content/work')
 !ls data/t2_prithvi_chips && echo '---' && ls data/t2_prithvi_chips/splits
 ```
 
 The zip holds `data/t2_prithvi_chips/...` and the yaml at exactly the relative paths the config
-expects, so after unzipping in `/content/work` the config's `data/t2_prithvi_chips/...` roots
-resolve with no edits.
+expects, so after extracting in `/content/work` the config's `data/t2_prithvi_chips/...` roots
+resolve with no edits. (If you zipped on macOS/Linux instead, a plain `unzip -q -o` works too.)
 
 ## 3. Colab: install TerraTorch and fetch weights
 
