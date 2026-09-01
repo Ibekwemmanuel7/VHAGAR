@@ -23,9 +23,17 @@ vhagar t2-prithvi-export --cache-dir data/t2_prithvi --out-dir data/t2_prithvi_c
 ```
 
 You now have `data/t2_prithvi_chips/` (the chips terratorch trains on, plus `_split.json` and
-`_chips.json`) and `prithvi_burnscars_vhagar.yaml` at the repo root. Put these three where Colab
-can read them. The simplest path is Google Drive: copy `data/t2_prithvi_chips/` and
-`prithvi_burnscars_vhagar.yaml` into a Drive folder, e.g. `MyDrive/vhagar/`.
+`_chips.json`) and `prithvi_burnscars_vhagar.yaml` at the repo root. Bundle them into **one zip**
+and upload that single file to Drive, uploading 1000+ loose chip files to Drive is slow and
+flaky, one archive is not:
+
+```powershell
+# on your machine, from the repo root (PowerShell)
+Compress-Archive -Path .\data\t2_prithvi_chips, .\prithvi_burnscars_vhagar.yaml `
+    -DestinationPath .\prithvi_colab_bundle.zip
+```
+
+Then put `prithvi_colab_bundle.zip` in Drive at `MyDrive/vhagar/`.
 
 ## 1. Colab: enable the GPU
 
@@ -39,26 +47,25 @@ Open a new notebook at colab.research.google.com. **Runtime → Change runtime t
 You want to see a T4 (or better). The free T4 is enough for 20-fire fine-tunes; large runs may
 need Colab Pro for longer sessions and less frequent disconnects.
 
-## 2. Colab: mount Drive and stage the dataset
+## 2. Colab: mount Drive and unzip the bundle
 
 ```python
 from google.colab import drive
 drive.mount('/content/drive')
-
-!mkdir -p /content/work && cp -r /content/drive/MyDrive/vhagar/t2_prithvi_chips /content/work/data_chips
-!cp /content/drive/MyDrive/vhagar/prithvi_burnscars_vhagar.yaml /content/work/
-!ls /content/work/data_chips
 ```
-
-The config's data roots are relative (`data/t2_prithvi_chips/...`). Either recreate that layout
-or edit the four `*_data_root` / `*_split` paths in the YAML to point at
-`/content/work/data_chips`. Recreating the layout is less error-prone:
 
 ```python
-!mkdir -p /content/work/data/t2_prithvi_chips && \
- cp -r /content/work/data_chips/* /content/work/data/t2_prithvi_chips/
-%cd /content/work
+import os
+!mkdir -p /content/work
+!cp /content/drive/MyDrive/vhagar/prithvi_colab_bundle.zip /content/work/
+!cd /content/work && unzip -q -o prithvi_colab_bundle.zip
+os.chdir('/content/work')
+!ls data/t2_prithvi_chips && echo '---' && ls data/t2_prithvi_chips/splits
 ```
+
+The zip holds `data/t2_prithvi_chips/...` and the yaml at exactly the relative paths the config
+expects, so after unzipping in `/content/work` the config's `data/t2_prithvi_chips/...` roots
+resolve with no edits.
 
 ## 3. Colab: install TerraTorch and fetch weights
 
