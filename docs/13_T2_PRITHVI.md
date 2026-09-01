@@ -133,6 +133,21 @@ the head-to-head scoring — is built and unit-tested. End-to-end: `t2-prithvi-b
 `t2-prithvi-export` → `terratorch fit` → `t2-prithvi-score --chips-manifest`, then compare the
 mean skill to `t2-unet`/`t2-stage0` on the same test fires.
 
+The single-command decisive comparison is `t2-headtohead`: after downloading the TerraTorch
+predictions, run
+
+```
+vhagar t2-headtohead --cache-dir data/t2_prithvi --pred-dir <downloaded_preds> \
+    --chips-manifest data/t2_prithvi_chips/_chips.json \
+    --split data/t2_prithvi_chips/_split.json --out-json h2h_report.json
+```
+
+It loads the cached samples, the Prithvi masks, and the export's `_split.json`, trains the RBR
+threshold and (if torch is present) the U-Net on that split's train+val fires, scores all three
+on its exact test fires, and prints each model's mean per-fire skill plus paired-bootstrap
+differences (mean, CI, P(a>b), whether the CI excludes zero). The split is authoritative and
+in-sample Prithvi masks are rejected, so the printed margins cannot be leakage artefacts.
+
 ### Leakage guard: score Prithvi only on the fires it held out
 
 The Prithvi fine-tune's held-out fires are fixed by *its own* training split (the

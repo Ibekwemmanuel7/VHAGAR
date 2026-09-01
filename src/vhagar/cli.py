@@ -11,8 +11,14 @@ from __future__ import annotations
 
 import contextlib
 import json
-from datetime import UTC, timedelta
+from datetime import timedelta
 from pathlib import Path
+
+try:                                    # UTC is 3.11+; keep the CLI importable on 3.10
+    from datetime import UTC
+except ImportError:                     # pragma: no cover
+    from datetime import timezone as _timezone
+    UTC = _timezone.utc  # noqa: UP017
 
 import numpy as np
 import typer
@@ -735,6 +741,44 @@ def _load_prithvi_cache(cache_dir: Path) -> dict:
     return out
 
 
+def _load_prithvi_pred_masks(pred_dir: Path, chips_manifest: Path | None, samples: dict) -> dict:
+    """Load Prithvi predicted burned masks keyed by event id, in either input mode.
+
+    With ``chips_manifest`` (the export's ``_chips.json``): ``pred_dir`` holds terratorch's
+    per-chip predictions named by chip stem, stitched back into per-fire masks. Without it:
+    one mask per fire named ``{event_id}.tif`` (``:``/``/`` replaced by ``_``). Shared by
+    ``t2-prithvi-score`` and ``t2-headtohead`` so both read predictions identically.
+    """
+    import glob as _glob
+    import json as _json
+
+    import rasterio
+
+    from vhagar.eval.t2_prithvi import stitch_chip_predictions
+
+    if chips_manifest is not None:
+        manifest = _json.loads(chips_manifest.read_text(encoding="utf-8"))
+        pred_by_stem = {}
+        for p in sorted(_glob.glob(f"{pred_dir}/*.tif")):
+            stem = Path(p).stem
+            # tolerate terratorch suffixes like "{stem}_pred" / "{stem}_merged"
+            key = stem if stem in manifest else stem.rsplit("_", 1)[0]
+            if key not in manifest:
+                continue
+            with rasterio.open(p) as src:
+                pred_by_stem[key] = src.read(1)
+        return stitch_chip_predictions(pred_by_stem, manifest)
+    stems = {e.replace(":", "_").replace("/", "_"): e for e in samples}
+    matched = {}
+    for p in sorted(_glob.glob(f"{pred_dir}/*.tif")):
+        eid = stems.get(Path(p).stem)
+        if eid is None:
+            continue
+        with rasterio.open(p) as src:
+            matched[eid] = src.read(1)
+    return matched
+
+
 @app.command("t2-prithvi-export")
 def t2_prithvi_export_cmd(
     cache_dir: Path = typer.Option(Path("data/t2_prithvi"), exists=True, help="six-band sample cache"),
@@ -796,42 +840,15 @@ def t2_prithvi_score_cmd(
     score may silently include training fires, so a warning is printed and the U-Net
     comparison line is suppressed.
     """
-    import glob as _glob
-    import json as _json
-
-    import rasterio
-
     from vhagar.eval.t2_prithvi import (
         load_split,
         restrict_to_heldout,
         score_masks,
-        stitch_chip_predictions,
         summarise_scores,
     )
 
     samples = _load_prithvi_cache(cache_dir)
-    if chips_manifest is not None:
-        manifest = _json.loads(chips_manifest.read_text(encoding="utf-8"))
-        pred_by_stem = {}
-        for p in sorted(_glob.glob(f"{pred_dir}/*.tif")):
-            stem = Path(p).stem
-            # tolerate terratorch suffixes like "{stem}_pred" / "{stem}_merged"
-            key = stem if stem in manifest else stem.rsplit("_", 1)[0]
-            if key not in manifest:
-                continue
-            with rasterio.open(p) as src:
-                pred_by_stem[key] = src.read(1)
-        matched = stitch_chip_predictions(pred_by_stem, manifest)
-    else:
-        # one mask per fire, keyed by the underscored event id
-        stems = {e.replace(":", "_").replace("/", "_"): e for e in samples}
-        matched = {}
-        for p in sorted(_glob.glob(f"{pred_dir}/*.tif")):
-            eid = stems.get(Path(p).stem)
-            if eid is None:
-                continue
-            with rasterio.open(p) as src:
-                matched[eid] = src.read(1)
+    matched = _load_prithvi_pred_masks(pred_dir, chips_manifest, samples)
     verified = False
     if split is not None:
         sp = load_split(split)
@@ -864,6 +881,99 @@ def t2_prithvi_score_cmd(
             if verified else " (unverified: pass --split before comparing to U-Net.)")
     console.print(f"[bold]mean skill {summ['skill_mean']:+.3f}[/bold] over {summ['fires']} fires "
                   f"({summ['fires_positive_skill']} positive).{tail}")
+
+
+@app.command("t2-headtohead")
+def t2_headtohead_cmd(
+    cache_dir: Path = typer.Option(Path("data/t2_prithvi"), exists=True, help="six-band sample cache"),
+    pred_dir: Path = typer.Option(..., exists=True, help="Prithvi predicted-mask GeoTIFFs"),
+    split: Path = typer.Option(..., exists=True, help="export _split.json (defines held-out fires)"),
+    chips_manifest: Path = typer.Option(
+        None, help="chips _chips.json to stitch PER-CHIP preds into per-fire masks"
+    ),
+    no_unet: bool = typer.Option(False, "--no-unet", help="skip the U-Net leg (RBR + Prithvi only)"),
+    n_boot: int = typer.Option(10_000, help="paired-bootstrap resamples"),
+    ci: float = typer.Option(0.95, help="bootstrap confidence level"),
+    seed: int = typer.Option(0, help="split/bootstrap/U-Net seed"),
+    out_json: Path = typer.Option(None, help="also write the full report as JSON"),
+) -> None:
+    """Prithvi vs U-Net vs RBR on the identical held-out fires, with paired-bootstrap CIs.
+
+    Loads the cached six-band samples, the Prithvi predicted masks, and the export's
+    ``_split.json``, then runs ``eval.t2_headtohead.head_to_head``. The split is authoritative:
+    RBR and the U-Net are trained on its train+val fires and all three models are scored on its
+    exact test fires, so no model is evaluated on a fire Prithvi trained on (an in-sample Prithvi
+    mask is a hard error). The U-Net leg needs torch and is skipped with a note if it is absent
+    or ``--no-unet`` is given. Prints each model's mean per-fire skill and the paired
+    differences (mean, CI, P(a>b)); ``--out-json`` also dumps the full report. See docs/13.
+
+    One command after your TerraTorch inference: point ``--pred-dir`` at the downloaded
+    predictions, ``--chips-manifest`` at the export ``_chips.json``, ``--split`` at
+    ``_split.json``.
+    """
+    from vhagar.eval.t2_headtohead import head_to_head
+    from vhagar.eval.t2_prithvi import load_split
+
+    samples = _load_prithvi_cache(cache_dir)
+    if len(samples) < 3:
+        console.print(f"[red]only {len(samples)} cached six-band samples; run t2-prithvi-build[/red]")
+        raise typer.Exit(1)
+    sp = load_split(split)
+    preds = _load_prithvi_pred_masks(pred_dir, chips_manifest, samples)
+    if not preds:
+        console.print("[red]no Prithvi predictions loaded; check --pred-dir / --chips-manifest.[/red]")
+        raise typer.Exit(1)
+
+    try:
+        rep = head_to_head(
+            samples, prithvi_pred_by_event=preds, prithvi_split=sp,
+            run_unet=not no_unet, n_boot=n_boot, ci=ci, seed=seed,
+        )
+    except ValueError as exc:
+        console.print(f"[red]leakage guard: {exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    means = rep["mean_skill"]
+    mt = Table(title=f"T2 head-to-head, mean per-fire skill over naive ({rep['n_test_fires']} held-out fires)")
+    for col in ("model", "mean skill", "fires scored"):
+        mt.add_column(col, justify="right")
+    label = {"prithvi": "Prithvi", "unet": "U-Net", "rbr": "RBR threshold"}
+    for m in ("prithvi", "unet", "rbr"):
+        if m not in rep["per_fire_skill"]:
+            continue
+        val = means.get(m, float("nan"))
+        col = "green" if val > 0 else "red"
+        mt.add_row(label[m], f"[{col}]{val:+.3f}[/{col}]", str(len(rep["per_fire_skill"][m])))
+    console.print(mt)
+
+    if rep["paired_diffs"]:
+        dt = Table(title=f"Paired differences (a - b), {int(ci * 100)}% bootstrap CI over fires")
+        for col in ("a", "b", "mean diff", "CI low", "CI high", "P(a>b)", "separable"):
+            dt.add_column(col, justify="right")
+        for d in rep["paired_diffs"]:
+            sep = "[green]yes[/green]" if d.separable else "[yellow]no[/yellow]"
+            dc = "green" if d.mean_diff > 0 else "red"
+            dt.add_row(label.get(d.a, d.a), label.get(d.b, d.b),
+                       f"[{dc}]{d.mean_diff:+.3f}[/{dc}]", f"{d.ci_lo:+.3f}", f"{d.ci_hi:+.3f}",
+                       f"{d.prob_a_better:.2f}", sep)
+        console.print(dt)
+    for n in rep["notes"]:
+        console.print(f"[yellow]note:[/yellow] {n}")
+
+    if out_json is not None:
+        payload = {
+            "n_test_fires": rep["n_test_fires"], "test_fires": rep["test_fires"],
+            "mean_skill": means, "per_fire_skill": rep["per_fire_skill"],
+            "paired_diffs": [
+                {"a": d.a, "b": d.b, "n_fires": d.n_fires, "mean_diff": d.mean_diff,
+                 "ci_lo": d.ci_lo, "ci_hi": d.ci_hi, "prob_a_better": d.prob_a_better,
+                 "separable": d.separable}
+                for d in rep["paired_diffs"]
+            ],
+            "notes": rep["notes"], "split": rep["split"],
+        }
+        out_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        console.print(f"[green]wrote report[/green] to {out_json}")
 
 
 @app.command("t2-prithvi-build-emsr")
