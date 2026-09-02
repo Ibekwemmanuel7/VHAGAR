@@ -12,8 +12,13 @@ Reproduces the August rebalanced result: per-fire mean skill **+0.388** (was +0.
 MN +0.048, WA +0.542, WA +0.575. First RBR-on-the-same-three-fires through the same harness:
 RBR **+0.171**; paired Prithvi-RBR **+0.217, 95% CI [+0.089, +0.347], separable**. So Prithvi
 beating the spectral threshold is now a bootstrapped result on these fires, not just a mean.
-U-Net leg not recomputed here (run env had no torch); +0.54 is still its earlier CV. Remaining:
-run `t2-headtohead` in a torch env for a live three-way, and add fires (n=3 is the real limiter).
+Then the full three-way in a torch env (`h2h_full.json`): U-Net trained on this split scores only
+**+0.112** on these three fires (its quoted +0.54 was its own CV, not comparable), so Prithvi
+**beats both** the U-Net (paired +0.277, CI [+0.003, +0.465], separable) and RBR (+0.217,
+[+0.089, +0.347], separable). This overturns the earlier "Prithvi trails the U-Net" reading; the
++0.54 was non-comparable, exactly the trap the same-split harness catches. Caveat: n=3, the
+Prithvi-U-Net CI only just clears zero, U-Net trained on 18 fires. Directional win; more fires
+(and the European transfer set) are the real evaluation.
 Leakage close + the `t2-headtohead` runner + the Colab runbook/notebook (docs/16,
 notebooks/prithvi_colab.ipynb) all landed this session; local commits pending `git push`.
 

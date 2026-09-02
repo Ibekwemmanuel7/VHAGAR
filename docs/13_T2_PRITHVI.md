@@ -246,11 +246,26 @@ threshold, tuned on this split's train+val and scored on these exact three fires
 95% CI [+0.089, +0.347], P=1.00, separable** (CI excludes zero). Prithvi beats the spectral
 threshold on all three fires, and the margin is not a coin-flip even at n=3.
 
-The U-Net leg was not recomputed on this split (the run environment lacked torch); its +0.54 is
-still the earlier CV figure. The one remaining step for a clean three-way is to run the same
-`vhagar t2-headtohead` command in a torch environment, which trains the U-Net on this split's
-train+val fires and bootstraps all three legs together. Scale (three test fires) remains the real
-limiter, not the plumbing.
+Then the clean three-way, U-Net trained on this split's train+val and scored on the same three
+fires (torch env, `h2h_full.json`):
+
+| model | mean skill | vs Prithvi (paired diff, 95% CI) |
+|---|---|---|
+| **Prithvi** | **+0.388** | — |
+| RBR threshold | +0.171 | Prithvi -RBR +0.217, [+0.089, +0.347], separable |
+| U-Net | **+0.112** | Prithvi -U-Net +0.277, [+0.003, +0.465], separable |
+
+This overturns the earlier "Prithvi trails the U-Net" framing, and shows why the comparison had to
+be same-split. The U-Net's oft-quoted **+0.54 was its own favourable cross-validation, not these
+fires**; trained on this split (only 18 fires) and scored on these exact three, it manages just
++0.112 (per fire MN +0.046, WA +0.18, WA +0.11), below even the RBR threshold. Measured
+apples-to-apples, **Prithvi wins**, beating both the U-Net and the spectral threshold, with paired
+CIs that exclude zero. The `U-Net - RBR` diff is -0.060, not separable.
+
+Caveats, stated plainly: n=3 fires, so the Prithvi -U-Net CI only just clears zero (low +0.003),
+and the U-Net's weak showing is partly its tiny 18-fire training split. This is a directional win,
+not a settled verdict. More CONUS test fires and the European leave-one-continent-out set remain
+the real evaluation; the pipeline and the honest comparison are now both in place.
 
 ### Same-fire baseline: Prithvi beats a spectral threshold (`t2-prithvi-baseline`)
 
