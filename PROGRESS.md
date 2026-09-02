@@ -1,9 +1,23 @@
 # VHAGAR progress tracker
 
-Last updated: 2026-08-18. Keep this file current. It is the single place to look
+Last updated: 2026-09-01. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: Phase 5 -- console restyled to match FirePerim + robust Mapbox (blank-map fix) (2026-08-19)
+## Latest: T2 Prithvi re-run reproduced through the new head-to-head harness (2026-09-01)
+
+Independent Colab re-run of the burn-balanced Prithvi fine-tune (15/3/3 fires, ~312 train chips,
+Prithvi-EO-2.0-300M + UNet decoder, 32 epochs early-stopped), scored through the new
+`vhagar t2-headtohead` command (chip->fire stitching + leakage guard + paired-bootstrap CIs).
+Reproduces the August rebalanced result: per-fire mean skill **+0.388** (was +0.398); per fire
+MN +0.048, WA +0.542, WA +0.575. First RBR-on-the-same-three-fires through the same harness:
+RBR **+0.171**; paired Prithvi-RBR **+0.217, 95% CI [+0.089, +0.347], separable**. So Prithvi
+beating the spectral threshold is now a bootstrapped result on these fires, not just a mean.
+U-Net leg not recomputed here (run env had no torch); +0.54 is still its earlier CV. Remaining:
+run `t2-headtohead` in a torch env for a live three-way, and add fires (n=3 is the real limiter).
+Leakage close + the `t2-headtohead` runner + the Colab runbook/notebook (docs/16,
+notebooks/prithvi_colab.ipynb) all landed this session; local commits pending `git push`.
+
+## Phase 5 -- console restyled to match FirePerim + robust Mapbox (blank-map fix) (2026-08-19)
 
 User (twice) preferred FirePerim's UI; restyled the console to mirror it closely: FirePerim-style header
 (LIVE dot + labelled Region/Days/Basemap SELECT dropdowns + updated-time + ember Refresh button), the

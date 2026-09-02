@@ -227,6 +227,31 @@ test fires cannot settle it, so more CONUS fires plus the European set for the l
 continent-out transfer are the real evaluation. Both are pure local `t2-prithvi-build` /
 `t2-unet` work, no more GPU debugging.
 
+### Independent re-run through the head-to-head harness (2026-09-01)
+
+Re-ran the full Colab pipeline on the same burn-balanced export (15/3/3 fires, ~312 train
+chips), Prithvi-EO-2.0-300M + UNet decoder, 32 epochs early-stopped, then scored the 138
+per-chip test predictions through the new `t2-headtohead` command (which stitches chips to
+fires, enforces the leakage guard, and adds paired-bootstrap CIs). Two things came out of it.
+
+First, **reproduction**: per-fire mean skill **+0.388**, essentially identical to the August
+rebalanced +0.398, from an independent fine-tune. Per fire: MN 4771/0963 **+0.048**, WA
+4626/1174 **+0.542**, WA 4828/1185 **+0.575**, same pattern as before (the two WA forest fires
+at or above U-Net level, the small MN spring burn dragging the mean). So the ~+0.39 result is
+robust, not a lucky seed.
+
+Second, **RBR on the identical fires, for the first time through the same harness**: the RBR
+threshold, tuned on this split's train+val and scored on these exact three fires, gets **+0.171**
+(MN -0.040, WA +0.326, WA +0.228). The paired-bootstrap Prithvi - RBR difference is **+0.217,
+95% CI [+0.089, +0.347], P=1.00, separable** (CI excludes zero). Prithvi beats the spectral
+threshold on all three fires, and the margin is not a coin-flip even at n=3.
+
+The U-Net leg was not recomputed on this split (the run environment lacked torch); its +0.54 is
+still the earlier CV figure. The one remaining step for a clean three-way is to run the same
+`vhagar t2-headtohead` command in a torch environment, which trains the U-Net on this split's
+train+val fires and bootstraps all three legs together. Scale (three test fires) remains the real
+limiter, not the plumbing.
+
 ### Same-fire baseline: Prithvi beats a spectral threshold (`t2-prithvi-baseline`)
 
 The first strict same-code-path comparison is now in. `nbr_threshold_baseline` fits a single
