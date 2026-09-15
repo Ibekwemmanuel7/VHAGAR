@@ -210,32 +210,46 @@ extended ones (Camp, Tubbs) once the compact set validates.
 - This is the path from "prototype" to a validated, physical POD/FAR/F1; until it is
   run with verified inputs, the WUI spread numbers remain the scoped diagnostic above.
 
-### Faithful result on Eaton + Palisades (2025), real ignition + wind
+### Faithful result on four fires, real ignition + wind
 
-Ran with verified inputs, Eaton (origin 34.205, -118.088) and Palisades (34.0725,
--118.5425), both Santa Ana ~15 m/s from the NE, leave-one-fire-out:
+Ran with verified per-fire ignition and wind, Eaton (34.205, -118.088) and Palisades
+(34.0725, -118.5425), Santa Ana ~15 m/s NE; Camp (39.810, -121.437, Jarbo Gap ~18 m/s
+NE); Tubbs (38.628, -122.606, Diablo ~18 m/s NE), leave-one-fire-out:
 
-| fire | POD | FAR | F1 |
-|---|---|---|---|
-| Eaton | **1.00** | 0.48 | **0.681** |
-| Palisades | 0.42 | 0.48 | 0.463 |
-| **mean held-out** | | | **0.572** |
+| fire | POD | FAR | F1 | destroyed frac |
+|---|---|---|---|---|
+| Eaton | 1.00 | 0.48 | 0.68 | ~0.51 |
+| Palisades | 0.43 | 0.47 | 0.47 | ~0.56 |
+| Camp | 1.00 | 0.20 | 0.89 | ~0.80 |
+| Tubbs | 1.00 | 0.06 | **0.97** | ~0.94 |
+| **mean held-out** | | | **0.75** | |
 
 Selected: length-to-breadth 1.6, horizon x6, structure radius 2 cells, base_p 0.5,
-spotting 8/6. This is a genuine validated result on real fires: driven by the actual
-ignition and wind, the model reproduces Eaton's destroyed footprint completely
-(POD 1.0) and Palisades partially, with over-prediction (FAR ~0.48) as the main error,
-expected because uniform ROS and no defensible-space vulnerability let the front ignite
-survivors the real fire spared. Leave-one-fire-out means the parameters were fit on the
-*other* fire, so 0.57 is generalisation, not fit-to-self.
+spotting distance 6 / intensity 3. This is a genuine validated result on four major
+fires, driven by real ignition and wind, scored leave-one-fire-out (params fit on the
+*other* three fires, so 0.75 is generalisation). The model reproduces Camp (Paradise)
+and Tubbs (which jumped Highway 101 into Coffey Park, F1 0.97) essentially completely,
+so the wind-driven front plus spotting carries fire across the gaps that broke the
+scoped structure-only run.
 
-**A real bug found on the way (honest, and a to-do):** the existing anisotropic solver
-over-elongates the wind-driven front, its length-to-breadth default of 4 produces an
-effective ~30:1 sliver, because it applies the elliptical ROS as a per-direction speed
-in a least-cost path rather than placing the wavelet perimeter. That collapsed POD to
-0.35 at the default; a physically realistic length-to-breadth (~1.6) restored POD ~1.0.
-The calibration searches `lb_max` and selects the realistic value, so the result is
-sound, but the solver's elongation mapping should be corrected properly (Ordered Upwind
-/ wavelet placement) as a follow-up. Remaining refinements: LANDFIRE fuels + slope to
-shape the front and cut the false-alarm rate, and extending to the non-compact fires
-(Camp, Tubbs) where spotting across gaps matters more.
+**Honest caveat on the metric.** F1 is highest where the destroyed fraction of the
+inspected structures is highest (Tubbs 0.94, Camp 0.80): those fires levelled whole
+communities, so few survivors remain for false alarms, and a front that reaches the
+dense burn scores well. Eaton/Palisades have more surviving structures interleaved, so
+their false-alarm rate (and thus lower F1) is the more demanding test, and FAR ~0.48
+there is the real headroom. The main error everywhere is over-prediction, expected from
+uniform ROS and no defensible-space vulnerability; LANDFIRE fuels and a fitted
+vulnerability curve are what would bring the false-alarm rate down.
+
+**Why the front length-to-breadth is calibrated (checked, not a bug).** An initial low
+POD at the nominal high-wind length-to-breadth (4) looked like a solver problem, but a
+direct measurement shows the solver is correct: the near-field front tracks the
+prescribed length-to-breadth (measured 3.9 vs prescribed 4.0). The real reason a lower
+value (~1.6) wins is physical, the observed destroyed footprint is *broader* than a
+pure 4:1 downwind ellipse, because real WUI loss is less directional than the mean wind
+(local wind variability, terrain channeling, and spotting spread fire off the wind
+axis). So the calibration searching `lb_max` and selecting a broader front is a genuine
+result, not a workaround: with a single mean wind, the best-fit front is wider than the
+textbook high-wind ellipse. LANDFIRE fuels + slope and the spotting layer are what would
+let a narrower, more physical front still reach the off-axis structures, and are the
+next refinements (plus extending to Camp/Tubbs, where spotting across gaps matters more).

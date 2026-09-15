@@ -3,11 +3,11 @@
     {
       "name": "Eaton",
       "pod": 1.0,
-      "far": 0.48383838383838385,
-      "f1": 0.6808794137241838,
+      "far": 0.4824442943956786,
+      "f1": 0.682091212458287,
       "params": {
-        "spotting_max_dist": 8.0,
-        "spotting_intensity": 6.0,
+        "spotting_max_dist": 6.0,
+        "spotting_intensity": 3.0,
         "struct_radius_cells": 2.0,
         "struct_base_p": 0.5,
         "lb_max": 1.6,
@@ -16,29 +16,57 @@
     },
     {
       "name": "Palisades",
-      "pod": 0.41932624113475175,
-      "far": 0.4827774740295243,
-      "f1": 0.46315789473684205,
+      "pod": 0.42671394799054374,
+      "far": 0.46911764705882353,
+      "f1": 0.47313237221494103,
       "params": {
-        "spotting_max_dist": 4.0,
-        "spotting_intensity": 1.0,
+        "spotting_max_dist": 12.0,
+        "spotting_intensity": 3.0,
         "struct_radius_cells": 2.0,
         "struct_base_p": 0.5,
         "lb_max": 2.5,
         "horizon_mult": 6.0
       }
+    },
+    {
+      "name": "Camp",
+      "pod": 1.0,
+      "far": 0.204,
+      "f1": 0.8864142538975501,
+      "params": {
+        "spotting_max_dist": 6.0,
+        "spotting_intensity": 3.0,
+        "struct_radius_cells": 2.0,
+        "struct_base_p": 0.5,
+        "lb_max": 1.6,
+        "horizon_mult": 6.0
+      }
+    },
+    {
+      "name": "Tubbs",
+      "pod": 1.0,
+      "far": 0.061,
+      "f1": 0.9685404847859721,
+      "params": {
+        "spotting_max_dist": 6.0,
+        "spotting_intensity": 3.0,
+        "struct_radius_cells": 2.0,
+        "struct_base_p": 0.5,
+        "lb_max": 1.6,
+        "horizon_mult": 6.0
+      }
     }
   ],
-  "mean_heldout_f1": 0.5720186542305129,
+  "mean_heldout_f1": 0.7525445808391875,
   "selected": {
-    "spotting_max_dist": 8.0,
-    "spotting_intensity": 6.0,
+    "spotting_max_dist": 6.0,
+    "spotting_intensity": 3.0,
     "struct_radius_cells": 2.0,
     "struct_base_p": 0.5,
     "lb_max": 1.6,
     "horizon_mult": 6.0
   },
-  "selected_f1": 0.7070129720673004,
-  "n_fires": 2,
+  "selected_f1": 0.8177668688528803,
+  "n_fires": 4,
   "caveat": "faithful on ignition+wind; uniform ROS (LANDFIRE fuels + slope are documented refinements); structures subsampled per fire."
 }

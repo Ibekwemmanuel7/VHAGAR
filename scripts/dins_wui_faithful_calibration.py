@@ -37,13 +37,13 @@ import numpy as np
 import pandas as pd
 
 from vhagar.eval.wui import score_structures
-from vhagar.eval.wui_calibrate import default_param_grid, fire_from_points
+from vhagar.eval.wui_calibrate import fire_from_points
 from vhagar.models.spread import anisotropic_arrival
 from vhagar.models.wui import wui_spread
 
 DESTROYED = "Destroyed (>50%)"
-MAX_STRUCT = 4000
-LB_MAX_GRID = [1.6, 2.5]        # front length-to-breadth (realistic; default 4 over-elongates)
+MAX_STRUCT = 3000
+LB_MAX_GRID = [1.6, 2.5]        # front length-to-breadth searched (see docs/17)
 
 
 def _subsample(lat, lon, dest, cap, rng):
@@ -89,9 +89,12 @@ def build_fires(df, config):
 
 
 def faithful_grid():
-    """Model params + per-fire front controls (length-to-breadth and horizon extent).
-    Both the arrival-per-LB and the horizon threshold are cheap given the cached fields."""
-    return {**default_param_grid(), "lb_max": LB_MAX_GRID, "horizon_mult": [3.0, 6.0]}
+    """A compact grid over spotting, structure, and front controls, kept small so a
+    multi-fire leave-one-fire-out sweep is tractable. Spotting distance is included
+    because it is what carries fire across gaps in the non-compact fires (Camp, Tubbs)."""
+    return {"spotting_max_dist": [6.0, 12.0], "spotting_intensity": [3.0, 6.0],
+            "struct_radius_cells": [2.0, 3.0], "struct_base_p": [0.5, 0.9],
+            "lb_max": LB_MAX_GRID, "horizon_mult": [3.0, 6.0]}
 
 
 def _score(fire, arrivals, params):

@@ -1,6 +1,6 @@
 [
-  {"name": "Eaton",     "ignition_lat": 34.2050, "ignition_lon": -118.0880, "wind_speed_ms": 15.0, "wind_from_deg": 45.0,
-   "_note": "Eaton Canyon origin (verified); Santa Ana from NE; sustained ~15 m/s (gusts far higher)."},
-  {"name": "Palisades", "ignition_lat": 34.0725, "ignition_lon": -118.5425, "wind_speed_ms": 15.0, "wind_from_deg": 45.0,
-   "_note": "Temescal Ridge origin; Santa Ana from NE; sustained ~15 m/s."}
+  {"name": "Eaton",     "ignition_lat": 34.2050, "ignition_lon": -118.0880, "wind_speed_ms": 15.0, "wind_from_deg": 45.0},
+  {"name": "Palisades", "ignition_lat": 34.0725, "ignition_lon": -118.5425, "wind_speed_ms": 15.0, "wind_from_deg": 45.0},
+  {"name": "Camp",      "ignition_lat": 39.8103, "ignition_lon": -121.4372, "wind_speed_ms": 18.0, "wind_from_deg": 45.0},
+  {"name": "Tubbs",     "ignition_lat": 38.6280, "ignition_lon": -122.6060, "wind_speed_ms": 18.0, "wind_from_deg": 45.0}
 ]
