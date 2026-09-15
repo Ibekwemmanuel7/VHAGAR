@@ -69,7 +69,7 @@ def wind_from_deg_to_grid(from_deg: float) -> float:
 def fire_from_points(name, lat, lon, destroyed, ignition_lat, ignition_lon,
                      wind_speed_ms, wind_from_deg, cell_m: float = 30.0,
                      wind_ref_ms: float = 15.0, max_grid: int = 600,
-                     horizon=None) -> WuiFire:
+                     horizon=None, fuel_sampler=None, fuel_base: float = 1.0) -> WuiFire:
     """Assemble a faithful :class:`WuiFire` from real per-fire inputs.
 
     Builds a local metric grid over the fire's structures and ignition point (cell
@@ -98,7 +98,15 @@ def fire_from_points(name, lat, lon, destroyed, ignition_lat, ignition_lon,
     H, W = int(row.max()) + 1, int(col.max()) + 1
     s_row, s_col, i_row, i_col = row[:-1], col[:-1], int(row[-1]), int(col[-1])
 
-    ros = np.ones((H, W), dtype=np.float64)
+    if fuel_sampler is None:
+        ros = np.ones((H, W), dtype=np.float64)
+    else:
+        # sample FBFM40 codes at each cell's lon/lat and build a fuel-aware ROS field
+        from vhagar.models.fuels import ros_from_fuel_codes
+        cc, rr = np.meshgrid(np.arange(W), np.arange(H))
+        lon_g = lon0 + (x0 + cc * cell) / mx
+        lat_g = lat0 + (y0 + rr * cell) / my
+        ros = ros_from_fuel_codes(fuel_sampler(lon_g, lat_g), base=fuel_base)
     seed = np.zeros((H, W), dtype=bool)
     seed[i_row, i_col] = True
     if horizon is None:

@@ -253,3 +253,39 @@ result, not a workaround: with a single mean wind, the best-fit front is wider t
 textbook high-wind ellipse. LANDFIRE fuels + slope and the spotting layer are what would
 let a narrower, more physical front still reach the off-axis structures, and are the
 next refinements (plus extending to Camp/Tubbs, where spotting across gaps matters more).
+
+## Fuel-aware front (LANDFIRE FBFM40): wired, to cut the false-alarm rate
+
+The over-prediction (FAR ~0.48 on the mixed Eaton/Palisades fires) comes from the
+uniform ROS: the front spreads through roads, irrigated land, and water it could not
+really cross. `models/fuels.py` maps LANDFIRE **FBFM40** (Scott & Burgan) fuel codes to
+a relative spread factor; non-burnable codes (NB1 urban 91, NB3 agriculture 93, NB8
+water 98, NB9 barren 99) become **0**, so a fuel-aware front stops at fuel breaks and
+lets the structure-to-structure + spotting layers carry fire into the built area, the
+mechanism expected to bring FAR down.
+
+`fire_from_points(..., fuel_sampler=...)` takes a callable `(lon_grid, lat_grid) ->
+FBFM40 code grid` and builds the ROS with `ros_from_fuel_codes` (non-burnable -> 0).
+Wired and unit-tested; the real run needs a fuel clip:
+
+1. **Get a LANDFIRE FBFM40 clip for each fire's bounding box** (small, not the national
+   raster): landfire.gov data portal or the LFPS product-request API, layer "40 Scott
+   and Burgan Fire Behavior Fuel Models" (e.g. LF 2022 `FBFM40`).
+2. **Pass a rasterio sampler**, e.g.:
+
+   ```python
+   import numpy as np, rasterio
+   from rasterio.warp import transform as warp_transform
+   ds = rasterio.open("fbfm40_clip.tif")
+   def sampler(lon_g, lat_g):
+       xs, ys = warp_transform("EPSG:4326", ds.crs, lon_g.ravel(), lat_g.ravel())
+       codes = np.array(list(ds.sample(zip(xs, ys)))).reshape(lon_g.shape + (-1,))
+       return codes[..., 0]
+   fire = fire_from_points(..., fuel_sampler=sampler)
+   ```
+
+Then re-run the faithful calibration. Why this is the right design: urban (NB1) is
+non-burnable to the *wildland* front on purpose, intra-town spread is the
+structure-to-structure model's job, so the front reaches the town edge and the graph
+carries it in, keeping POD high while cutting the false alarms in the gaps. The code
+path is in place and tested; this is the next real-data run.
