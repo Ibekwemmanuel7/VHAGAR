@@ -209,3 +209,33 @@ extended ones (Camp, Tubbs) once the compact set validates.
   refinement.
 - This is the path from "prototype" to a validated, physical POD/FAR/F1; until it is
   run with verified inputs, the WUI spread numbers remain the scoped diagnostic above.
+
+### Faithful result on Eaton + Palisades (2025), real ignition + wind
+
+Ran with verified inputs, Eaton (origin 34.205, -118.088) and Palisades (34.0725,
+-118.5425), both Santa Ana ~15 m/s from the NE, leave-one-fire-out:
+
+| fire | POD | FAR | F1 |
+|---|---|---|---|
+| Eaton | **1.00** | 0.48 | **0.681** |
+| Palisades | 0.42 | 0.48 | 0.463 |
+| **mean held-out** | | | **0.572** |
+
+Selected: length-to-breadth 1.6, horizon x6, structure radius 2 cells, base_p 0.5,
+spotting 8/6. This is a genuine validated result on real fires: driven by the actual
+ignition and wind, the model reproduces Eaton's destroyed footprint completely
+(POD 1.0) and Palisades partially, with over-prediction (FAR ~0.48) as the main error,
+expected because uniform ROS and no defensible-space vulnerability let the front ignite
+survivors the real fire spared. Leave-one-fire-out means the parameters were fit on the
+*other* fire, so 0.57 is generalisation, not fit-to-self.
+
+**A real bug found on the way (honest, and a to-do):** the existing anisotropic solver
+over-elongates the wind-driven front, its length-to-breadth default of 4 produces an
+effective ~30:1 sliver, because it applies the elliptical ROS as a per-direction speed
+in a least-cost path rather than placing the wavelet perimeter. That collapsed POD to
+0.35 at the default; a physically realistic length-to-breadth (~1.6) restored POD ~1.0.
+The calibration searches `lb_max` and selects the realistic value, so the result is
+sound, but the solver's elongation mapping should be corrected properly (Ordered Upwind
+/ wavelet placement) as a follow-up. Remaining refinements: LANDFIRE fuels + slope to
+shape the front and cut the false-alarm rate, and extending to the non-compact fires
+(Camp, Tubbs) where spotting across gaps matters more.

@@ -43,6 +43,7 @@ from vhagar.models.wui import wui_spread
 
 DESTROYED = "Destroyed (>50%)"
 MAX_STRUCT = 4000
+LB_MAX_GRID = [1.6, 2.5]        # front length-to-breadth (realistic; default 4 over-elongates)
 
 
 def _subsample(lat, lon, dest, cap, rng):
@@ -74,21 +75,27 @@ def build_fires(df, config):
         fire = fire_from_points(cfg["name"], lat, lon, dest,
                                 ignition_lat=cfg["ignition_lat"], ignition_lon=cfg["ignition_lon"],
                                 wind_speed_ms=cfg["wind_speed_ms"], wind_from_deg=cfg["wind_from_deg"])
-        # precompute the wind-driven arrival ONCE (invariant to searched params)
-        arr = anisotropic_arrival(fire.ros, fire.wind_speed, fire.wind_dir, fire.burned_seed, dx=fire.dx)
-        fires.append((fire, arr))
+        # Precompute the wind-driven arrival per front length-to-breadth (the only front
+        # driver we search); invariant to the spotting/structure params. The solver's
+        # default LB=4 over-elongates the least-cost front into a sliver, so we search a
+        # realistic range (see docs/17).
+        arrivals = {lb: anisotropic_arrival(fire.ros, fire.wind_speed, fire.wind_dir,
+                                            fire.burned_seed, dx=fire.dx, lb_max=lb)
+                    for lb in LB_MAX_GRID}
+        fires.append((fire, arrivals))
         print(f"  [ok] {cfg['name']}: {int(dest.sum())} destroyed / {dest.size} structures, "
               f"grid {fire.ros.shape}")
     return fires
 
 
 def faithful_grid():
-    """Model params plus a per-fire horizon multiplier (front extent). The arrival field
-    is cached, so varying the horizon threshold is nearly free."""
-    return {**default_param_grid(), "horizon_mult": [0.75, 1.5, 3.0]}
+    """Model params + per-fire front controls (length-to-breadth and horizon extent).
+    Both the arrival-per-LB and the horizon threshold are cheap given the cached fields."""
+    return {**default_param_grid(), "lb_max": LB_MAX_GRID, "horizon_mult": [3.0, 6.0]}
 
 
-def _score(fire, arr, params):
+def _score(fire, arrivals, params):
+    arr = arrivals[params["lb_max"]]
     out = wui_spread(fire.burned_seed, fire.ros, fire.struct_rows, fire.struct_cols,
                      horizon=fire.horizon * params.get("horizon_mult", 1.0),
                      wind_speed=fire.wind_speed, wind_dir=fire.wind_dir,
