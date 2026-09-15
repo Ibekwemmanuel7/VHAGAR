@@ -1,0 +1,34 @@
+[
+  {
+    "name": "Eaton",
+    "ignition_lat": 34.1928,
+    "ignition_lon": -118.1042,
+    "wind_speed_ms": 20.0,
+    "wind_from_deg": 45.0,
+    "_note": "PLACEHOLDER values (approx Eaton Canyon origin; NE Santa Ana). Replace ignition_lat/lon with the verified CAL FIRE origin and wind_speed_ms/wind_from_deg with a representative RAWS reading during the main run."
+  },
+  {
+    "name": "Palisades",
+    "ignition_lat": 34.0782,
+    "ignition_lon": -118.5254,
+    "wind_speed_ms": 22.0,
+    "wind_from_deg": 45.0,
+    "_note": "PLACEHOLDER; verify origin + RAWS wind."
+  },
+  {
+    "name": "Tubbs",
+    "ignition_lat": 38.6098,
+    "ignition_lon": -122.8430,
+    "wind_speed_ms": 25.0,
+    "wind_from_deg": 45.0,
+    "_note": "PLACEHOLDER; Diablo (NE) wind; verify origin + RAWS wind."
+  },
+  {
+    "name": "Camp",
+    "ignition_lat": 39.8103,
+    "ignition_lon": -121.4347,
+    "wind_speed_ms": 22.0,
+    "wind_from_deg": 45.0,
+    "_note": "PLACEHOLDER (approx Pulga origin; Jarbo Gap NE wind); verify origin + RAWS wind."
+  }
+]

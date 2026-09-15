@@ -256,6 +256,7 @@ def wui_spread(
     wind_speed: float = 0.0, wind_dir: float = 0.0, dx: float = 1.0,
     fireline_intensity=None, spotting_max_dist: float = 6.0, spotting_intensity: float = 3.0,
     struct_radius_cells: float = 3.0, struct_base_p: float = 0.6,
+    anisotropic: bool = False, arrival=None,
 ) -> dict:
     """End-to-end WUI spread: wildland front -> spot ignitions -> structure loss.
 
@@ -266,12 +267,25 @@ def wui_spread(
     per-structure ``reached`` / ``spot_ignited`` / ``destroyed`` boolean masks, and
     the ``spot_prob`` field. ``fireline_intensity`` (``[H, W]``, defaults to the
     ROS field) drives brand emission from the current front ring.
+
+    With ``anisotropic=True`` the wildland front is solved with the wind-driven
+    elliptical solver (:func:`vhagar.models.spread.anisotropic_arrival`) using
+    ``wind_speed``/``wind_dir``, so the front elongates downwind, essential for real
+    fires whose destroyed footprint is set by wind, not radial distance. The default
+    (isotropic fast marching) is kept for the no-wind case and existing callers.
     """
-    from vhagar.models.spread import fast_marching_arrival
+    from vhagar.models.spread import anisotropic_arrival, fast_marching_arrival
 
     burned_now = np.asarray(burned_now, dtype=bool)
     ros = np.asarray(ros, dtype=np.float64)
-    arrival = fast_marching_arrival(ros, burned_now, dx=dx)
+    if arrival is not None:
+        # caller-supplied precomputed field: the arrival solve is invariant to the
+        # spotting/structure parameters, so a calibration sweep computes it once.
+        arrival = np.asarray(arrival, dtype=np.float64)
+    elif anisotropic:
+        arrival = anisotropic_arrival(ros, wind_speed, wind_dir, burned_now, dx=dx)
+    else:
+        arrival = fast_marching_arrival(ros, burned_now, dx=dx)
     rows = np.asarray(struct_rows, dtype=np.int64)
     cols = np.asarray(struct_cols, dtype=np.int64)
 

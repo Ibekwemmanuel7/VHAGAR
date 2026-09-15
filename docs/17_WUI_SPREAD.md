@@ -163,3 +163,49 @@ calibration (per-fire ignition/perimeter + wind + fuels driving the arrival-time
 front, plus the spotting layer) is needed to add. The scoped summary is written to
 `dins_wui_scoped_summary.json`; the seed heuristic and subsampling make it a
 diagnostic, not a headline metric.
+
+## Faithful calibration (real ignition + wind): the harness
+
+`scripts/dins_wui_faithful_calibration.py` runs the real version: it drives the WUI
+model with each fire's **actual ignition point and wind**, so the wind-driven
+arrival-time front (`wui_spread(anisotropic=True)`) decides which structures the fire
+reaches, then spotting + structure-to-structure fill in the rest. It does a
+leave-one-fire-out grid search over the spotting/structure params **and** a per-fire
+front-extent (horizon) multiplier, and reports held-out POD/FAR/F1. The wind-driven
+arrival field is invariant to the searched params, so it is solved once per fire and
+reused (`arrival=` cache), which is what makes the sweep tractable on 600x600 grids.
+
+### The few numbers you supply per fire
+
+A JSON config (`dins_fires_config.example.json` is a template) with, per fire:
+
+- `ignition_lat` / `ignition_lon` - the fire's origin. Source: the CAL FIRE incident
+  record / IRWIN / IR perimeter first-detection, or the well-documented origin for
+  major fires.
+- `wind_speed_ms`, `wind_from_deg` - a representative wind during the main run.
+  Source: the nearest **RAWS** station (mesowest / RAWS archive) for the fire's peak
+  run hours, or ERA5/HRRR at the ignition cell.
+
+Structures and destroyed/survived labels come from DINS by `* Incident Name`. Then:
+
+```
+python scripts/dins_wui_faithful_calibration.py \
+    POSTFIRE_MASTER_DATA_SHARE_*.csv dins_fires_config.json \
+    --out dins_wui_faithful_summary.json
+```
+
+Start with the compact fires where the signal is cleanest (Eaton, Palisades), then add
+extended ones (Camp, Tubbs) once the compact set validates.
+
+### Honest tuning notes
+
+- The example config values are **placeholders**; replace them with verified ignition
+  and RAWS wind before quoting any result.
+- With uniform ROS the front is a homogeneous wind-driven ellipse. At high normalised
+  wind the ellipse runs narrow, so if POD comes out low, widen the front by lowering
+  the wind normalisation (`wind_ref_ms` in `fire_from_points`, default 15 m/s) or lean
+  on the horizon multiplier / spotting to cover off-axis structures. LANDFIRE fuels and
+  slope (not yet wired) would shape the front more realistically and are the next
+  refinement.
+- This is the path from "prototype" to a validated, physical POD/FAR/F1; until it is
+  run with verified inputs, the WUI spread numbers remain the scoped diagnostic above.

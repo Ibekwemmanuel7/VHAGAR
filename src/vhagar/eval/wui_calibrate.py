@@ -40,7 +40,76 @@ __all__ = [
     "score_fire",
     "grid_search",
     "calibrate_lofo",
+    "wind_from_deg_to_grid",
+    "fire_from_points",
 ]
+
+
+def wind_from_deg_to_grid(from_deg: float) -> float:
+    """Meteorological wind direction (degrees FROM, 0=N, clockwise) -> grid radians.
+
+    Wind reported as "from" (e.g. 270 = a west wind) blows *toward* the opposite
+    bearing. Convert to the grid ``atan2(drow, dcol)`` heading the anisotropic solver
+    uses, on a grid whose columns increase east and rows increase north.
+
+    >>> import numpy as np
+    >>> # a west wind (from 270) blows toward the east: grid heading ~ 0 rad (+col)
+    >>> bool(abs(wind_from_deg_to_grid(270.0) - 0.0) < 1e-9)
+    True
+    >>> # a south wind (from 180) blows toward the north: heading ~ +pi/2 (+row)
+    >>> bool(abs(wind_from_deg_to_grid(180.0) - np.pi / 2) < 1e-9)
+    True
+    """
+    toward = np.radians((from_deg + 180.0) % 360.0)
+    d_east = np.sin(toward)      # +col
+    d_north = np.cos(toward)     # +row
+    return float(np.arctan2(d_north, d_east))
+
+
+def fire_from_points(name, lat, lon, destroyed, ignition_lat, ignition_lon,
+                     wind_speed_ms, wind_from_deg, cell_m: float = 30.0,
+                     wind_ref_ms: float = 15.0, max_grid: int = 600,
+                     horizon=None) -> WuiFire:
+    """Assemble a faithful :class:`WuiFire` from real per-fire inputs.
+
+    Builds a local metric grid over the fire's structures and ignition point (cell
+    size grows if needed to keep the grid <= ``max_grid`` per side), places a
+    single ignition seed, uses a uniform rate-of-spread field (LANDFIRE fuels can
+    replace it later), normalises ``wind_speed_ms`` to [0, 1] against ``wind_ref_ms``
+    and converts the meteorological ``wind_from_deg`` to the grid heading. Sets
+    ``anisotropic=True`` so the wind-driven front is used. ``horizon`` defaults to the
+    median ignition-to-destroyed distance (in cells), sizing the front to the observed
+    destroyed extent. Rows increase north, columns increase east.
+    """
+    lat = np.asarray(lat, dtype=np.float64)
+    lon = np.asarray(lon, dtype=np.float64)
+    destroyed = np.asarray(destroyed, dtype=bool)
+    lat0 = float(np.mean(np.append(lat, ignition_lat)))
+    lon0 = float(np.mean(np.append(lon, ignition_lon)))
+    mx = np.cos(np.radians(lat0)) * 111_320.0
+    my = 110_540.0
+    xs = (np.append(lon, ignition_lon) - lon0) * mx
+    ys = (np.append(lat, ignition_lat) - lat0) * my
+    span = max(xs.max() - xs.min(), ys.max() - ys.min(), 1.0)
+    cell = max(cell_m, span / max_grid)                 # adaptive to cap grid size
+    x0, y0 = xs.min(), ys.min()
+    col = np.round((xs - x0) / cell).astype(np.int64)   # last entry = ignition
+    row = np.round((ys - y0) / cell).astype(np.int64)   # rows increase north
+    H, W = int(row.max()) + 1, int(col.max()) + 1
+    s_row, s_col, i_row, i_col = row[:-1], col[:-1], int(row[-1]), int(col[-1])
+
+    ros = np.ones((H, W), dtype=np.float64)
+    seed = np.zeros((H, W), dtype=bool)
+    seed[i_row, i_col] = True
+    if horizon is None:
+        dd = np.hypot(s_row[destroyed] - i_row, s_col[destroyed] - i_col)
+        horizon = float(np.median(dd)) if dd.size else float(max(H, W))
+    return WuiFire(
+        name=name, ros=ros, burned_seed=seed, struct_rows=s_row, struct_cols=s_col,
+        truth_destroyed=destroyed, wind_speed=float(np.clip(wind_speed_ms / wind_ref_ms, 0.0, 1.0)),
+        wind_dir=wind_from_deg_to_grid(wind_from_deg), horizon=horizon, dx=1.0,
+        anisotropic=True,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +133,7 @@ class WuiFire:
     wind_dir: float = 0.0
     horizon: float = 12.0
     dx: float = 1.0
+    anisotropic: bool = False
 
     def __post_init__(self):
         n = np.asarray(self.struct_rows).size
@@ -97,6 +167,7 @@ def predict_fire(fire: WuiFire, params: dict) -> np.ndarray:
         spotting_intensity=params["spotting_intensity"],
         struct_radius_cells=params["struct_radius_cells"],
         struct_base_p=params["struct_base_p"],
+        anisotropic=fire.anisotropic,
     )
     return out["destroyed"]
 

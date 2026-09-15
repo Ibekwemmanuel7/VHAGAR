@@ -89,6 +89,19 @@ def test_wui_spread_end_to_end():
     assert out["arrival"].shape == (H, W)
 
 
+def test_wui_spread_anisotropic_front_elongates_downwind():
+    H = W = 61
+    ros = np.ones((H, W))
+    burned = np.zeros((H, W), bool)
+    burned[30, 30] = True
+    # structures equidistant downwind (col 45) and upwind (col 15) of the ignition
+    out = wui.wui_spread(burned, ros, [30, 30], [45, 15], horizon=8.0,
+                         wind_speed=1.0, wind_dir=0.0, anisotropic=True,
+                         struct_radius_cells=1, struct_base_p=0.9)
+    arr = out["arrival"]
+    assert arr[30, 45] < arr[30, 15]      # wind-driven front reaches downwind far sooner
+
+
 def test_score_structures_confusion():
     pred = np.array([True, True, False, False])
     truth = np.array([True, False, True, False])

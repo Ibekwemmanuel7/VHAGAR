@@ -84,3 +84,31 @@ def test_calibrate_lofo_runs_and_generalizes():
 def test_calibrate_lofo_requires_two_fires():
     with pytest.raises(ValueError):
         wc.calibrate_lofo(_fires()[:1])
+
+
+def test_wind_from_deg_to_grid():
+    # west wind (from 270) -> toward east -> +col -> grid heading 0
+    assert abs(wc.wind_from_deg_to_grid(270.0) - 0.0) < 1e-9
+    # south wind (from 180) -> toward north -> +row -> +pi/2
+    assert abs(wc.wind_from_deg_to_grid(180.0) - np.pi / 2) < 1e-9
+
+
+def test_fire_from_points_builds_faithful_wuifire():
+    # tiny cluster of structures with an ignition point just west of them
+    lat = np.array([34.190, 34.191, 34.192, 34.193])
+    lon = np.array([-118.130, -118.129, -118.128, -118.127])
+    destroyed = np.array([True, True, False, False])
+    fire = wc.fire_from_points("Test", lat, lon, destroyed,
+                               ignition_lat=34.1905, ignition_lon=-118.131,
+                               wind_speed_ms=7.5, wind_from_deg=270.0, cell_m=30.0)
+    assert fire.anisotropic is True
+    assert fire.struct_rows.size == 4 and fire.truth_destroyed.tolist() == [True, True, False, False]
+    assert abs(fire.wind_speed - 0.5) < 1e-9              # 7.5 / 15 ref
+    assert fire.burned_seed.any()                          # ignition seeded
+    H, W = fire.ros.shape
+    assert (fire.struct_rows >= 0).all() and (fire.struct_rows < H).all()
+    assert (fire.struct_cols >= 0).all() and (fire.struct_cols < W).all()
+    # a WuiFire this shape runs through the model end to end
+    pred = wc.predict_fire(fire, dict(zip(wc._PARAM_KEYS,
+                                          (6.0, 3.0, 3.0, 0.7), strict=True)))
+    assert pred.shape == fire.truth_destroyed.shape
