@@ -64,3 +64,32 @@ It **isn't**: calibrated (the vulnerability curve is a default until fit to DINS
 nor a replacement for a production CAT platform's exposure/financial engine
 (insurance terms, reinsurance structures, secondary uncertainty). Those are the
 financial-module next steps; the science-to-loss spine is here.
+
+## Validated on real CAL FIRE DINS loss (2013-2025)
+
+`scripts/dins_t5_loss.py` runs the T5 tier on the real DINS export (structures
+inspected in/near California wildfire perimeters since 2013, with a damage class and
+an assessed parcel value; 132,522 records, 70,390 destroyed). Ground-up structure
+loss per fire = winsorized assessed value of destroyed structures; empirical annual
+rate = one per the 13-year record span. Result:
+
+| metric | value |
+|---|---|
+| structures destroyed (record) | 70,390 across 284 fires |
+| total ground-up structure loss | ~$23.0B |
+| **Average Annual Loss** | **~$1.77B/yr** (Monte-Carlo AEP check: ~$1.76B/yr) |
+| single-fire loss at ~5-yr / ~10-yr return period | ~$2.6B / ~$4.2B |
+
+Top fires match reality (Camp 18,804 destroyed / $4.24B, Palisades 6,845 / $4.24B,
+Tubbs 5,656 / $3.04B, Eaton 9,419 / $1.89B), and the analytic AAL and the
+independent Monte-Carlo aggregate-loss AAL agree to ~0.5%, an internal consistency
+check on the pipeline.
+
+Two honest data-handling notes, both surfaced by the run: the raw "Assessed Improved
+Value" column has extreme erroneous parcels (before winsorizing, Glass showed $15.8B
+and Holy $4.3B from just 24 structures), so values are winsorized to [1st, 99th]
+percentile, this is the standard exposure-data-quality problem CAT modelling must
+handle, not raw assessor data. And the rate is a record-based empirical estimate, not
+a stochastic event-set frequency model. The DINS CSV itself is not committed (60 MB);
+download it from the CA Open Data portal (docs/17). The run writes
+`dins_t5_summary.json`.

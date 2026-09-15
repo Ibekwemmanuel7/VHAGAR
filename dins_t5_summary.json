@@ -1,0 +1,75 @@
+{
+  "record_years": 13,
+  "record_span": [
+    2013,
+    2025
+  ],
+  "n_fires_with_loss": 284,
+  "total_destroyed": 70390,
+  "total_structure_loss_usd": 23009984967.0,
+  "aal_usd_per_yr": 1769998843.6153843,
+  "aep_aal_check_usd_per_yr": 1762122644.17192,
+  "oep_single_fire_loss_at_return_period_usd": {
+    "2yr": 421330355.0,
+    "5yr": 2616945772.0,
+    "10yr": 4238670679.0,
+    "20yr": 4238670679.0
+  },
+  "winsorize": {
+    "lo": 5000.0,
+    "hi": 6167749.0,
+    "median": 175125.0
+  },
+  "top_fires": [
+    {
+      "fire": "Camp",
+      "destroyed": 18804.0,
+      "loss_usd": 4243444388.0
+    },
+    {
+      "fire": "Palisades",
+      "destroyed": 6845.0,
+      "loss_usd": 4238670679.0
+    },
+    {
+      "fire": "Tubbs",
+      "destroyed": 5656.0,
+      "loss_usd": 3040667001.0
+    },
+    {
+      "fire": "Glass",
+      "destroyed": 1528.0,
+      "loss_usd": 2616945772.0
+    },
+    {
+      "fire": "Eaton",
+      "destroyed": 9419.0,
+      "loss_usd": 1893834501.0
+    },
+    {
+      "fire": "Woolsey",
+      "destroyed": 1643.0,
+      "loss_usd": 849978215.0
+    },
+    {
+      "fire": "Atlas",
+      "destroyed": 787.0,
+      "loss_usd": 615130725.0
+    },
+    {
+      "fire": "Nuns",
+      "destroyed": 1367.0,
+      "loss_usd": 606037626.0
+    },
+    {
+      "fire": "LNU Lightning Cmplx",
+      "destroyed": 1491.0,
+      "loss_usd": 474522933.0
+    },
+    {
+      "fire": "North Complex",
+      "destroyed": 2352.0,
+      "loss_usd": 421330355.0
+    }
+  ]
+}

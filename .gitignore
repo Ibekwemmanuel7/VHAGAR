@@ -42,3 +42,6 @@ serve/.cache/
 !serve/demo/detections.parquet
 
 demo/
+
+# CAL FIRE DINS raw export (large, download locally)
+POSTFIRE_MASTER_DATA_SHARE*.csv
