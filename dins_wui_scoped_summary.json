@@ -1,0 +1,82 @@
+{
+  "folds": [
+    {
+      "name": "Camp",
+      "radius_m": 120.0,
+      "base_p": 0.8,
+      "pod": 0.01511144692104269,
+      "far": 0.25925925925925924,
+      "f1": 0.029618659755646058,
+      "n": 3361,
+      "tp": 40,
+      "fp": 14,
+      "fn": 2607
+    },
+    {
+      "name": "Eaton",
+      "radius_m": 120.0,
+      "base_p": 0.8,
+      "pod": 0.9076470588235294,
+      "far": 0.3818108974358974,
+      "f1": 0.7354623450905624,
+      "n": 3411,
+      "tp": 1543,
+      "fp": 953,
+      "fn": 157
+    },
+    {
+      "name": "Palisades",
+      "radius_m": 120.0,
+      "base_p": 0.8,
+      "pod": 0.3701333333333333,
+      "far": 0.3656307129798903,
+      "f1": 0.46749747389693497,
+      "n": 3401,
+      "tp": 694,
+      "fp": 400,
+      "fn": 1181
+    },
+    {
+      "name": "Tubbs",
+      "radius_m": 120.0,
+      "base_p": 0.8,
+      "pod": 0.04546910022414345,
+      "far": 0.08387096774193549,
+      "f1": 0.08663819402074437,
+      "n": 3336,
+      "tp": 142,
+      "fp": 13,
+      "fn": 2981
+    },
+    {
+      "name": "North Complex",
+      "radius_m": 120.0,
+      "base_p": 0.8,
+      "pod": 0.026410026857654433,
+      "far": 0.21333333333333335,
+      "f1": 0.051104374187960155,
+      "n": 3087,
+      "tp": 59,
+      "fp": 16,
+      "fn": 2175
+    },
+    {
+      "name": "Valley",
+      "radius_m": 120.0,
+      "base_p": 0.8,
+      "pod": 0.001027221366204417,
+      "far": 0.6,
+      "f1": 0.0020491803278688526,
+      "n": 2410,
+      "tp": 2,
+      "fp": 3,
+      "fn": 1945
+    }
+  ],
+  "mean_heldout_f1": 0.22872837121328615,
+  "selected_radius_m": 120.0,
+  "selected_base_p": 0.8,
+  "selected_f1": 0.22872837121328615,
+  "n_fires": 6,
+  "caveat": "scoped: structure-to-structure propagation only, no wildland front / wind; seed = destroyed nearest cluster centroid; scored on non-seed structures; large fires stratified-subsampled."
+}

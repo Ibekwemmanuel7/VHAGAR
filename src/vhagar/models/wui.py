@@ -224,22 +224,18 @@ def structure_to_structure_spread(
     if pairs.size == 0:
         return ignited
     # Precompute per-pair ignition probability (symmetric in distance, but the
-    # directional boost depends on which end is burning, so keep both directions).
+    # directional boost depends on which end is burning, so keep both directed edges).
+    # Vectorised so it scales to tens of thousands of structures.
     s = float(np.clip(wind_speed, 0.0, 1.0))
     decay_scale = max(radius_cells, 1e-6)
-
-    def pair_prob(i, j):
-        dx = cols[j] - cols[i]
-        dy = rows[j] - rows[i]
-        dist = np.hypot(dx, dy)
-        ang = np.arctan2(dy, dx)
-        align = np.clip(np.cos(ang - wind_dir), 0.0, 1.0) ** focus
-        dirw = (1.0 - s) + s * align
-        return base_p * np.exp(-dist / decay_scale) * dirw
-
     a = np.concatenate([pairs[:, 0], pairs[:, 1]])
     b = np.concatenate([pairs[:, 1], pairs[:, 0]])
-    pab = np.array([pair_prob(int(i), int(j)) for i, j in zip(a, b, strict=True)])
+    dx = cols[b] - cols[a]
+    dy = rows[b] - rows[a]
+    dist = np.hypot(dx, dy)
+    align = np.clip(np.cos(np.arctan2(dy, dx) - wind_dir), 0.0, 1.0) ** focus
+    dirw = (1.0 - s) + s * align
+    pab = base_p * np.exp(-dist / decay_scale) * dirw
 
     for _ in range(max_rounds):
         src_burning = ignited[a]

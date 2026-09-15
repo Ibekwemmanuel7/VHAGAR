@@ -131,3 +131,35 @@ fires) so the leave-one-fire-out estimate is meaningful.
 Report `mean_heldout_f1`, plus per-fold POD/FAR, as the honest headline. Until that
 run exists, the model's parameters remain physically-plausible defaults, and any
 rendered output must say "uncalibrated prototype."
+
+## Scoped result on real DINS (structure-network only, 2026-09-15)
+
+`scripts/dins_wui_scoped_calibration.py` runs a deliberately partial calibration on
+the real DINS export: the **structure-to-structure conflagration only**, with no
+wildland front, no wind, and the ignition core proxied by the destroyed structures
+nearest the cluster centroid (scored on non-seed structures; large fires
+stratified-subsampled). It is not a full physical calibration, it isolates the
+structure-network component to see how much of the destroyed/survived pattern
+proximity alone explains.
+
+Result over 6 large fires (leave-one-fire-out, selected radius 120 m, base_p 0.8):
+**mean held-out F1 ~0.23, and strongly bimodal by fire geometry:**
+
+| fire | POD | FAR | F1 | character |
+|---|---|---|---|---|
+| Eaton | 0.91 | 0.38 | **0.735** | dense compact urban WUI |
+| Palisades | 0.37 | 0.37 | 0.467 | dense hillside WUI |
+| Tubbs | 0.05 | 0.08 | 0.087 | jumped Hwy 101 (discontinuous) |
+| North Complex | 0.03 | 0.21 | 0.051 | large rural |
+| Camp | 0.02 | 0.26 | 0.030 | linear ridge burn (Paradise) |
+| Valley | 0.00 | 0.60 | 0.002 | large rural |
+
+The honest reading: proximity-based structure-to-structure spread reproduces
+**compact urban conflagrations** well (Eaton 0.74, POD 0.91) but fails on
+**spatially extended or discontinuous** fires, where the destroyed footprint is set
+by the wildland front, wind, and long-range spotting, not building adjacency. That is
+the expected, informative negative, and it quantifies exactly what the faithful
+calibration (per-fire ignition/perimeter + wind + fuels driving the arrival-time
+front, plus the spotting layer) is needed to add. The scoped summary is written to
+`dins_wui_scoped_summary.json`; the seed heuristic and subsampling make it a
+diagnostic, not a headline metric.
