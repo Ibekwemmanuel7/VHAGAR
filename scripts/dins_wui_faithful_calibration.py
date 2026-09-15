@@ -57,6 +57,21 @@ def _subsample(lat, lon, dest, cap, rng):
     return lat[keep], lon[keep], dest[keep]
 
 
+def _fuel_sampler(path):
+    """Build a (lon_grid, lat_grid) -> FBFM40 code-grid sampler over a LANDFIRE clip."""
+    import rasterio
+    from rasterio.warp import transform as warp_transform
+
+    ds = rasterio.open(path)
+
+    def sampler(lon_g, lat_g):
+        xs, ys = warp_transform("EPSG:4326", ds.crs, lon_g.ravel().tolist(), lat_g.ravel().tolist())
+        codes = np.array(list(ds.sample(zip(xs, ys, strict=True)))).reshape(lon_g.shape + (-1,))
+        return codes[..., 0]
+
+    return sampler
+
+
 def build_fires(df, config):
     dmg = df["* Damage"].astype(str).str.strip()
     df = df.assign(_destroyed=dmg.eq(DESTROYED))
@@ -72,9 +87,11 @@ def build_fires(df, config):
         dest = d["_destroyed"].to_numpy()
         ok = np.isfinite(lat) & np.isfinite(lon)
         lat, lon, dest = _subsample(lat[ok], lon[ok], dest[ok], MAX_STRUCT, rng)
+        fs = _fuel_sampler(cfg["fuel_tif"]) if cfg.get("fuel_tif") else None
         fire = fire_from_points(cfg["name"], lat, lon, dest,
                                 ignition_lat=cfg["ignition_lat"], ignition_lon=cfg["ignition_lon"],
-                                wind_speed_ms=cfg["wind_speed_ms"], wind_from_deg=cfg["wind_from_deg"])
+                                wind_speed_ms=cfg["wind_speed_ms"], wind_from_deg=cfg["wind_from_deg"],
+                                fuel_sampler=fs)
         # Precompute the wind-driven arrival per front length-to-breadth (the only front
         # driver we search); invariant to the spotting/structure params. The solver's
         # default LB=4 over-elongates the least-cost front into a sliver, so we search a
@@ -83,8 +100,9 @@ def build_fires(df, config):
                                             fire.burned_seed, dx=fire.dx, lb_max=lb)
                     for lb in LB_MAX_GRID}
         fires.append((fire, arrivals))
+        tag = "fuel-aware" if fs is not None else "uniform ROS"
         print(f"  [ok] {cfg['name']}: {int(dest.sum())} destroyed / {dest.size} structures, "
-              f"grid {fire.ros.shape}")
+              f"grid {fire.ros.shape}, {tag}")
     return fires
 
 
