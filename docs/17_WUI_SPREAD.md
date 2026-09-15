@@ -87,3 +87,47 @@ no structure-construction/defensible-space vulnerability yet (only geometry and
 wind), no fitted spotting distribution, and no DINS-fit parameters. Those are the
 next steps, and they're exactly the "shape the next generation of WUI spread"
 mandate that motivated building this.
+
+## Calibration harness (`eval/wui_calibrate.py`)
+
+The harness turns the prototype into a validated model. A `WuiFire` bundles one
+fire's inputs (ROS field, ignition seed, wind, structure set) plus its DINS-derived
+`truth_destroyed`. Given a list of fires:
+
+```python
+from vhagar.eval.wui_calibrate import calibrate_lofo, default_param_grid
+report = calibrate_lofo(fires, default_param_grid())
+print(report["mean_heldout_f1"], report["selected"])
+```
+
+`calibrate_lofo` does **leave-one-fire-out**: for each fire it grid-searches the
+spotting/structure parameters on all *other* fires, then scores the held-out fire,
+so `mean_heldout_f1` measures generalisation, not fit-to-self. `selected` is the
+parameter set to deploy (searched over all fires). This is the same leakage-safe
+discipline as T2/T3, applied to structure loss.
+
+### Data you need (download locally; not bundled)
+
+1. **CAL FIRE DINS (Damage Inspection Program).** Statewide structure-damage points
+   with a `DAMAGE` class and lat/lon, published on the CAL FIRE / California open
+   data portal (search "DINS Damage Inspection"). Filter to the fire(s) of interest.
+   `eval.wui.load_dins` reads the CSV; "Destroyed (>50%)" is the binary positive.
+2. **Building footprints** for the same area, to define the structure set the model
+   places and destroys, either Microsoft Global ML Building Footprints or FEMA USA
+   Structures (both open). Use the footprint centroids as the structures.
+3. **A fire ignition/perimeter and weather** to seed the ROS field and wind, e.g.
+   from your T1 detections or an agency perimeter, plus LANDFIRE fuels for ROS.
+
+### Assembling a `WuiFire`
+
+For each calibration fire: build the analysis grid, compute the ROS field (LANDFIRE
+fuels + wind + slope via `models.spread.rate_of_spread`), set the ignition
+`burned_seed`, snap footprint centroids to grid `(struct_rows, struct_cols)`, load
+DINS and associate its destroyed points to your structures with
+`eval.wui.match_points`, and set `truth_destroyed` on the aligned set. Then run
+`calibrate_lofo`. Pick 3+ WUI fires with good DINS coverage (e.g. recent California
+fires) so the leave-one-fire-out estimate is meaningful.
+
+Report `mean_heldout_f1`, plus per-fold POD/FAR, as the honest headline. Until that
+run exists, the model's parameters remain physically-plausible defaults, and any
+rendered output must say "uncalibrated prototype."
