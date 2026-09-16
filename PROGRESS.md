@@ -1,9 +1,71 @@
 # VHAGAR progress tracker
 
-Last updated: 2026-09-01. Keep this file current. It is the single place to look
+Last updated: 2026-09-16. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
-## Latest: T2 Prithvi re-run reproduced through the new head-to-head harness (2026-09-01)
+## T4 batch event-catalog runner (CAT-style EP aggregation) (2026-09-16)
+
+Built the batch catalogue harness (`eval/catalog.py`, CLI `t4-catalog`, docs/19) that
+runs many synthetic ignitions across fuel (grass/shrub/timber/mixed) and wind scenarios
+through the T4 spread core and the T5 loss chain, in parallel, and aggregates to an
+EP curve (AAL + OEP return-period losses). Directly targets the Aon JD lines on
+"running large catalogs of simulated events" and "throughput of spread simulations."
+Results are invariant to `--workers` (every event seeded; a test asserts it), fuel
+drives spread (grass ~884 ha vs timber ~26 ha mean; test asserts grass>timber). 300-event
+run: mean ~390 ha, ~0.3 s/event, AAL ~$13M/yr SYNTHETIC, OEP $6M (10-yr) -> $15.5M (250-yr).
+Synthetic mode: generated fuels/drivers. **Real mode** (`--real-dins/--dins-csv/--fuel-tif`)
+runs the 4 CAL FIRE DINS fires on REAL ignitions + RAWS wind + real DINS structures +
+real parcel assessed values + real LANDFIRE fuels, and reports modeled-vs-actual destroyed
++ loss (verification). Real uniform-ROS run: modeled ~$6.1B vs actual ~$13.1B (fixed global
+WUI params, not per-fire LOFO; fuel-aware under-predicts more, the documented Camp/urban
+negative). 8 new tests pass, ruff clean. (Sandbox Python 3.10 -> pre-existing datetime.UTC
+collection errors remain, unrelated, green on 3.11 CI.)
+
+## Live tracking: Dome Fire, Yosemite (T4 upgrade applied) (2026-09-16)
+
+Applied the fuel-aware anisotropic T4 spread forecast to a live wildland ignition, the
+**Dome Fire** north of Wawona Dome, Yosemite NP (CAL FIRE `caynp-dome` / InciWeb `caynp-dome`).
+Official: started 2026-09-15 13:18, 40 ac, Mariposa Co., NPS, cause under investigation,
+moderate ROS, "moving away from the community of Wawona." Ignition 37.556325, -119.614049.
+
+Forecast (LANDFIRE FBFM40 90 m grid, **real Open-Meteo wind at the ignition**, lb_max 2.5,
+head ROS ~6 m/min grass-equiv scaled by fuel). Wind on 2026-09-16: light easterly overnight
+(FROM ~94 deg, 2.8 m/s) veering to the daytime burn-period SW-WSW (FROM ~213 deg, 5.2-5.6 m/s,
+11:00-17:00 PDT); the afternoon SW wind is the spread driver used. Result: head runs NE downwind
+~0.8 / 1.7 / 3.6 km at H+6/12/24 h, projected footprint ~60 / 276 / 1121 ac. **Wawona (4.2 km SW,
+upwind) is on the backing flank, arrival ~433 h, not reached within 24 h**, independently
+reproducing CAL FIRE's "moving away from Wawona." Figure: `outputs/dome_fire_forecast.png`. This
+is a genuine forward forecast (no perimeter to fit), so it is a directional/relative projection,
+not a metered perimeter.
+
+## Latest: WUI spread + T5 catastrophe loss (validated on real DINS) (2026-09-16)
+
+Built out the WUI/loss arc for the Aon "Wildfire Spread Modeler" role and validated it on
+real data. Commits pushed through e4c67e8; a174f4d local.
+
+- **T5 catastrophe-loss tier** (`models/loss.py`): hazard->exposure->vulnerability->loss->EP.
+  Vulnerability damage-ratio curve, ground-up + binary structure loss, AAL, OEP (Poisson
+  closed form) and AEP (Monte-Carlo). Validated on the full **CAL FIRE DINS** record
+  (`scripts/dins_t5_loss.py`, 70,390 destroyed structures, 284 fires): total ground-up loss
+  ~$23.0B, **AAL ~$1.77B/yr** (MC AEP AAL agrees to ~0.5%); reproduces Camp/Palisades/Tubbs.
+  Caught + handled the assessor-value outlier problem (winsorize). docs/18.
+- **WUI T4 extension** (`models/wui.py`): ember spotting kernel + structure-to-structure
+  conflagration + exposure rasterization on the arrival-time core; `eval/wui.py` scores vs
+  DINS destroyed structures (POD/FAR/F1). Tests + docs/17.
+- **DINS calibration harnesses** (`eval/wui_calibrate.py`, scripts): scoped (structure-only)
+  and **faithful** (real ignition + wind driving the anisotropic front). Faithful LOFO on
+  Eaton/Palisades/Camp/Tubbs: **mean held-out F1 0.75** (Tubbs 0.97, Camp 0.89), the
+  validated headline. Tubbs' Hwy-101 jump reproduced.
+- **Fuels (honest negative)**: real LANDFIRE LF2025 FBFM40 CONUS + windowed sampler +
+  edge-seeding did NOT cut FAR; F1 fell 0.75->0.41 because the fuel-blocked front can't enter
+  urban or jump non-fuel gaps (Camp's canyon, Tubbs' Hwy 101) that real fires cross by
+  long-range spotting. Documented as a real limitation; next step is a stronger
+  long-range-spotting / built-environment spread model, not just fuels. docs/17.
+
+Open: LANDFIRE fuels raster (LF2025_FBFM40_CONUS.zip) is in the repo root, large, gitignored.
+DINS CSV (POSTFIRE_MASTER_DATA_SHARE*.csv) also gitignored. `a174f4d` still needs `git push`.
+
+## T2 Prithvi re-run reproduced through the new head-to-head harness (2026-09-01)
 
 Independent Colab re-run of the burn-balanced Prithvi fine-tune (15/3/3 fires, ~312 train chips,
 Prithvi-EO-2.0-300M + UNet decoder, 32 epochs early-stopped), scored through the new

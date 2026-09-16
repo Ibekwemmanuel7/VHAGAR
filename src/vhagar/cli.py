@@ -2274,6 +2274,108 @@ def t4_aniso_cmd(
                   f"{front_length_breadth(m):.2f}", str(int(xs.max() - c)),
                   str(int(c - xs.min())), str(int(ys.max() - ys.min())))
     console.print(t)
+
+
+@app.command("t4-catalog")
+def t4_catalog_cmd(
+    n_events: int = typer.Option(300, help="synthetic events in the catalogue"),
+    workers: int = typer.Option(1, help="parallel worker processes (results are worker-invariant)"),
+    grid: int = typer.Option(120, help="cells per side per event"),
+    base_lambda: float = typer.Option(6.0, help="total annual event rate across the catalogue"),
+    seed: int = typer.Option(0),
+    out: str = typer.Option("", help="optional path to write the summary JSON"),
+    real_dins: str = typer.Option("", help="REAL mode: path to a DINS fires config JSON"),
+    dins_csv: str = typer.Option("", help="REAL mode: DINS POSTFIRE CSV path"),
+    fuel_tif: str = typer.Option("", help="REAL mode: LANDFIRE FBFM40 GeoTIFF path"),
+    no_fuel: bool = typer.Option(False, help="REAL mode: use uniform ROS (validated F1~0.75) instead of LANDFIRE fuels"),
+) -> None:
+    """T4 batch event catalogue: many ignitions -> spread -> EP-curve aggregate.
+
+    SYNTHETIC mode (default): a catalogue spanning fuel (grass/shrub/timber/mixed) and
+    wind scenarios through the T4 anisotropic spread core + T5 loss chain, in parallel,
+    reporting per-event burned-area / throughput stats and the aggregate (AAL,
+    return-period losses). Fuels and drivers are generated, so losses demonstrate the
+    pipeline, not a real portfolio.
+
+    REAL mode (--real-dins CONFIG --dins-csv CSV --fuel-tif TIF): runs the configured
+    CAL FIRE DINS fires on REAL ignitions, RAWS wind, LANDFIRE fuels, and real DINS
+    structures with real assessed values, and reports modeled-vs-actual destroyed
+    structures and loss (validation). docs/19.
+    """
+    import json
+    import time as _time
+
+    from vhagar.eval.catalog import make_catalog, run_catalog, summarize
+
+    if real_dins:
+        if not (dins_csv and fuel_tif):
+            console.print("[red]REAL mode needs --dins-csv and --fuel-tif[/red]")
+            raise typer.Exit(1)
+        from vhagar.eval.catalog import run_real_catalog
+        t0 = _time.perf_counter()
+        results = run_real_catalog(real_dins, dins_csv, fuel_tif,
+                                   base_lambda=base_lambda if base_lambda < 1 else 0.08,
+                                   use_fuel=not no_fuel)
+        wall = _time.perf_counter() - t0
+        summ = summarize(results, wall_time_s=wall)
+        mode = "uniform ROS" if no_fuel else "LANDFIRE fuels"
+        t = Table(title=f"T4 REAL catalogue ({mode}): {len(results)} CAL FIRE DINS fires, {wall:.1f}s")
+        for col in ("fire", "structures", "modeled destroyed", "actual destroyed",
+                    "modeled loss", "actual loss"):
+            t.add_column(col, justify="right")
+        tot_m = tot_a = 0.0
+        for r in results:
+            tot_m += r["loss"]
+            tot_a += r["actual_loss"]
+            t.add_row(r["name"], f"{r['n_structures']:,}", f"{r['modeled_destroyed']:,}",
+                      f"{r['actual_destroyed']:,}", f"${r['loss']/1e9:.2f}B", f"${r['actual_loss']/1e9:.2f}B")
+        t.add_row("TOTAL", "", "", "", f"${tot_m/1e9:.2f}B", f"${tot_a/1e9:.2f}B")
+        console.print(t)
+        console.print(f"[dim]  REAL ignitions + RAWS wind + real DINS structures + real assessed values"
+                      f"{' + real LANDFIRE fuels' if not no_fuel else ''}. AAL (illustrative rate) "
+                      f"${summ['aal']/1e9:.3f}B/yr.\n"
+                      "  With LANDFIRE fuels the front under-predicts on compact urban fires (front cannot\n"
+                      "  enter non-burnable urban cells or jump non-fuel gaps that real fires cross via\n"
+                      "  long-range spotting; documented negative, docs/17). --no-fuel uses the validated\n"
+                      "  uniform-ROS field (faithful F1~0.75). Occurrence rates are illustrative, not fitted. docs/19.[/dim]")
+        if out:
+            Path(out).write_text(json.dumps({"events": results, "summary": summ}, indent=2, default=float),
+                                 encoding="utf-8")
+            console.print(f"[green]wrote {out}[/green]")
+        return
+
+    specs = make_catalog(n_events=n_events, seed=seed, base_lambda=base_lambda, grid=grid)
+    t0 = _time.perf_counter()
+    results = run_catalog(specs, workers=workers)
+    wall = _time.perf_counter() - t0
+    summ = summarize(results, wall_time_s=wall)
+
+    b, rt = summ["burned_ha"], summ["runtime_ms"]
+    thru = summ["n_events"] / wall if wall > 0 else float("nan")
+    t = Table(title=f"T4 catalogue: {summ['n_events']} SYNTHETIC events, "
+                    f"{workers} worker(s), {wall:.1f}s ({thru:.0f} events/s)")
+    for col in ("metric", "value"):
+        t.add_column(col, justify="left")
+    t.add_row("burned area ha (mean / median / p95 / max)",
+              f"{b['mean']:.0f} / {b['median']:.0f} / {b['p95']:.0f} / {b['max']:.0f}")
+    t.add_row("per-event runtime ms (mean / p95)", f"{rt['mean']:.0f} / {rt['p95']:.0f}")
+    t.add_row("average annual loss (AAL)", f"${summ['aal']:,.0f}")
+    for rp, loss in summ["return_period_loss"].items():
+        t.add_row(f"{rp}-yr return-period loss (OEP)", f"${loss:,.0f}")
+    console.print(t)
+
+    tf = Table(title="by fuel scenario: how fuel drives spread and loss")
+    for col in ("fuel", "n", "mean burned ha", "mean loss"):
+        tf.add_column(col, justify="right")
+    for fuel, d in summ["by_fuel"].items():
+        tf.add_row(fuel, str(d["n"]), f"{d['mean_burned_ha']:.0f}", f"${d['mean_loss']:,.0f}")
+    console.print(tf)
+    console.print("[dim]  SYNTHETIC fuels + drivers: figures show the batch catalogue -> EP pipeline,\n"
+                  "  not a real portfolio. Grass burns most, timber least, as expected. Results are\n"
+                  "  invariant to --workers. Real run: LANDFIRE fuel sampler + real exposure. docs/19.[/dim]")
+    if out:
+        Path(out).write_text(json.dumps(summ, indent=2, default=float), encoding="utf-8")
+        console.print(f"[green]wrote {out}[/green]")
     console.print(
         "[dim]  Zero wind is a circle (LB ~ 1); wind stretches the fire into a downwind ellipse whose\n"
         "  head outruns the back. This is the 8-connected elliptical solver; the rigorous continuous\n"
