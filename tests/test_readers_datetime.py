@@ -2,7 +2,7 @@
 convert an aware one to UTC, so the day-of-year and hour folders are correct."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from vhagar.io.cmip_reader import cmip_key_prefix
 from vhagar.io.goes import fdc_key_prefix
@@ -12,7 +12,7 @@ _SAT = 19
 
 def test_naive_datetime_is_treated_as_utc():
     naive = datetime(2026, 8, 26, 18, 30)                       # no tz
-    aware = datetime(2026, 8, 26, 18, 30, tzinfo=timezone.utc)  # explicit UTC
+    aware = datetime(2026, 8, 26, 18, 30, tzinfo=UTC)  # explicit UTC
     assert fdc_key_prefix(_SAT, naive) == fdc_key_prefix(_SAT, aware)
     assert cmip_key_prefix(_SAT, naive) == cmip_key_prefix(_SAT, aware)
     # 2026-08-26 is day-of-year 238; hour 18

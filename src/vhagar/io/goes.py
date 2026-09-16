@@ -32,7 +32,7 @@ try:                                    # datetime.UTC is 3.11+; fall back on 3.
     from datetime import UTC
 except ImportError:                     # pragma: no cover
     from datetime import timezone as _timezone
-    UTC = _timezone.utc
+    UTC = _timezone.utc  # noqa: UP017
 
 
 def _as_utc(when: datetime) -> datetime:
