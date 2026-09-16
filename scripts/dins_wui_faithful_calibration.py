@@ -58,16 +58,33 @@ def _subsample(lat, lon, dest, cap, rng):
 
 
 def _fuel_sampler(path):
-    """Build a (lon_grid, lat_grid) -> FBFM40 code-grid sampler over a LANDFIRE clip."""
+    """Build a (lon_grid, lat_grid) -> FBFM40 code-grid sampler over a LANDFIRE raster.
+
+    Reads only the window covering the requested grid (works on the full CONUS FBFM40
+    GeoTIFF without loading it all), reprojects grid lon/lat into the raster CRS, and
+    indexes the window. Nodata / out-of-range codes become non-burnable (91)."""
     import rasterio
     from rasterio.warp import transform as warp_transform
+    from rasterio.warp import transform_bounds
+    from rasterio.windows import Window
 
     ds = rasterio.open(path)
 
     def sampler(lon_g, lat_g):
+        x0, y0, x1, y1 = transform_bounds("EPSG:4326", ds.crs,
+                                          float(lon_g.min()), float(lat_g.min()),
+                                          float(lon_g.max()), float(lat_g.max()))
+        w = ds.window(x0, y0, x1, y1).round_offsets().round_lengths()
+        w = Window(w.col_off - 2, w.row_off - 2, w.width + 4, w.height + 4)
+        arr = ds.read(1, window=w, boundless=True, fill_value=91)
+        inv = ~ds.window_transform(w)
         xs, ys = warp_transform("EPSG:4326", ds.crs, lon_g.ravel().tolist(), lat_g.ravel().tolist())
-        codes = np.array(list(ds.sample(zip(xs, ys, strict=True)))).reshape(lon_g.shape + (-1,))
-        return codes[..., 0]
+        cols, rows = inv * (np.asarray(xs), np.asarray(ys))
+        cols = np.clip(np.round(cols).astype(int), 0, arr.shape[1] - 1)
+        rows = np.clip(np.round(rows).astype(int), 0, arr.shape[0] - 1)
+        codes = arr[rows, cols].reshape(lon_g.shape).astype(np.int64)
+        codes[(codes < 91) | (codes > 300)] = 91          # nodata/invalid -> non-burnable
+        return codes
 
     return sampler
 
@@ -120,7 +137,7 @@ def _score(fire, arrivals, params):
     out = wui_spread(fire.burned_seed, fire.ros, fire.struct_rows, fire.struct_cols,
                      horizon=fire.horizon * params.get("horizon_mult", 1.0),
                      wind_speed=fire.wind_speed, wind_dir=fire.wind_dir,
-                     dx=fire.dx, anisotropic=True, arrival=arr,
+                     dx=fire.dx, anisotropic=True, arrival=arr, struct_edge_cells=3.0,
                      spotting_max_dist=params["spotting_max_dist"],
                      spotting_intensity=params["spotting_intensity"],
                      struct_radius_cells=params["struct_radius_cells"],

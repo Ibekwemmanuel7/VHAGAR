@@ -289,3 +289,32 @@ non-burnable to the *wildland* front on purpose, intra-town spread is the
 structure-to-structure model's job, so the front reaches the town edge and the graph
 carries it in, keeping POD high while cutting the false alarms in the gaps. The code
 path is in place and tested; this is the next real-data run.
+
+### Fuel-aware result (honest negative, 2026-09-15)
+
+Ran the four fires with the real LANDFIRE **LF2025 FBFM40 CONUS** raster driving a
+fuel-aware ROS, plus edge-seeding (`struct_edge_cells`, structures within a few cells of
+the burned wildland are seeded, since urban cells are non-burnable). It did **not** cut
+the false-alarm rate; it made things worse: mean held-out F1 fell from **0.75 (uniform
+ROS) to ~0.41**, with POD collapsing (Eaton 0.18, Camp 0.00, Palisades 0.15; only Tubbs
+held up at 0.75). This is a real, informative negative, and worth stating plainly:
+
+- Destroyed structures sit in **non-burnable urban (NB1)** cells, so the wildland front
+  cannot enter the town; it stops at the edge. Edge-seeding helps a little but not enough.
+- Worse, real fires reach and cross these areas by **long-range spotting over non-fuel
+  gaps** (river canyons, roads), Camp jumped the Feather River canyon; Tubbs jumped
+  Highway 101. A fuel-blocked front with the current short-range spotting cannot make
+  those jumps, so it never reaches the dense town interior where the loss occurred.
+- The uniform-ROS front scored 0.75 precisely because, by ignoring fuel, it spread freely
+  into the built area, physically wrong, but it happened to cover the destroyed structures.
+
+So the fuels experiment did not improve the metric; it exposed that the model's mechanism
+for getting fire **into and across the built and non-fuel environment** (edge-seeding +
+short-range spotting) is underpowered once the front is fuel-constrained. The honest
+headline stays the **uniform-ROS mean held-out F1 0.75**, with its own caveat (it
+over-predicts because it ignores fuel). The real next step is not "add fuels" but a
+stronger built-environment spread model: long-range ember spotting calibrated to jump
+non-fuel gaps, and treating the dense structure network as its own spread medium seeded
+broadly at the wildland-urban interface. The fuel-aware code path (windowed FBFM40
+sampler, `struct_edge_cells`) is committed and tested; it is the substrate for that work,
+not a finished improvement.

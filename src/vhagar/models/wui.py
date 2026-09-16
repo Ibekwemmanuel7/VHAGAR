@@ -256,7 +256,7 @@ def wui_spread(
     wind_speed: float = 0.0, wind_dir: float = 0.0, dx: float = 1.0,
     fireline_intensity=None, spotting_max_dist: float = 6.0, spotting_intensity: float = 3.0,
     struct_radius_cells: float = 3.0, struct_base_p: float = 0.6,
-    anisotropic: bool = False, arrival=None,
+    anisotropic: bool = False, arrival=None, struct_edge_cells: float = 0.0,
 ) -> dict:
     """End-to-end WUI spread: wildland front -> spot ignitions -> structure loss.
 
@@ -289,7 +289,21 @@ def wui_spread(
     rows = np.asarray(struct_rows, dtype=np.int64)
     cols = np.asarray(struct_cols, dtype=np.int64)
 
-    reached = structures_reached_by_front(rows, cols, arrival, horizon)
+    if struct_edge_cells > 0:
+        # Seed structures within struct_edge_cells of the burned wildland, not only those
+        # on a burned cell. Essential with real fuels: structures sit in non-burnable urban
+        # cells the front cannot enter, so the front reaches the town edge and ignites the
+        # adjacent structures, then the structure graph carries the conflagration inward.
+        from scipy.ndimage import distance_transform_edt
+        burned = burned_now | (arrival <= horizon)
+        reach_field = distance_transform_edt(~burned) <= struct_edge_cells
+        H0, W0 = arrival.shape
+        rr, cc = rows, cols
+        reached = np.zeros(rr.shape, dtype=bool)
+        inbf = (rr >= 0) & (rr < H0) & (cc >= 0) & (cc < W0)
+        reached[inbf] = reach_field[rr[inbf], cc[inbf]]
+    else:
+        reached = structures_reached_by_front(rows, cols, arrival, horizon)
 
     # Brand emission: cells the front is passing through within the horizon window.
     intensity = ros if fireline_intensity is None else np.asarray(fireline_intensity, dtype=np.float64)

@@ -102,6 +102,19 @@ def test_wui_spread_anisotropic_front_elongates_downwind():
     assert arr[30, 45] < arr[30, 15]      # wind-driven front reaches downwind far sooner
 
 
+def test_wui_spread_edge_seeding_reaches_adjacent_structures():
+    H = W = 41
+    ros = np.ones((H, W))
+    burned = np.zeros((H, W), bool)
+    burned[20, 20] = True
+    # structure a few cells from the ignition; with horizon 1 the front does not reach its
+    # own cell, but edge-seeding (3 cells) ignites it as adjacent to the burned area.
+    base = dict(horizon=1.0, struct_radius_cells=1.0, struct_base_p=0.9)
+    off = wui.wui_spread(burned, ros, [20], [23], struct_edge_cells=0.0, **base)
+    on = wui.wui_spread(burned, ros, [20], [23], struct_edge_cells=3.0, **base)
+    assert bool(on["reached"][0]) and not bool(off["reached"][0])
+
+
 def test_score_structures_confusion():
     pred = np.array([True, True, False, False])
     truth = np.array([True, False, True, False])
