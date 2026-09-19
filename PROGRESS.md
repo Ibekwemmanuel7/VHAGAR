@@ -3,6 +3,22 @@
 Last updated: 2026-09-16. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
+## T4 Rothermel surface fire spread (physics ROS) (2026-09-19)
+
+Closed the physics half of the Rothermel gap. New `models/rothermel.py` implements the
+canonical Rothermel (1972) / Andrews (2018) surface fire spread equation (reaction
+intensity, propagating flux ratio, wind + slope factors, packing ratio, heat of
+preignition) returning head ROS in m/min from fuel params, dead-fuel moisture, midflame
+wind, and slope. The same equation under BehavePlus/FlamMap/FARSITE. Verified physics:
+ROS up with wind and slope, down with moisture, zero at/above moisture of extinction and
+on non-burnable fuel (9 tests). Wired as a drop-in for the surrogate: feeds
+`anisotropic_arrival` as the head-ROS field (Rothermel sets magnitude, the ellipse sets
+shape, no wind double-count); catalog `EventSpec(use_rothermel=True, ...)`; CLI
+`t4-rothermel`. Honest scope: single characteristic-SAV formulation with representative
+per-group fuel params; full multi-size dead+live weighting is the remaining refinement,
+and wind is midflame (open winds need a reduction factor). docs/20. Interview line: "I
+added a real Rothermel ROS field" is now true.
+
 ## T4 batch event-catalog runner (CAT-style EP aggregation) (2026-09-16)
 
 Built the batch catalogue harness (`eval/catalog.py`, CLI `t4-catalog`, docs/19) that

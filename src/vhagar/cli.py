@@ -2274,6 +2274,10 @@ def t4_aniso_cmd(
                   f"{front_length_breadth(m):.2f}", str(int(xs.max() - c)),
                   str(int(c - xs.min())), str(int(ys.max() - ys.min())))
     console.print(t)
+    console.print(
+        "[dim]  Zero wind is a circle (LB ~ 1); wind stretches the fire into a downwind ellipse whose\n"
+        "  head outruns the back. This is the 8-connected elliptical solver; the rigorous continuous\n"
+        "  counterpart is the Ordered Upwind Method. Plug in a calibrated FBP/Alexander LB. docs/15.[/dim]")
 
 
 @app.command("t4-catalog")
@@ -2376,10 +2380,40 @@ def t4_catalog_cmd(
     if out:
         Path(out).write_text(json.dumps(summ, indent=2, default=float), encoding="utf-8")
         console.print(f"[green]wrote {out}[/green]")
+
+
+@app.command("t4-rothermel")
+def t4_rothermel_cmd(
+    moisture: float = typer.Option(0.06, help="dead-fuel moisture fraction"),
+    wind: float = typer.Option(5.0, help="midflame wind (m/s)"),
+    slope: float = typer.Option(0.0, help="slope, rise/run"),
+) -> None:
+    """T4 physics ROS: the Rothermel (1972) surface fire spread model.
+
+    Prints head rate of spread (m/min) per FBFM40 fuel group under the given moisture,
+    midflame wind, and slope, the physics-standard replacement for the fuel-and-wind
+    surrogate. This is the head-ROS magnitude the anisotropic front consumes; the
+    ellipse then sets direction. Single characteristic-SAV formulation; full multi-size
+    dead-and-live weighting is the documented refinement. docs/20.
+    """
+    from vhagar.models.rothermel import STANDARD_FUELS, rothermel_ros
+
+    t = Table(title=f"Rothermel head ROS (m/min): moisture {moisture:.0%}, "
+                    f"midflame wind {wind:.1f} m/s, slope {slope:.0%}")
+    for col in ("fuel group", "no wind", f"{wind:.0f} m/s", f"{wind:.0f} m/s + slope"):
+        t.add_column(col, justify="right")
+    names = {"GR": "grass", "GS": "grass-shrub", "SH": "shrub", "TU": "timber-understory",
+             "TL": "timber-litter", "SB": "slash-blowdown"}
+    for g, fp in STANDARD_FUELS.items():
+        r0 = float(rothermel_ros(fp, moisture, 0.0))
+        rw = float(rothermel_ros(fp, moisture, wind))
+        rs = float(rothermel_ros(fp, moisture, wind, slope))
+        t.add_row(f"{g} ({names[g]})", f"{r0:.1f}", f"{rw:.1f}", f"{rs:.1f}")
+    console.print(t)
     console.print(
-        "[dim]  Zero wind is a circle (LB ~ 1); wind stretches the fire into a downwind ellipse whose\n"
-        "  head outruns the back. This is the 8-connected elliptical solver; the rigorous continuous\n"
-        "  counterpart is the Ordered Upwind Method. Plug in a calibrated FBP/Alexander LB. docs/15.[/dim]")
+        "[dim]  Rothermel (1972) / Andrews (2018). ROS rises with wind and slope, falls with moisture,\n"
+        "  and is zero at or above the moisture of extinction. Feeds anisotropic_arrival as the head\n"
+        "  ROS field (catalog: --use-rothermel via EventSpec). Wind is midflame; reduce open winds. docs/20.[/dim]")
 
 
 @app.command("firms-fetch")

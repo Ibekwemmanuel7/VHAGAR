@@ -69,6 +69,10 @@ class EventSpec:
     n_structures: int = 200
     value_mean: float = 4.0e5     # per-structure exposure value ($)
     seed: int = 0
+    use_rothermel: bool = False   # physics ROS (Rothermel) instead of the surrogate
+    dead_moisture: float = 0.08   # dead-fuel moisture fraction (Rothermel)
+    wind_adj: float = 0.3         # open-to-midflame wind factor (Rothermel)
+    slope_tan: float = 0.0        # slope rise/run (Rothermel)
     meta: dict = field(default_factory=dict, compare=False)
 
 
@@ -169,8 +173,13 @@ def run_event(spec: EventSpec) -> dict:
     t0 = time.perf_counter()
     rng = np.random.default_rng(spec.seed)
     codes = event_fuel_codes(spec, rng)
-    base_ros = _FUEL_SCENARIOS[spec.fuel][1]
-    ros = ros_from_fuel_codes(codes, base=base_ros)
+    if spec.use_rothermel:
+        from vhagar.models.rothermel import rothermel_head_ros_field
+        ros = rothermel_head_ros_field(codes, m_f=spec.dead_moisture, wind_ms=spec.wind_speed,
+                                       wind_adj=spec.wind_adj, slope_tan=spec.slope_tan)
+    else:
+        base_ros = _FUEL_SCENARIOS[spec.fuel][1]
+        ros = ros_from_fuel_codes(codes, base=base_ros)
     seed_mask = np.zeros(codes.shape, bool)
     # ignite at a random burnable cell (a real ignition, not in the non-burnable town)
     burnable = np.argwhere(ros > 0)
