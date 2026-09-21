@@ -311,9 +311,11 @@ async function loadDanger(){
    ?`selected cluster ${selF.properties.event_id}: ${t.toFixed(0)}&deg;C, ${rh.toFixed(0)}% RH, ${wms.toFixed(1)} m/s`
    :`median across ${feats.length} events in view: ${t!=null?t.toFixed(0):"?"}&deg;C, ${rh!=null?rh.toFixed(0):"?"}% RH, ${wms!=null?wms.toFixed(1):"?"} m/s`;
   const prov=d.provenance||"Ignition and burned-area models pending real-data training.";
-  const wxNote=haveWx
+  const v=d.validation;
+  const vNote=v?` Validated on ${(v.n_fires).toLocaleString()} FPA-FOD fires: ignition AUPRC ${v.ignition_auprc_temporal} vs ${v.ignition_auprc_baserate} base rate (${v.ignition_test_year} holdout), but ties base on spatially held-out cells (AUPRC ${v.ignition_auprc_spatial}); burned-area CRPS skill ${(v.ba_crps_skill*100).toFixed(1)}% vs size climatology.`:"";
+  const wxNote=(haveWx
    ?`FWI from live weather (${wxSrc}). ${prov}`
-   :`FWI from nominal reference weather (no live weather in view). ${prov}`;
+   :`FWI from nominal reference weather (no live weather in view). ${prov}`)+vNote;
   el.innerHTML='<span class="lab">Fire danger &middot; T3</span>'
    +`<span class="dq">FWI <b>${num(fd.fwi)}</b> ${fd.class||""}</span>`
    +`<span class="dq">Ignition prob. <b>${igp}</b></span>`

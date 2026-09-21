@@ -40,5 +40,15 @@
     "11": 7.689469613849177,
     "12": 6.024342438521542
   },
-  "provenance": "Ignition = FPA-FOD occurrence climatology; burned area = conditional size model on 455,864 real fires (2015-2020, CONUS). Weather-driven ML ignition is future work."
+  "provenance": "Ignition = FPA-FOD occurrence climatology; burned area = conditional size model on 455,864 real fires (2015-2020, CONUS). Weather-driven ML ignition is future work.",
+  "validation": {
+    "ignition_auprc_temporal": 0.721,
+    "ignition_auprc_baserate": 0.426,
+    "ignition_auprc_spatial": 0.71,
+    "ignition_test_year": 2020,
+    "ba_crps": 45.89,
+    "ba_crps_climatology": 46.14,
+    "ba_crps_skill": 0.0053,
+    "n_fires": 455864
+  }
 }

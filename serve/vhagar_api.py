@@ -968,6 +968,7 @@ def danger(dryness: float = Query(0.6, ge=0, le=1), fuel: float = Query(0.6, ge=
         "schema": "t3-danger",
         "data_source": source,
         "provenance": provenance,
+        "validation": (real.get("validation") if real else None),
         "fire_danger": {"fwi": round(fwi_v, 1), "class": _fwi_class(fwi_v)},
         "ignition_probability": round(p_ig, 5),
         "expected_burned_area_ha": round(p_ig * eba_cond, 2),
