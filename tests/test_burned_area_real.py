@@ -82,6 +82,8 @@ def test_features_are_leak_free(tmp_path):
 
 
 def test_evaluate_real_burned_area_runs_and_scores(tmp_path):
+    pytest.importorskip("sklearn")
+    pytest.importorskip("scipy")
     p = tmp_path / "full.sqlite"
     _make_sqlite(p, n=800)
     res = evaluate_real_burned_area(p, n_folds=3)
@@ -95,6 +97,8 @@ def test_evaluate_real_burned_area_runs_and_scores(tmp_path):
 
 
 def test_fit_model_predicts_positive_quantiles(tmp_path):
+    pytest.importorskip("sklearn")
+    pytest.importorskip("scipy")
     p = tmp_path / "full.sqlite"
     _make_sqlite(p)
     model, fn, summary = fit_real_burned_area_model(p)
