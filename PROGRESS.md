@@ -1,7 +1,24 @@
 # VHAGAR progress tracker
 
-Last updated: 2026-09-20. Keep this file current. It is the single place to look
+Last updated: 2026-09-21. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
+
+## T4 spatial-Rothermel replay on a real fire, validated vs real MTBS (2026-09-21)
+
+Built the reviewer's key T4 upgrade: `scripts/t4_spatial_rothermel.py` replaces the
+uniform ROS grid with a SPATIAL ROS raster computed cell-by-cell by the Rothermel model
+from REAL LANDFIRE FBFM40 fuel codes (LF2025, read windowed from the 1.2 GB zip via
+/vsizip), runs the anisotropic arrival-time front from the real ignition point, and
+validates the reconstructed front against the real MTBS 2021 perimeter (IoU/Sorensen)
+next to uniform-ROS and equal-area-circle baselines. Fuel and perimeter are co-registered
+(EPSG:5070, 30 m). Honest result on the Dixie Fire: both physics fronts beat the circle
+about 3x (spatial IoU 0.37, uniform 0.40, circle 0.13), but the fuel-spatial ROS does NOT
+yet beat a uniform-ROS front, because LF2025 is post-fire (pre-fire fuels would be
+correct), slope is a proxy (no DEM wired), and wind is a single value. Named next inputs:
+pre-fire LANDFIRE, DEM slope/aspect, time-varying wind. Fixed a real bug found here: the
+raster is north-up (row 0 = north), so the y-up `wind_from_deg_to_grid` angle must be
+negated or the front grows the wrong way (this raised IoU from ~0.02 to ~0.4). Figure
+`outputs/t4_spatial_rothermel.png`, summary `outputs/t4_spatial_rothermel.json`.
 
 ## T4 mapped-perimeter validation against real MTBS (2026-09-20)
 
