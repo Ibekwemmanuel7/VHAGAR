@@ -434,8 +434,6 @@ async function load(){
   const d0=ds.length?ds[0].slice(0,10):"",d1=de.length?de[de.length-1].slice(0,10):"";
   state.source=sensors;
   const sl=document.getElementById("srcline");if(sl)sl.textContent="Archived real-data demo · "+sensors+" · "+d0+" to "+d1;
-  const rf=document.getElementById("regionField"),df=document.getElementById("daysField"),sc=document.getElementById("scopeChip"),sct=document.getElementById("scopeChipTxt");
-  if(rf)rf.style.display="none";if(df)df.style.display="none";if(sc)sc.style.display="";if(sct)sct.textContent=feats.length+" events · "+d0+" to "+d1;
   setLive("archived",false);render();
   document.getElementById("updated").textContent="archived · "+d0+" to "+d1;
   loadDanger();btn.classList.remove("spin");return;}
