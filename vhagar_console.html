@@ -58,6 +58,12 @@ select{font-family:inherit}
 .dtab{flex:1;padding:.36rem;border:none;background:transparent;color:var(--muted);font:inherit;font-size:.74rem;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-.5rem}
 .dtab.on{color:var(--text);border-bottom-color:var(--ice)}
 .dpane{display:flex;flex-direction:column;gap:.85rem}
+.tierbar{display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:.55rem}
+.tier{font-size:.6rem;padding:.2rem .5rem;border-radius:999px;border:1px solid var(--line);font-weight:700;white-space:nowrap;cursor:help}
+.tier.ok{color:#7fdca0;border-color:#2e5a41;background:#12241a}
+.tier.res{color:#8fd0ff;border-color:#2b4a63;background:#0f1e2a}
+.tier.exp{color:#ffb000;border-color:#3a2a12;background:#241a0e}
+.tier.na{color:var(--dim);border-color:var(--line2)}
 .danger .fine{color:var(--dim);font-size:.66rem;font-style:italic;margin-left:auto;text-align:right;max-width:24rem}
 .body{flex:1;display:flex;min-height:0}
 .side{width:320px;flex:none;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column}
@@ -359,9 +365,19 @@ function openDrawer(p){const fdc=isFDC();state.selProps=p;
   ?`<button id="fcbtn" style="width:100%;margin-top:9px;padding:.42rem;border-radius:8px;border:1px solid #3a2a12;background:#241a0e;color:#ffb000;font-size:.77rem;font-weight:600;cursor:pointer">&#9650; Forecast spread (experimental)</button><div id="fcctrl" style="display:none;margin-top:7px;align-items:center;gap:.5rem"><button id="fcplay" title="Play spread" style="flex:none;width:2rem;padding:.25rem;border-radius:6px;border:1px solid #3a2a12;background:#241a0e;color:#ffb000;cursor:pointer">&#9654;</button><input id="fcrange" type="range" min="0" max="0" value="0" step="1" style="flex:1;accent-color:#ff9d3a"><span id="fclabel" style="font-size:.72rem;color:#ffb000;min-width:3.4rem;text-align:right">+0 h</span></div><div id="fcstory" style="display:none;margin-top:8px;font-size:.72rem;line-height:1.55;color:#c9d4e0"></div><div id="fcnote" class="note" style="color:#c79a55"></div>`
   :"";
  const db=document.getElementById("d_body");
- db.innerHTML=`<div class="dtabs"><button class="dtab on" data-t="ov">Overview</button><button class="dtab" data-t="sp">Spread</button><button class="dtab" data-t="ev">Evidence</button></div>`
+ const hasWind=(p.wind_speed_ms!=null&&p.centroid_lat!=null);
+ const tierbar=`<div class="tierbar">`
+  +`<span class="tier ok" title="Real GOES ABI FDC detection for this event: sensor, time, FRP, and detection geometry.">T1 Observed</span>`
+  +`<span class="tier na" title="No live per-fire burned-area map product in the console yet. T2 is research/validation, leakage-safe vs MTBS.">T2 not yet</span>`
+  +`<span class="tier res" title="Real FPA-FOD danger artifacts (occurrence-climatology ignition + conditional size model). Not yet a fully event-specific live weather/fuel prediction product.">T3 Research</span>`
+  +(hasWind?`<span class="tier exp" title="Experimental directional projection: nominal ROS shaped by this event's live wind. Not yet spatial Rothermel with live fuels, slope, and terrain.">T4 Experimental</span>`
+          :`<span class="tier na" title="A spread forecast needs live wind (and fuel, slope, terrain for a spatial run). None attached to this event, so no forecast is shown.">T4 inputs incomplete</span>`)
+  +`<span class="tier na" title="Prototype/historical loss work (DINS EP curve). No validated live event-loss forecast.">T5 not yet</span>`
+  +`</div>`;
+ db.innerHTML=tierbar
+  +`<div class="dtabs"><button class="dtab on" data-t="ov">Overview</button><button class="dtab" data-t="sp">Spread</button><button class="dtab" data-t="ev">Evidence</button></div>`
   +`<div class="dpane" data-p="ov">${metrics}${wx}</div>`
-  +`<div class="dpane" data-p="sp" style="display:none">${fc||'<div class="note">No wind is attached to this event, so the spread forecast is unavailable.</div>'}</div>`
+  +`<div class="dpane" data-p="sp" style="display:none">${fc||'<div class="note">Inputs incomplete. A spread forecast needs live wind, and for a spatial run also fuel, slope, and terrain. This event has no attached wind, so VHAGAR shows no forecast rather than fabricating one.</div>'}</div>`
   +`<div class="dpane" data-p="ev" style="display:none"><div class="note">${note}</div>${exports}</div>`;
  db.querySelectorAll(".dtab").forEach(t=>t.onclick=()=>{
   db.querySelectorAll(".dtab").forEach(x=>x.classList.remove("on"));t.classList.add("on");
