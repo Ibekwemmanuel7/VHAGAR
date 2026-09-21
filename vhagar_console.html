@@ -293,9 +293,11 @@ async function loadDanger(){
  // events currently in view. The endpoint scales its 0..1 wind to km/h by *40, so pass
  // wind as (m/s * 3.6 km/h) / 40. Ignition and E[BA] models are still synthetic-trained.
  const feats=((state.events&&state.events.features)||[]);
- const t=_median(feats.map(f=>+f.properties.temp_c));
- const rh=_median(feats.map(f=>+f.properties.rh_pct));
- const wms=_median(feats.map(f=>+f.properties.wind_speed_ms));
+ const selF=state.sel!=null?eventById(state.sel):null;
+ const selWx=selF&&selF.properties.temp_c!=null&&selF.properties.rh_pct!=null&&selF.properties.wind_speed_ms!=null;
+ const t=selWx?+selF.properties.temp_c:_median(feats.map(f=>+f.properties.temp_c));
+ const rh=selWx?+selF.properties.rh_pct:_median(feats.map(f=>+f.properties.rh_pct));
+ const wms=selWx?+selF.properties.wind_speed_ms:_median(feats.map(f=>+f.properties.wind_speed_ms));
  const haveWx=(t!=null&&rh!=null&&wms!=null);
  let qs="";
  if(haveWx){
@@ -305,8 +307,11 @@ async function loadDanger(){
  }
  try{const d=await getJSON("/v1/danger"+qs);const fd=d.fire_danger||{};
   const igp=d.ignition_probability!=null?(d.ignition_probability*100).toFixed(2)+"%":"n/a";
+  const wxSrc=selWx
+   ?`selected cluster ${selF.properties.event_id}: ${t.toFixed(0)}&deg;C, ${rh.toFixed(0)}% RH, ${wms.toFixed(1)} m/s`
+   :`median across ${feats.length} events in view: ${t!=null?t.toFixed(0):"?"}&deg;C, ${rh!=null?rh.toFixed(0):"?"}% RH, ${wms!=null?wms.toFixed(1):"?"} m/s`;
   const wxNote=haveWx
-   ?`FWI from live regional weather (median across ${feats.length} events in view: ${t.toFixed(0)}&deg;C, ${rh.toFixed(0)}% RH, ${wms.toFixed(1)} m/s). Ignition and burned-area models pending real-data training.`
+   ?`FWI from live weather (${wxSrc}). Ignition and burned-area models pending real-data training.`
    :`FWI from nominal reference weather (no live weather in view). Ignition and burned-area models pending real-data training.`;
   el.innerHTML='<span class="lab">Fire danger &middot; T3</span>'
    +`<span class="dq">FWI <b>${num(fd.fwi)}</b> ${fd.class||""}</span>`
@@ -323,7 +328,7 @@ function selectEvent(id){
  const f=eventById(id);if(!f)return;const p=f.properties;
  if(map){map.flyTo({center:[p.centroid_lon,p.centroid_lat],zoom:9,duration:800});
   if(popup)popup.remove();popup=new mapboxgl.Popup({offset:12}).setLngLat([p.centroid_lon,p.centroid_lat]).setHTML(popupHTML(p)).addTo(map);}
- openDrawer(p);
+ openDrawer(p);loadDanger();
 }
 function metric(k,v,u){return `<div class="metric"><div class="k">${k}</div><div class="v">${v}${u?` <small>${u}</small>`:""}</div></div>`;}
 function openDrawer(p){const fdc=isFDC();state.selProps=p;
@@ -359,7 +364,7 @@ async function forecastSpread(){const p=state.selProps;if(!p||!map)return;
  }catch(e){if(note)note.textContent="Forecast unavailable ("+e+").";}
  finally{if(b){b.disabled=false;b.innerHTML="&#9650; Forecast spread (experimental)";}}
 }
-document.getElementById("d_x").onclick=()=>{document.getElementById("drawer").classList.remove("open");state.sel=null;clearForecast();if(map&&map.getLayer("events-sel"))map.setFilter("events-sel",["==",["get","event_id"],-1]);renderFeed();};
+document.getElementById("d_x").onclick=()=>{document.getElementById("drawer").classList.remove("open");state.sel=null;clearForecast();if(map&&map.getLayer("events-sel"))map.setFilter("events-sel",["==",["get","event_id"],-1]);renderFeed();loadDanger();};
 
 async function getJSON(path){const c=new AbortController();const t=setTimeout(()=>c.abort(),25000);
  try{const r=await fetch(API+path,{signal:c.signal});if(!r.ok)throw new Error(r.status);return await r.json();}finally{clearTimeout(t);}}
