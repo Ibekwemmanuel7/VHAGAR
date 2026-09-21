@@ -132,6 +132,7 @@ select{font-family:inherit}
   <div class="field"><label>Find</label><input id="locSearch" type="text" autocomplete="off" spellcheck="false" placeholder="lat,lon or city" title="Type a place name or 'lat,lon' (e.g. Reno NV, or 39.5,-119.8) and press Enter" style="background:#0d1b2a;color:#e6eef8;border:1px solid #24405f;border-radius:6px;padding:5px 9px;min-width:168px;font:inherit;outline:none"/></div>
   <div class="field" id="candField"><label>Candidates</label><label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e6b84a;font:inherit" title="Single-sensor GOES fire pixels, not yet corroborated. Fast early warning, unconfirmed."><input id="candToggle" type="checkbox" style="accent-color:#e6b84a;width:15px;height:15px"/><span id="candCount">unconfirmed GOES</span></label></div>
   <div class="spacer"></div>
+  <span id="freshchip" style="display:none;align-items:center;gap:.4rem;font-size:.72rem;font-weight:600;color:#cbd5e2;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);border-radius:999px;padding:.28rem .7rem;white-space:nowrap" title="Time of the newest detection in the current feed, in UTC, and how long ago that was."></span>
   <span class="updated" id="updated"></span>
   <button class="refresh" id="refresh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/></svg>Refresh</button>
  </header>
@@ -466,7 +467,13 @@ async function load(){
    state.schema=(ev.metadata&&ev.metadata.schema)||"events";state.source=(ev.metadata&&ev.metadata.source)||"";
    try{state.candidates=await getJSON("/api/candidates?region="+state.region+"&days=1");}catch(_){state.candidates=null;}
    setLive(state.mode,false);showErr("");ok=true;
-   const sl2=document.getElementById("srcline");if(sl2)sl2.textContent=(state.source||"GOES ABI FDC")+(state.mode==="live"?" · live feed":state.mode==="stale"?" · recent snapshot":" · feed");
+   const sl2=document.getElementById("srcline");
+   if(sl2){const ss=new Set();((ev.features)||[]).forEach(f=>String(f.properties.sensors||"").split(/[;,]/).forEach(s=>{s=s.trim();if(s)ss.add(s);}));
+    const list=[...ss];const has=k=>list.some(s=>s.toUpperCase().includes(k));
+    const corr=[has("VIIRS")?"VIIRS":null,has("MODIS")?"MODIS":null].filter(Boolean).join("/");
+    const base=corr?("Multi-sensor detection fusion · GOES ABI core + "+corr+" corroboration"):(state.source||"GOES ABI FDC");
+    const tail=state.mode==="live"?" · live feed":state.mode==="stale"?" · recent snapshot":" · feed";
+    sl2.textContent=base+tail;}
   }catch(e){/* free-tier cold start can take up to a minute; retry with backoff */}
  }
  if(!ok){state.events=SAMPLE_EVENTS;state.dets=SAMPLE_DETS;state.mode="sample";state.schema="events";state.source="";setLive("sample",true);
@@ -483,12 +490,14 @@ function applyChrome(){const fdc=isFDC();
  document.getElementById("lgwind").style.display=anyWind?"flex":"none";
  const cc=document.getElementById("candCount");
  if(cc){const nc=(state.candidates&&state.candidates.features)?state.candidates.features.length:0;cc.textContent=nc+" unconfirmed GOES";const cf=document.getElementById("candField");if(cf)cf.style.display=nc>0?"":"none";}
+ const fe=((state.events&&state.events.features)||[]);const nca=(state.candidates&&state.candidates.features)?state.candidates.features.length:0;
+ const ls=fe.map(f=>f.properties.last_seen).filter(Boolean).sort();const latest=ls.length?ls[ls.length-1]:null;
+ let age="",utc="";const tp=latest?Date.parse(String(latest).replace(" ","T").replace(/Z?$/,"Z")):NaN;
+ if(!isNaN(tp)){const hh=(Date.now()-tp)/3.6e6;age=hh<1?Math.max(0,Math.round(hh*60))+" min ago":hh.toFixed(1)+" h ago";utc=new Date(tp).toISOString().slice(11,16)+" UTC";}
+ const fc=document.getElementById("freshchip");
+ if(fc){fc.innerHTML=utc?`<span style="color:#4ade80">&#9679;</span> Latest observation: <b style="color:#f1f5f9">${utc}</b> &middot; ${age}`:"";fc.style.display=utc?"inline-flex":"none";}
  const ms=document.getElementById("mapsummary");
- if(ms){const fe=((state.events&&state.events.features)||[]);const nca=(state.candidates&&state.candidates.features)?state.candidates.features.length:0;
-  const ls=fe.map(f=>f.properties.last_seen).filter(Boolean).sort();const latest=ls.length?ls[ls.length-1]:null;
-  let age="";const tp=latest?Date.parse(String(latest).replace(" ","T").replace(/Z?$/,"Z")):NaN;
-  if(!isNaN(tp)){const hh=(Date.now()-tp)/3.6e6;age=hh<1?Math.max(0,Math.round(hh*60))+" min old":hh.toFixed(1)+" h old";}
-  ms.innerHTML=`<div><span class="k">Events</span><b>${fe.length}</b></div><div><span class="k">Candidates</span><b>${nca}</b></div>`
+ if(ms){ms.innerHTML=`<div><span class="k">Events</span><b>${fe.length}</b></div><div><span class="k">Candidates</span><b>${nca}</b></div>`
    +(latest?`<div><span class="k">Latest obs</span><b>${String(latest).replace("T"," ").replace("Z","").slice(0,19)}</b> <span style="color:var(--dim)">${age}</span></div>`:"");
   ms.style.display=fe.length?"flex":"none";}
 }
