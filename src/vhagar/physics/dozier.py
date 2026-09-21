@@ -138,7 +138,7 @@ def retrieve(
     >>> lm = mixed_pixel_radiance(3.9, p_true, tf_true, tb)
     >>> lt = mixed_pixel_radiance(11.0, p_true, tf_true, tb)
     >>> r = retrieve(lm, lt, tb)
-    >>> bool(abs(float(r.fire_fraction) - p_true) / p_true < 0.05)
+    >>> bool(abs(float(r.fire_fraction[0]) - p_true) / p_true < 0.05)
     True
     """
     lm = np.atleast_1d(np.asarray(l_mir, dtype=np.float64))

@@ -73,11 +73,15 @@ def build_samples(
     tf = Transformer.from_crs("EPSG:4326", region_crs, always_xy=True)
     lon = fdc_df["lon"].to_numpy(float)
     lat = fdc_df["lat"].to_numpy(float)
-    gx, gy = tf.transform(lon, lat)
+    # Pass Python lists: pyproj scalar-converts size-1 numpy arrays internally,
+    # which numpy >= 2.4 raises on ("ndim > 0 to a scalar"). Lists take pyproj's
+    # sequence path and return arrays regardless of length.
+    gx, gy = (np.asarray(a, float) for a in tf.transform(lon.tolist(), lat.tolist()))
     t = pd.to_datetime(fdc_df["t"])
     gt = (t - pd.Timestamp("1970-01-01")).dt.total_seconds().to_numpy()
 
-    vx, vy = tf.transform(viirs_lonlat[:, 0], viirs_lonlat[:, 1])
+    vx, vy = (np.asarray(a, float) for a in
+              tf.transform(viirs_lonlat[:, 0].tolist(), viirs_lonlat[:, 1].tolist()))
     vt = np.asarray(viirs_times, float)
     vcx, vcy = _cells(vx, vy, cell_m)
     from collections import defaultdict
