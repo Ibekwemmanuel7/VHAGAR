@@ -318,7 +318,7 @@ async function loadDanger(){
    +`<span class="dq">FWI <b>${num(fd.fwi)}</b> ${fd.class||""}</span>`
    +`<span class="dq">Ignition prob. <b>${igp}</b></span>`
    +`<span class="dq">Expected burned area <b>${num(d.expected_burned_area_ha,0)}</b> ha</span>`
-   +`<span class="fine">Three separate quantities, never one combined risk score. ${wxNote}</span>`;
+   +`<span class="fine">Three separate quantities, never one combined risk score.</span><details class="fine" style="margin-left:.5rem"><summary style="cursor:pointer;color:var(--ice);font-style:normal">Methods &amp; validation</summary><div style="max-width:34rem;margin-top:.35rem">${wxNote}</div></details>`;
   el.style.display="flex";}catch(e){el.style.display="none";}
 }
 
