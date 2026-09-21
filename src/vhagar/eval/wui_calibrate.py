@@ -78,8 +78,12 @@ def fire_from_points(name, lat, lon, destroyed, ignition_lat, ignition_lon,
     replace it later), normalises ``wind_speed_ms`` to [0, 1] against ``wind_ref_ms``
     and converts the meteorological ``wind_from_deg`` to the grid heading. Sets
     ``anisotropic=True`` so the wind-driven front is used. ``horizon`` defaults to the
-    median ignition-to-destroyed distance (in cells), sizing the front to the observed
-    destroyed extent. Rows increase north, columns increase east.
+    median ignition-to-structure distance over **all** structures (in cells), the
+    ex-ante exposure extent, which is known before the fire. It is deliberately NOT
+    derived from the destroyed structures or the final perimeter: doing so would leak
+    the observed loss extent of the fire being scored into its own forecast (an
+    outcome leak that invalidates held-out validation). Rows increase north, columns
+    increase east.
     """
     lat = np.asarray(lat, dtype=np.float64)
     lon = np.asarray(lon, dtype=np.float64)
@@ -110,7 +114,10 @@ def fire_from_points(name, lat, lon, destroyed, ignition_lat, ignition_lon,
     seed = np.zeros((H, W), dtype=bool)
     seed[i_row, i_col] = True
     if horizon is None:
-        dd = np.hypot(s_row[destroyed] - i_row, s_col[destroyed] - i_col)
+        # ex-ante: median ignition-to-structure distance over ALL structures (the
+        # exposure extent, a known input), NOT the destroyed structures (which would
+        # leak the observed loss extent of the fire being scored). See docstring.
+        dd = np.hypot(s_row - i_row, s_col - i_col)
         horizon = float(np.median(dd)) if dd.size else float(max(H, W))
     return WuiFire(
         name=name, ros=ros, burned_seed=seed, struct_rows=s_row, struct_cols=s_col,

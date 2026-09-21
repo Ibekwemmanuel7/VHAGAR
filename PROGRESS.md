@@ -3,6 +3,25 @@
 Last updated: 2026-09-16. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
+## T4 real-data forward validation on VIIRS + WUI horizon-leak fix (2026-09-20)
+
+Closed the "real perimeter validation missing" gap with a first real run. `scripts/t4_real_viirs.py`
+runs the T4 arrival-time assimilation on REAL NASA FIRMS VIIRS timed detections (viirs_truth.csv,
+Aug 1-7 2026) for the 6 largest western-US fire complexes: calibrate the per-fire ROS scale on the
+early detections, forecast, and score held-out later detections on NEW burn only (calibration cells
+excluded). Result: **mean held-out Sorensen (Dice) 0.30, mean POD 1.00, mean FAR 0.82** (per-fire Dice
+0.22-0.43; calibrated k 0.10-1.22). This lands squarely in the real-skill band the synthetic eval
+predicted (far below the optimistic synthetic AP 0.77), with the honest failure mode being
+over-prediction (high recall, low precision), which points to fuels + suppression. Figure:
+`outputs/t4_real_fire.png`. Honest scope: nominal ROS prior this session (LANDFIRE raster not
+present, only the scalar scale is calibrated from real data; `--fuel-tif` wires a real fuel prior);
+half-degree FIRMS clusters (a complex may hold >1 ignition); VIIRS detections as truth proxy, ~1 km grid.
+
+Also fixed the WUI P0 outcome-leak found in review: `fire_from_points` derived the forecast horizon
+from the destroyed-structure extent of the fire being scored (a leak). Now uses the ex-ante exposure
+extent (all structures). Rerun is essentially unchanged (0.75), confirming the WUI result was
+base-rate driven, not horizon-driven; the model does not beat the predict-all baseline (0.81).
+
 ## T4 Rothermel surface fire spread (physics ROS) (2026-09-19)
 
 Closed the physics half of the Rothermel gap. New `models/rothermel.py` implements the
