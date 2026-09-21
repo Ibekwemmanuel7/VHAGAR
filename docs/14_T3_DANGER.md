@@ -9,6 +9,17 @@ quantities that must never be collapsed into one "risk" number:
 - **Ignition probability**: P(>=1 ignition | cell, day), a rare-event binary.
 - **Expected burned area**: E[BA] = P(ignition) x E[BA | ignition].
 
+> **Update (2026-09-20): real-data training.** The ignition and expected-burned-area
+> heads are now trained on the real FPA-FOD record (455,864 CONUS fires, 2015-2020),
+> not the synthetic scenarios. Ignition occurrence climatology: temporal-holdout AUPRC
+> **0.72 vs 0.43** base rate (Brier 0.194 vs 0.245); on spatially held-out 5-degree
+> blocks it ties the base rate (0.71), so predicting ignition in unseen places needs
+> weather and fuel covariates (future work). Conditional burned-area size model (cause +
+> season only): CRPS **45.89 vs 46.14** climatology, **+0.5%** skill, an honest near-tie
+> (fire size needs weather, fuel, and suppression). Served live at `/v1/danger`; trainer
+> `scripts/t3_train_real.py`, tests `tests/test_burned_area_real.py` and
+> `tests/test_ignition_climatology.py`.
+
 ## What is built
 
 **Layer 1, deterministic indices.** `features/fwi.py` implements the Canadian

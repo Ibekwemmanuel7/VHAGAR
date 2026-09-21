@@ -3,7 +3,7 @@
 **Multi-sensor wildfire intelligence, detection, burned area, danger, spread.**
 Coverage: CONUS/USA · Canada · Europe.
 
-VHAGAR is four models and one platform:
+VHAGAR is five tiers and one platform (with a wildland-urban-interface extension on T4):
 
 | Task | Question | Prediction unit | Primary sensors |
 |---|---|---|---|
@@ -11,6 +11,7 @@ VHAGAR is four models and one platform:
 | **T2 burned area** | What burned, and how badly? | 20-30 m polygon + severity | Sentinel-2, Landsat 8/9, Sentinel-1 |
 | **T3 danger** | Where might it start, and how will it behave? | 1-4 km cell × day, probability | ERA5/HRRR/ECMWF + fuels + human drivers |
 | **T4 spread** | Where does this fire go next? | 375 m burn probability | fused arrival-time state + NWP + fuels |
+| **T5 loss** | What does it cost? | EP curve (AAL, OEP, AEP) | hazard × exposure (DINS assessed values) × vulnerability |
 
 | Doc | What it covers |
 |---|---|
@@ -164,11 +165,39 @@ tests/                    leakage, mass conservation, FWI + Planck regression,
 - **`models/`**, **`train/losses.py`**. U-Net baseline, siamese change net,
   geostationary temporal anomaly net, combo/Tversky/focal losses
 
-## What is scaffolded but not yet filled in
+## Current status and honest results (2026-09)
 
-Label harmonisation adapters (`labels/`), the Lightning training loop,
-ELMFIRE integration and assimilation for T4, the serving layer, and the
-Dagster cold-path assets. See the roadmap in `docs/00_ARCHITECTURE.md` §10.
+All five tiers now run end to end, and a live console serves the real fused feed.
+Every number below carries its baseline and caveat; that is the point.
+
+- **T2 burned area** is the strongest validated result: leakage-safe against MTBS,
+  with the cross-continent generalisation gap measured (the headline), and a
+  Prithvi vs U-Net head-to-head on identical folds.
+- **T3 danger** is now trained on real data (FPA-FOD, 455,864 CONUS fires, 2015-2020),
+  not a synthetic demo. Ignition occurrence climatology: temporal-holdout AUPRC
+  **0.72 vs 0.43** base rate (better calibrated too), but it ties the base rate on
+  spatially held-out cells, so predicting ignition in unseen places still needs
+  weather and fuel covariates (named future work). Burned-area conditional size
+  model (cause + season only): CRPS skill **+0.5%** over the size climatology, an
+  honest near-tie that says fire size needs weather, fuel, and suppression. Served
+  live at `/v1/danger`.
+- **T4 spread** couples an anisotropic arrival-time (Eikonal) front with the
+  canonical Rothermel (1972) surface-fire rate of spread, plus online per-fire ROS
+  calibration from timed detections. Synthetic-truth AP ~0.77 is flagged optimistic;
+  a real-data forward run on held-out NASA FIRMS VIIRS detections gives mean Sorensen
+  **0.30** (high recall, honest over-prediction). That run is a held-out-detection
+  proxy, **not** a mapped-perimeter validation; real perimeter scoring is future work.
+- **T4 WUI extension** runs end to end on four major California fires, but leave-one-
+  fire-out F1 **0.75 does not beat** the predict-all-destroyed baseline of **0.81**
+  (the DINS-inspected structures are 51-94% destroyed), so it is a base-rate-dominated
+  prototype, not a skill result. Wiring real LANDFIRE fuels made it worse (0.75 to 0.41),
+  a documented negative.
+- **T5 loss** implements the standard hazard to exposure to vulnerability to EP-curve
+  chain on the CAL FIRE DINS record.
+
+Still genuinely open: real fuel/weather covariates for the T3 ignition ML model,
+mapped-perimeter validation for T4, a balanced-structure WUI evaluation, ELMFIRE
+integration, and the Dagster cold-path assets. See `docs/00_ARCHITECTURE.md` §10.
 
 ---
 

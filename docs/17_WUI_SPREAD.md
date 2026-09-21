@@ -225,12 +225,23 @@ NE); Tubbs (38.628, -122.606, Diablo ~18 m/s NE), leave-one-fire-out:
 | **mean held-out** | | | **0.75** | |
 
 Selected: length-to-breadth 1.6, horizon x6, structure radius 2 cells, base_p 0.5,
-spotting distance 6 / intensity 3. This is a genuine validated result on four major
-fires, driven by real ignition and wind, scored leave-one-fire-out (params fit on the
-*other* three fires, so 0.75 is generalisation). The model reproduces Camp (Paradise)
-and Tubbs (which jumped Highway 101 into Coffey Park, F1 0.97) essentially completely,
-so the wind-driven front plus spotting carries fire across the gaps that broke the
-scoped structure-only run.
+spotting distance 6 / intensity 3. This is a real end-to-end run on four major fires,
+driven by real ignition and wind, scored leave-one-fire-out (params fit on the *other*
+three fires, so 0.75 is generalisation, not fit-to-self). The model reproduces Camp
+(Paradise) and Tubbs (which jumped Highway 101 into Coffey Park, F1 0.97) essentially
+completely, so the wind-driven front plus spotting carries fire across the gaps that
+broke the scoped structure-only run.
+
+**It does not beat the trivial baseline, and we do not market it as a win.** The
+DINS-inspected structures on these fires are 51 to 94 percent destroyed, so simply
+labelling every inspected structure "destroyed" scores a mean leave-one-fire-out F1 of
+about **0.81**, above the model's 0.75. The model ties that predict-all baseline on Camp
+and Tubbs and loses on Palisades. So this result is base-rate dominated: it shows the WUI
+layer runs end to end on real fires with real ignition and wind, not that it has skill
+over a trivial baseline. A genuine win requires per-structure discrimination against the
+surviving structures (POD/FAR conditioned on survivors) and a fitted vulnerability curve,
+which is the stated next step. The 0.75 is reported as an end-to-end sanity number, never
+as evidence of structure-level skill.
 
 **Honest caveat on the metric.** F1 is highest where the destroyed fraction of the
 inspected structures is highest (Tubbs 0.94, Camp 0.80): those fires levelled whole
@@ -310,9 +321,11 @@ held up at 0.75). This is a real, informative negative, and worth stating plainl
 
 So the fuels experiment did not improve the metric; it exposed that the model's mechanism
 for getting fire **into and across the built and non-fuel environment** (edge-seeding +
-short-range spotting) is underpowered once the front is fuel-constrained. The honest
-headline stays the **uniform-ROS mean held-out F1 0.75**, with its own caveat (it
-over-predicts because it ignores fuel). The real next step is not "add fuels" but a
+short-range spotting) is underpowered once the front is fuel-constrained. The uniform-ROS
+run remains the reference configuration at **F1 0.75**, but that number is *below* the
+predict-all-destroyed baseline of ~0.81 (see the results section above): it is an
+end-to-end sanity figure that over-predicts because it ignores fuel, not a demonstrated
+win over the trivial baseline. The real next step is not "add fuels" but a
 stronger built-environment spread model: long-range ember spotting calibrated to jump
 non-fuel gaps, and treating the dense structure network as its own spread medium seeded
 broadly at the wildland-urban interface. The fuel-aware code path (windowed FBFM40

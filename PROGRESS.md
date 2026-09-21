@@ -34,7 +34,10 @@ NEXT: fold these real figures into the deck/report/prep; optional weather-covari
 
 ## T4 real-data forward validation on VIIRS + WUI horizon-leak fix (2026-09-20)
 
-Closed the "real perimeter validation missing" gap with a first real run. `scripts/t4_real_viirs.py`
+A first real-data forward run on the T4 assimilation. This is NOT a real perimeter validation: the
+truth is held-out later VIIRS detections (a coarse ~1 km active-fire proxy), not a mapped future
+perimeter or an incremental burned-area mask, so it bounds skill on detection-recall terms, not on
+perimeter geometry. `scripts/t4_real_viirs.py`
 runs the T4 arrival-time assimilation on REAL NASA FIRMS VIIRS timed detections (viirs_truth.csv,
 Aug 1-7 2026) for the 6 largest western-US fire complexes: calibrate the per-fire ROS scale on the
 early detections, forecast, and score held-out later detections on NEW burn only (calibration cells
