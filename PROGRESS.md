@@ -1,7 +1,28 @@
 # VHAGAR progress tracker
 
-Last updated: 2026-09-16. Keep this file current. It is the single place to look
+Last updated: 2026-09-20. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
+
+## T3 danger on real FPA-FOD data (ignition climatology + burned-area size) (2026-09-20)
+
+Replaced the synthetic-only T3 danger numbers with real-data models, keeping the honest
+labels. `eval/burned_area_real.py` fits the conditional fire-size distribution (log-quantile
+boosting + GPD tail, reused from `burned_area.py`) on real FPA-FOD `FIRE_SIZE`; features are
+cause + season only (no weather/fuel yet, so no spatial leakage), lon/lat used only for 5-deg
+blocked CV; scored by CRPS/pinball vs the size climatology. `eval/ignition_climatology.py`
+fits a per-cell/month occurrence climatology and evaluates it two honest ways: temporal
+holdout (fire locations persist year to year, so climatology beats base rate = real skill we
+serve) and spatial-block holdout (per-cell climatology has no signal on unseen cells, so it
+collapses to base rate = why weather/fuel covariates are still needed; that weather-driven ML
+ignition is explicitly future work). `scripts/t3_train_real.py` trains both offline from the
+full FPA-FOD SQLite and writes small committable artifacts (`data/t3_real/ba_model.joblib`,
+`t3_real_serving.json`, `t3_real_metrics.json`); the multi-GB DB never ships. `/v1/danger`
+loads the artifacts when present (`data_source: real-fpa-fod`, with `provenance`) and falls
+back to the synthetic demo otherwise; the console caption now shows the endpoint provenance.
+FWI is unchanged (live weather). Tests: `tests/test_burned_area_real.py`,
+`tests/test_ignition_climatology.py` (9 new). Full suite 518 passed / 10 skipped. NEXT: run
+`scripts/t3_train_real.py` against the downloaded FPA-FOD, commit the artifacts, fold the real
+CRPS/AUPRC numbers into the deck/report/prep.
 
 ## T4 real-data forward validation on VIIRS + WUI horizon-leak fix (2026-09-20)
 

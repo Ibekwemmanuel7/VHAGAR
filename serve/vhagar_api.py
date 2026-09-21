@@ -860,6 +860,29 @@ def favicon():
 _DANGER = None
 _DANGER_LOCK = threading.Lock()
 
+# Real T3 artifacts (produced by scripts/t3_train_real.py from FPA-FOD). When
+# present these replace the synthetic ignition/E[BA] numbers with values learned
+# from real fire records; FWI stays live-weather either way. Sentinel False means
+# "looked, not found" so we do not re-stat the disk on every request.
+_T3_REAL = None
+
+
+def _t3_real_state():
+    global _T3_REAL
+    if _T3_REAL is None:
+        import json as _json
+
+        base = Path(__file__).resolve().parents[1] / "data" / "t3_real"
+        sj, mj = base / "t3_real_serving.json", base / "ba_model.joblib"
+        if sj.exists() and mj.exists():
+            try:
+                _T3_REAL = _json.loads(sj.read_text(encoding="utf-8"))
+            except Exception:
+                _T3_REAL = False
+        else:
+            _T3_REAL = False
+    return _T3_REAL
+
 
 def _danger_state():
     global _DANGER
@@ -925,15 +948,31 @@ def danger(dryness: float = Query(0.6, ge=0, le=1), fuel: float = Query(0.6, ge=
     q = st["eba"].predict_quantiles(_np.array([[dryness, fuel, wind, slope]]))
     eba_cond = float(_np.mean(q))
     fwi_v = _fwi_point(temp, rh, wind * 40.0, rainfall, month)
+
+    # Real FPA-FOD ignition climatology + conditional burned-area model, when the
+    # trained artifacts are committed; otherwise the synthetic-scenario numbers.
+    real = _t3_real_state()
+    if real:
+        mk = str(int(month))
+        p_ig = float(real["ignition_prob_by_month"].get(mk, real.get("base_rate", p_ig)))
+        eba_cond = float(real["eba_given_ignition_ha_by_month"].get(mk, eba_cond))
+        provenance = real.get("provenance", "Ignition and burned area trained on real FPA-FOD.")
+        source = real.get("data_source", "real-fpa-fod")
+    else:
+        provenance = ("Ignition and burned-area models are demo (VHAGAR synthetic scenarios), "
+                      "pending real-data artifacts.")
+        source = "synthetic-demo"
+    note = ("Three separate quantities (never one 'risk' number). FWI is the Canadian Fire "
+            "Weather Index from live weather. " + provenance)
     return JSONResponse({
-        "schema": "t3-danger-demo",
+        "schema": "t3-danger",
+        "data_source": source,
+        "provenance": provenance,
         "fire_danger": {"fwi": round(fwi_v, 1), "class": _fwi_class(fwi_v)},
         "ignition_probability": round(p_ig, 5),
         "expected_burned_area_ha": round(p_ig * eba_cond, 2),
         "e_ba_given_ignition_ha": round(eba_cond, 1),
-        "note": ("Three separate quantities (never one 'risk' number). Models trained on VHAGAR's "
-                 "synthetic danger scenarios; wire real fuels / weather / occurrence for operational "
-                 "values. FWI is the Canadian Fire Weather Index from the supplied weather."),
+        "note": note,
     })
 
 

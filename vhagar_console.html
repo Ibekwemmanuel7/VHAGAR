@@ -310,9 +310,10 @@ async function loadDanger(){
   const wxSrc=selWx
    ?`selected cluster ${selF.properties.event_id}: ${t.toFixed(0)}&deg;C, ${rh.toFixed(0)}% RH, ${wms.toFixed(1)} m/s`
    :`median across ${feats.length} events in view: ${t!=null?t.toFixed(0):"?"}&deg;C, ${rh!=null?rh.toFixed(0):"?"}% RH, ${wms!=null?wms.toFixed(1):"?"} m/s`;
+  const prov=d.provenance||"Ignition and burned-area models pending real-data training.";
   const wxNote=haveWx
-   ?`FWI from live weather (${wxSrc}). Ignition and burned-area models pending real-data training.`
-   :`FWI from nominal reference weather (no live weather in view). Ignition and burned-area models pending real-data training.`;
+   ?`FWI from live weather (${wxSrc}). ${prov}`
+   :`FWI from nominal reference weather (no live weather in view). ${prov}`;
   el.innerHTML='<span class="lab">Fire danger &middot; T3</span>'
    +`<span class="dq">FWI <b>${num(fd.fwi)}</b> ${fd.class||""}</span>`
    +`<span class="dq">Ignition prob. <b>${igp}</b></span>`
