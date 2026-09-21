@@ -194,9 +194,12 @@ function addLayers(){
  map.addSource("detections",{type:"geojson",data:empty()});
  map.addSource("candidates",{type:"geojson",data:empty()});
  map.addSource("winds",{type:"geojson",data:empty()});
+ map.addSource("forecast",{type:"geojson",data:empty()});
  map.addLayer({id:"events-fill",type:"fill",source:"events",paint:{"fill-color":PERIM,"fill-opacity":.16}});
  map.addLayer({id:"events-line",type:"line",source:"events",paint:{"line-color":PERIM,"line-width":["interpolate",["linear"],["zoom"],4,1,8,1.8,11,2.6],"line-dasharray":[3,2],"line-opacity":.9}});
  map.addLayer({id:"events-sel",type:"line",source:"events",filter:["==",["get","event_id"],-1],paint:{"line-color":"#5cc8ff","line-width":3.2}});
+ map.addLayer({id:"forecast-fill",type:"fill",source:"forecast",paint:{"fill-color":"#ff7f0e","fill-opacity":.10}});
+ map.addLayer({id:"forecast-line",type:"line",source:"forecast",paint:{"line-color":"#ff9d3a","line-width":1.6,"line-dasharray":[2,1.4],"line-opacity":.9}});
  map.addLayer({id:"det-glow",type:"circle",source:"detections",paint:{"circle-radius":GLOW_RADIUS,"circle-color":FRP_COLOR,"circle-opacity":.12,"circle-blur":1}});
  map.addLayer({id:"det-pt",type:"circle",source:"detections",paint:{"circle-radius":FRP_RADIUS,"circle-color":FRP_COLOR,"circle-opacity":.88,"circle-stroke-color":"#00000055","circle-stroke-width":.4}});
  map.addLayer({id:"cand-glow",type:"circle",source:"candidates",paint:{"circle-radius":["interpolate",["linear"],["zoom"],4,8,7,12,10,18],"circle-color":"#e6b84a","circle-opacity":.10,"circle-blur":1}});
@@ -297,7 +300,7 @@ async function loadDanger(){
 
 function eventById(id){return ((state.events&&state.events.features)||[]).find(f=>f.properties.event_id===id);}
 function selectEvent(id){
- state.sel=id;renderFeed();
+ state.sel=id;clearForecast();renderFeed();
  if(map&&map.getLayer("events-sel"))map.setFilter("events-sel",["==",["get","event_id"],id]);
  const f=eventById(id);if(!f)return;const p=f.properties;
  if(map){map.flyTo({center:[p.centroid_lon,p.centroid_lat],zoom:9,duration:800});
@@ -305,7 +308,7 @@ function selectEvent(id){
  openDrawer(p);
 }
 function metric(k,v,u){return `<div class="metric"><div class="k">${k}</div><div class="v">${v}${u?` <small>${u}</small>`:""}</div></div>`;}
-function openDrawer(p){const fdc=isFDC();
+function openDrawer(p){const fdc=isFDC();state.selProps=p;
  document.getElementById("d_name").textContent=p.label||("Event "+p.event_id);
  document.getElementById("d_cls").innerHTML=fdc?`Peak FRP ${frpBadge(p.max_frp_mw)} &middot; ${num(p.max_frp_mw,0)} MW`:`Spread risk ${riskBadge(p.risk_class)} &middot; ${num(p.risk_score,0)}`;
  const clean=s=>(s||"-").replace("T"," ").replace("Z","").slice(0,19);
@@ -319,10 +322,26 @@ function openDrawer(p){const fdc=isFDC();
  const q=`region=${state.region}&days=${state.days}`;
  const exports=`<div class="exports" style="padding:0"><a href="${API}/api/export/geojson?${q}" target="_blank" rel="noopener">GeoJSON</a><a href="${API}/api/export/kmz?${q}" target="_blank" rel="noopener">KMZ</a></div>`;
  const note=fdc?`Perimeter: ${p.perimeter_method||"detection convex hull"}. The footprint is the hull of GOES FDC detection pixels, a detection extent, not a burned-area measurement.`:`Perimeter method: ${p.perimeter_method||"alpha-shape"}.`;
- document.getElementById("d_body").innerHTML=metrics+wx+exports+`<div class="note">${note}</div>`;
+ const fc=(p.wind_speed_ms!=null&&p.centroid_lat!=null)
+  ?`<button id="fcbtn" style="width:100%;margin-top:9px;padding:.42rem;border-radius:8px;border:1px solid #3a2a12;background:#241a0e;color:#ffb000;font-size:.77rem;font-weight:600;cursor:pointer">&#9650; Forecast spread (experimental)</button><div id="fcnote" class="note" style="color:#c79a55"></div>`
+  :"";
+ document.getElementById("d_body").innerHTML=metrics+wx+exports+fc+`<div class="note">${note}</div>`;
+ const b=document.getElementById("fcbtn");if(b)b.onclick=forecastSpread;
  document.getElementById("drawer").classList.add("open");
 }
-document.getElementById("d_x").onclick=()=>{document.getElementById("drawer").classList.remove("open");state.sel=null;if(map&&map.getLayer("events-sel"))map.setFilter("events-sel",["==",["get","event_id"],-1]);renderFeed();};
+function clearForecast(){if(map&&map.getSource("forecast"))map.getSource("forecast").setData(empty());}
+async function forecastSpread(){const p=state.selProps;if(!p||!map)return;
+ const b=document.getElementById("fcbtn"),note=document.getElementById("fcnote");
+ if(b){b.disabled=true;b.textContent="Forecasting...";}
+ try{
+  const q=`lat=${p.centroid_lat}&lon=${p.centroid_lon}&wind_ms=${p.wind_speed_ms||4}&wind_deg=${p.wind_dir_deg||0}`;
+  const fc=await getJSON("/api/forecast?"+q);
+  if(map.getSource("forecast"))map.getSource("forecast").setData(fc);
+  if(note)note.textContent=(fc.properties&&fc.properties.disclaimer)||"Experimental directional forecast; not a validated perimeter.";
+ }catch(e){if(note)note.textContent="Forecast unavailable ("+e+").";}
+ finally{if(b){b.disabled=false;b.innerHTML="&#9650; Forecast spread (experimental)";}}
+}
+document.getElementById("d_x").onclick=()=>{document.getElementById("drawer").classList.remove("open");state.sel=null;clearForecast();if(map&&map.getLayer("events-sel"))map.setFilter("events-sel",["==",["get","event_id"],-1]);renderFeed();};
 
 async function getJSON(path){const c=new AbortController();const t=setTimeout(()=>c.abort(),25000);
  try{const r=await fetch(API+path,{signal:c.signal});if(!r.ok)throw new Error(r.status);return await r.json();}finally{clearTimeout(t);}}

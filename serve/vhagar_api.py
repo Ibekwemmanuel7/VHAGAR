@@ -732,7 +732,7 @@ def candidates(region: str = Query("california"), days: int = Query(1, ge=1, le=
     goes = win[win["sensor"].isin(_GOES_SENSORS)]
     polar = win[win["sensor"].astype(str).str.contains("VIIRS|MODIS", na=False, regex=True)]
     pcells = set(zip((polar["lon"] / _CAND_CELL).round().astype(int),
-                     (polar["lat"] / _CAND_CELL).round().astype(int))) if len(polar) else set()
+                     (polar["lat"] / _CAND_CELL).round().astype(int), strict=False)) if len(polar) else set()
     ev_boxes = []
     for r in evs:
         if not _in_bbox(r["centroid_lon"], r["centroid_lat"], bbox):
@@ -786,6 +786,52 @@ def export_kmz(region: str = Query("california"), days: int = Query(3, ge=1, le=
     kmz = events_to_kmz(_events_fc(region, days))
     return Response(content=kmz, media_type="application/vnd.google-earth.kmz",
         headers={"Content-Disposition": f"attachment; filename=vhagar_events_{region}.kmz"})
+
+
+@app.get("/api/forecast")
+def forecast(lat: float, lon: float, wind_ms: float = 4.0, wind_deg: float = 0.0,
+             hours: str = "6,12,24"):
+    """EXPERIMENTAL directional spread forecast for one fire: arrival-time isochrones.
+
+    Seeds the T4 anisotropic arrival-time front at (lat, lon), runs it under a nominal
+    uniform rate-of-spread prior and the supplied wind, and returns the +6/+12/+24 h
+    isochrones as convex-hull polygons (GeoJSON). This is a DIRECTIONAL PROJECTION, not
+    a validated perimeter: on real VIIRS validation the front over-predicts extent
+    (mean held-out Sorensen ~0.30, high false-alarm ratio). Fuels are nominal here
+    (no server-side LANDFIRE), so only wind shapes the ellipse. Labelled accordingly."""
+    from vhagar.eval.wui_calibrate import wind_from_deg_to_grid
+    from vhagar.models.spread import anisotropic_arrival
+
+    hrs = sorted({float(h) for h in hours.split(",") if h.strip()}, reverse=True) or [24.0]
+    cell, half = 300.0, 18000.0
+    mx = math.cos(math.radians(lat)) * 111_320.0
+    my = 110_540.0
+    xs = np.arange(-half, half, cell)
+    ys = np.arange(-half, half, cell)
+    n = len(xs)
+    ros = np.full((n, n), 6.0)                       # nominal head ROS (m/min); wind shapes it
+    seed = np.zeros((n, n), dtype=bool)
+    seed[n // 2, n // 2] = True
+    tfield = anisotropic_arrival(ros, wind_ms, wind_from_deg_to_grid(wind_deg),
+                                 seed, dx=cell, lb_max=2.5) / 60.0
+    feats = []
+    for h in hrs:
+        ii, jj = np.where(tfield <= h)
+        if ii.size < 3:
+            continue
+        plon = lon + xs[jj] / mx
+        plat = lat + ys[ii] / my
+        ring = _convex_hull(np.column_stack([plon, plat]))
+        if len(ring) < 4:
+            continue
+        feats.append({"type": "Feature", "properties": {"hour": int(h), "label": f"forecast +{int(h)} h"},
+                      "geometry": {"type": "Polygon",
+                                   "coordinates": [[[round(float(x), 4), round(float(y), 4)] for x, y in ring]]}})
+    return {"type": "FeatureCollection", "features": feats,
+            "properties": {"kind": "experimental_forecast",
+                           "disclaimer": ("Experimental directional spread forecast: nominal fuels, current "
+                                          "wind, convex-hull isochrones. It over-predicts extent and is NOT a "
+                                          "validated perimeter (real held-out Sorensen ~0.30).")}}
 
 
 @app.get("/console")
