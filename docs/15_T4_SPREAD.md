@@ -23,6 +23,23 @@ respect that.
 > not a perimeter validation. Real perimeter scoring (NIROPS/agency perimeters) and a
 > real LANDFIRE fuel prior remain future work.
 
+> **Update (2026-09-20): mapped-perimeter validation against real MTBS.** The front
+> is now compared to REAL mapped fire perimeters, not only detection proxies, using
+> the MTBS 2021 CONUS severity raster for five large western fires (Dixie, Caldor,
+> Bootleg, Monument, River Complex; ~800k ha total). `eval/perimeter_shape.py` scores
+> the elliptical arrival-time front's reconstructed perimeter against the real burned
+> mask (IoU/Sorensen) versus an equal-area **circle baseline**. Honest scope: this is
+> a shape-family adequacy test, the observed final area, dominant axis and length-to-
+> breadth are taken from the truth mask; only the front geometry is under test. Result:
+> **mean IoU 0.46 (front) vs 0.50 (circle)** — the ellipse does not win on average,
+> because large multi-day footprints trend round. But it wins on **every strongly
+> wind-elongated fire** (Dixie LB 2.3: 0.42 vs 0.36; Caldor LB 2.6: 0.59 vs 0.51;
+> River LB 1.9: 0.54 vs 0.53) and loses on the compact ones (Bootleg LB 1.7, Monument
+> LB 1.5). The honest reading: a single-wind ellipse helps precisely when the fire is
+> wind-driven; reproducing compact multi-day complexes needs time-resolved perimeters
+> with time-varying wind and fuel breaks, the named next step. Script
+> `scripts/t4_mtbs_perimeter.py`, test `tests/test_perimeter_shape.py`.
+
 ## What is built
 
 **Physics propagation core (`models/spread.py`).** Fire spread is a

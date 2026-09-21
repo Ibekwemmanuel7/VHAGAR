@@ -3,6 +3,22 @@
 Last updated: 2026-09-20. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
+## T4 mapped-perimeter validation against real MTBS (2026-09-20)
+
+Retired the "never compared to a real mapped perimeter" gap. `eval/perimeter_shape.py`
++ `scripts/t4_mtbs_perimeter.py` score the elliptical arrival-time front against REAL
+MTBS 2021 burned perimeters (severity raster, five large western fires, ~800k ha:
+Dixie, Caldor, Bootleg, Monument, River Complex) with IoU/Sorensen versus an equal-area
+circle baseline. Honest scope: shape-family adequacy test (final area, dominant axis,
+length-to-breadth taken from truth; only the front geometry under test), not a blind
+forecast. Result: **mean IoU 0.46 (front) vs 0.50 (circle)** overall, but the ellipse
+**wins on every wind-elongated fire** (Dixie LB 2.3, Caldor LB 2.6, River LB 1.9) and
+loses on compact ones (Bootleg LB 1.7, Monument LB 1.5). Honest finding: a single-wind
+ellipse helps only when the fire is wind-driven; compact multi-day footprints need
+time-resolved perimeters + time-varying wind + fuel breaks (next step). Figure
+`outputs/t4_mtbs_perimeter.png`, summary `outputs/t4_mtbs_perimeter.json`, test
+`tests/test_perimeter_shape.py` (pure numpy, CI-safe).
+
 ## T3 danger on real FPA-FOD data (ignition climatology + burned-area size) (2026-09-20)
 
 Replaced the synthetic-only T3 danger numbers with real-data models, keeping the honest
