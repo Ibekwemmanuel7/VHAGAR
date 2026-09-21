@@ -1,0 +1,78 @@
+{
+  "burned_area": {
+    "crps": 45.88926982296029,
+    "crps_climatology": 46.1353079955964,
+    "crps_skill_vs_climatology": 0.0053329691146658505,
+    "pinball": {
+      "0.1": 3.731381083205379,
+      "0.25": 9.323192217685143,
+      "0.5": 18.634651246643596,
+      "0.75": 27.855290710535538,
+      "0.9": 33.11449945519566,
+      "0.95": 34.46103313931976,
+      "0.99": 33.49239652777593
+    },
+    "rmse_mean": 1290.1263238905976,
+    "rmse_std": 362.81073134453646,
+    "crps_note": "CRPS is proper and stable; RMSE std across folds shows the tail instability",
+    "n": 150000,
+    "tail": true,
+    "source": "FPA-FOD FIRE_SIZE (real)",
+    "n_fires_total": 455864,
+    "n_fires_evaluated": 150000,
+    "features": [
+      "lightning",
+      "sin_doy",
+      "cos_doy"
+    ],
+    "years": [
+      2015,
+      2016,
+      2017,
+      2018,
+      2019,
+      2020
+    ],
+    "median_ha": 0.202342821,
+    "p95_ha": 16.18742568,
+    "max_ha": 268185.1749534,
+    "note": "cause+season features only (no weather/fuel); CRPS skill vs size climatology is the honest verdict"
+  },
+  "ignition": {
+    "source": "FPA-FOD occurrences (real)",
+    "n_fires": 455864,
+    "cell_deg": 0.5,
+    "years": [
+      2015,
+      2016,
+      2017,
+      2018,
+      2019,
+      2020
+    ],
+    "temporal_holdout": {
+      "test_year": 2020,
+      "train_years": [
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ],
+      "n_candidates": 39984,
+      "n_positive": 17029,
+      "base_rate": 0.4258953581432573,
+      "auprc_climatology": 0.7209131905106836,
+      "auprc_baserate": 0.4258953581432573,
+      "brier_climatology": 0.1944059401141457,
+      "brier_baserate": 0.2445085020552839,
+      "auprc_lift": 0.5138746682369494
+    },
+    "spatial_block": {
+      "n_blocks_scored": 50,
+      "auprc_climatology_mean": 0.7095334963719567,
+      "auprc_baserate_mean": 0.7095334963719567,
+      "note": "Per-cell climatology has no signal on cells it never saw, so on spatially held-out blocks it collapses toward the base rate. Predicting ignition in NEW places needs covariates (future work)."
+    }
+  }
+}

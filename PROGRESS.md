@@ -20,9 +20,17 @@ full FPA-FOD SQLite and writes small committable artifacts (`data/t3_real/ba_mod
 loads the artifacts when present (`data_source: real-fpa-fod`, with `provenance`) and falls
 back to the synthetic demo otherwise; the console caption now shows the endpoint provenance.
 FWI is unchanged (live weather). Tests: `tests/test_burned_area_real.py`,
-`tests/test_ignition_climatology.py` (9 new). Full suite 518 passed / 10 skipped. NEXT: run
-`scripts/t3_train_real.py` against the downloaded FPA-FOD, commit the artifacts, fold the real
-CRPS/AUPRC numbers into the deck/report/prep.
+`tests/test_ignition_climatology.py` (9 new). Full suite 518 passed / 10 skipped.
+
+REAL numbers are now trained and committed (FPA-FOD RDS-2013-0009, 455,864 fires, CONUS
+2015-2020; artifacts in `data/t3_real/`). Ignition occurrence climatology: **temporal-holdout
+AUPRC 0.721 vs 0.426 base rate** (Brier 0.194 vs 0.245), so historical persistence gives real
+skill; **spatial-block AUPRC 0.710 = 0.710 base rate**, i.e. it does NOT generalize to unseen
+cells, which is exactly why weather/fuel covariates are the named future work. Burned-area
+conditional size model (cause + season only): **CRPS 45.89 vs 46.14 climatology, skill only
++0.5%** (RMSE 1290 +- 363 shows the tail instability), the honest verdict that fire size needs
+weather/fuel/suppression, not cause+season. `/v1/danger` now serves `data_source: real-fpa-fod`.
+NEXT: fold these real figures into the deck/report/prep; optional weather-covariate ignition model.
 
 ## T4 real-data forward validation on VIIRS + WUI horizon-leak fix (2026-09-20)
 
