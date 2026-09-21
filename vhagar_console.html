@@ -498,7 +498,7 @@ function applyChrome(){const fdc=isFDC();
  if(fc){fc.innerHTML=utc?`<span style="color:#4ade80">&#9679;</span> Latest observation: <b style="color:#f1f5f9">${utc}</b> &middot; ${age}`:"";fc.style.display=utc?"inline-flex":"none";}
  const ms=document.getElementById("mapsummary");
  if(ms){ms.innerHTML=`<div><span class="k">Events</span><b>${fe.length}</b></div><div><span class="k">Candidates</span><b>${nca}</b></div>`
-   +(latest?`<div><span class="k">Latest obs</span><b>${String(latest).replace("T"," ").replace("Z","").slice(0,19)}</b> <span style="color:var(--dim)">${age}</span></div>`:"");
+   +(latest?`<div><span class="k">Latest</span><b>${age}</b></div>`:"");
   ms.style.display=fe.length?"flex":"none";}
 }
 function render(){applyChrome();renderExports();renderTabs();renderFeed();pushData();}
