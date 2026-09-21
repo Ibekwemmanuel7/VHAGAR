@@ -1,0 +1,459 @@
+{
+  "claim": "short-horizon, surface-fire directional spread decision support for a selected incident",
+  "aggregate": {
+    "n_incidents_scored": 8,
+    "n_refused": 0,
+    "mean_iou_spatial": 0.0543,
+    "mean_iou_uniform": 0.0544,
+    "mean_iou_circle": 0.0492,
+    "mean_pod_spatial": 0.9045,
+    "mean_far_spatial": 0.9449,
+    "mean_arrival_mae_h": 19.901,
+    "far_caveat": "FAR is against VIIRS ~375 m detections, a recall-limited proxy that misses burned cells, so commission is overstated; POD is the more trustworthy VIIRS metric",
+    "spatial_ge_uniform_count": 3,
+    "spatial_ge_circle_count": 6
+  },
+  "incidents": [
+    {
+      "provenance": {
+        "incident_center": [
+          47.9875,
+          -120.5324
+        ],
+        "grid_cells": "48x95",
+        "cell_deg": 0.005,
+        "cutoff_hours_from_first": 23.68,
+        "forecast_horizon_hours": 24.0,
+        "n_early_cells": 552,
+        "n_late_new_cells": 366,
+        "burnable_fraction": 0.902,
+        "inputs": {
+          "detections": "VIIRS active-fire (NASA FIRMS), ~375 m recall proxy",
+          "detections_latest_acq_utc": "2026-08-07 21:21:00",
+          "fuels": "LANDFIRE FBFM40 LF2025 (current vintage)",
+          "wind": "single representative 3.0 m/s (time-varying wind: not wired)",
+          "terrain_dem": "absent (slope_tan=0): documented degradation",
+          "dead_fuel_moisture": 0.06
+        }
+      },
+      "ros_scale_k": 0.032,
+      "ros_mean_mpermin": 26.74,
+      "model_spatial_rothermel": {
+        "iou": 0.1011,
+        "dice": 0.1836,
+        "pod": 0.7377,
+        "far": 0.8951,
+        "arrival_mae_h": 12.399
+      },
+      "baseline_uniform_ros": {
+        "iou": 0.0998,
+        "dice": 0.1815,
+        "pod": 0.7432,
+        "far": 0.8966,
+        "arrival_mae_h": 12.575
+      },
+      "baseline_persistence": {
+        "iou": 0.0,
+        "dice": 0.0,
+        "pod": 0.0,
+        "far": NaN,
+        "arrival_mae_h": NaN
+      },
+      "baseline_equal_area_circle": {
+        "iou": 0.1404,
+        "dice": 0.2462,
+        "pod": 0.1749,
+        "far": 0.5844,
+        "arrival_mae_h": NaN
+      },
+      "model_beats_uniform_iou": true,
+      "model_beats_circle_iou": false
+    },
+    {
+      "provenance": {
+        "incident_center": [
+          44.4618,
+          -120.5518
+        ],
+        "grid_cells": "68x78",
+        "cell_deg": 0.005,
+        "cutoff_hours_from_first": 23.72,
+        "forecast_horizon_hours": 24.0,
+        "n_early_cells": 377,
+        "n_late_new_cells": 104,
+        "burnable_fraction": 0.994,
+        "inputs": {
+          "detections": "VIIRS active-fire (NASA FIRMS), ~375 m recall proxy",
+          "detections_latest_acq_utc": "2026-08-07 21:18:00",
+          "fuels": "LANDFIRE FBFM40 LF2025 (current vintage)",
+          "wind": "single representative 3.0 m/s (time-varying wind: not wired)",
+          "terrain_dem": "absent (slope_tan=0): documented degradation",
+          "dead_fuel_moisture": 0.06
+        }
+      },
+      "ros_scale_k": 0.026,
+      "ros_mean_mpermin": 26.97,
+      "model_spatial_rothermel": {
+        "iou": 0.0238,
+        "dice": 0.0465,
+        "pod": 0.9904,
+        "far": 0.9762,
+        "arrival_mae_h": 20.076
+      },
+      "baseline_uniform_ros": {
+        "iou": 0.0292,
+        "dice": 0.0568,
+        "pod": 0.9904,
+        "far": 0.9708,
+        "arrival_mae_h": 17.186
+      },
+      "baseline_persistence": {
+        "iou": 0.0,
+        "dice": 0.0,
+        "pod": 0.0,
+        "far": NaN,
+        "arrival_mae_h": NaN
+      },
+      "baseline_equal_area_circle": {
+        "iou": 0.136,
+        "dice": 0.2394,
+        "pod": 0.1635,
+        "far": 0.5526,
+        "arrival_mae_h": NaN
+      },
+      "model_beats_uniform_iou": false,
+      "model_beats_circle_iou": false
+    },
+    {
+      "provenance": {
+        "incident_center": [
+          45.322,
+          -121.5028
+        ],
+        "grid_cells": "37x68",
+        "cell_deg": 0.005,
+        "cutoff_hours_from_first": 23.72,
+        "forecast_horizon_hours": 24.0,
+        "n_early_cells": 265,
+        "n_late_new_cells": 24,
+        "burnable_fraction": 0.979,
+        "inputs": {
+          "detections": "VIIRS active-fire (NASA FIRMS), ~375 m recall proxy",
+          "detections_latest_acq_utc": "2026-08-07 21:18:00",
+          "fuels": "LANDFIRE FBFM40 LF2025 (current vintage)",
+          "wind": "single representative 3.0 m/s (time-varying wind: not wired)",
+          "terrain_dem": "absent (slope_tan=0): documented degradation",
+          "dead_fuel_moisture": 0.06
+        }
+      },
+      "ros_scale_k": 0.03,
+      "ros_mean_mpermin": 16.96,
+      "model_spatial_rothermel": {
+        "iou": 0.0159,
+        "dice": 0.0314,
+        "pod": 1.0,
+        "far": 0.9841,
+        "arrival_mae_h": 26.643
+      },
+      "baseline_uniform_ros": {
+        "iou": 0.0112,
+        "dice": 0.0221,
+        "pod": 1.0,
+        "far": 0.9888,
+        "arrival_mae_h": 26.504
+      },
+      "baseline_persistence": {
+        "iou": 0.0,
+        "dice": 0.0,
+        "pod": 0.0,
+        "far": NaN,
+        "arrival_mae_h": NaN
+      },
+      "baseline_equal_area_circle": {
+        "iou": 0.0,
+        "dice": 0.0,
+        "pod": 0.0,
+        "far": 1.0,
+        "arrival_mae_h": NaN
+      },
+      "model_beats_uniform_iou": true,
+      "model_beats_circle_iou": true
+    },
+    {
+      "provenance": {
+        "incident_center": [
+          51.3628,
+          -121.983
+        ],
+        "grid_cells": "51x70",
+        "cell_deg": 0.005,
+        "cutoff_hours_from_first": 73.07,
+        "forecast_horizon_hours": 24.0,
+        "n_early_cells": 386,
+        "n_late_new_cells": 166,
+        "burnable_fraction": 1.0,
+        "inputs": {
+          "detections": "VIIRS active-fire (NASA FIRMS), ~375 m recall proxy",
+          "detections_latest_acq_utc": "2026-08-07 21:21:00",
+          "fuels": "LANDFIRE FBFM40 LF2025 (current vintage)",
+          "wind": "single representative 3.0 m/s (time-varying wind: not wired)",
+          "terrain_dem": "absent (slope_tan=0): documented degradation",
+          "dead_fuel_moisture": 0.06
+        }
+      },
+      "ros_scale_k": 0.004,
+      "ros_mean_mpermin": 20.31,
+      "model_spatial_rothermel": {
+        "iou": 0.1093,
+        "dice": 0.197,
+        "pod": 0.8735,
+        "far": 0.889,
+        "arrival_mae_h": 36.421
+      },
+      "baseline_uniform_ros": {
+        "iou": 0.1093,
+        "dice": 0.197,
+        "pod": 0.8735,
+        "far": 0.889,
+        "arrival_mae_h": 36.421
+      },
+      "baseline_persistence": {
+        "iou": 0.0,
+        "dice": 0.0,
+        "pod": 0.0,
+        "far": NaN,
+        "arrival_mae_h": NaN
+      },
+      "baseline_equal_area_circle": {
+        "iou": 0.0063,
+        "dice": 0.0126,
+        "pod": 0.012,
+        "far": 0.9868,
+        "arrival_mae_h": NaN
+      },
+      "model_beats_uniform_iou": false,
+      "model_beats_circle_iou": true
+    },
+    {
+      "provenance": {
+        "incident_center": [
+          51.0954,
+          -121.5574
+        ],
+        "grid_cells": "69x102",
+        "cell_deg": 0.005,
+        "cutoff_hours_from_first": 2.03,
+        "forecast_horizon_hours": 24.0,
+        "n_early_cells": 404,
+        "n_late_new_cells": 313,
+        "burnable_fraction": 1.0,
+        "inputs": {
+          "detections": "VIIRS active-fire (NASA FIRMS), ~375 m recall proxy",
+          "detections_latest_acq_utc": "2026-08-07 21:21:00",
+          "fuels": "LANDFIRE FBFM40 LF2025 (current vintage)",
+          "wind": "single representative 3.0 m/s (time-varying wind: not wired)",
+          "terrain_dem": "absent (slope_tan=0): documented degradation",
+          "dead_fuel_moisture": 0.06
+        }
+      },
+      "ros_scale_k": 0.118,
+      "ros_mean_mpermin": 20.31,
+      "model_spatial_rothermel": {
+        "iou": 0.0472,
+        "dice": 0.0901,
+        "pod": 1.0,
+        "far": 0.9528,
+        "arrival_mae_h": 17.232
+      },
+      "baseline_uniform_ros": {
+        "iou": 0.0472,
+        "dice": 0.0901,
+        "pod": 1.0,
+        "far": 0.9528,
+        "arrival_mae_h": 17.232
+      },
+      "baseline_persistence": {
+        "iou": 0.0,
+        "dice": 0.0,
+        "pod": 0.0,
+        "far": NaN,
+        "arrival_mae_h": NaN
+      },
+      "baseline_equal_area_circle": {
+        "iou": 0.0197,
+        "dice": 0.0387,
+        "pod": 0.0351,
+        "far": 0.957,
+        "arrival_mae_h": NaN
+      },
+      "model_beats_uniform_iou": false,
+      "model_beats_circle_iou": true
+    },
+    {
+      "provenance": {
+        "incident_center": [
+          42.4556,
+          -116.8521
+        ],
+        "grid_cells": "108x76",
+        "cell_deg": 0.005,
+        "cutoff_hours_from_first": 23.72,
+        "forecast_horizon_hours": 24.0,
+        "n_early_cells": 566,
+        "n_late_new_cells": 64,
+        "burnable_fraction": 0.991,
+        "inputs": {
+          "detections": "VIIRS active-fire (NASA FIRMS), ~375 m recall proxy",
+          "detections_latest_acq_utc": "2026-08-07 21:18:00",
+          "fuels": "LANDFIRE FBFM40 LF2025 (current vintage)",
+          "wind": "single representative 3.0 m/s (time-varying wind: not wired)",
+          "terrain_dem": "absent (slope_tan=0): documented degradation",
+          "dead_fuel_moisture": 0.06
+        }
+      },
+      "ros_scale_k": 0.011,
+      "ros_mean_mpermin": 41.37,
+      "model_spatial_rothermel": {
+        "iou": 0.0149,
+        "dice": 0.0293,
+        "pod": 0.7031,
+        "far": 0.985,
+        "arrival_mae_h": 12.968
+      },
+      "baseline_uniform_ros": {
+        "iou": 0.0166,
+        "dice": 0.0326,
+        "pod": 0.6562,
+        "far": 0.9833,
+        "arrival_mae_h": 13.791
+      },
+      "baseline_persistence": {
+        "iou": 0.0,
+        "dice": 0.0,
+        "pod": 0.0,
+        "far": NaN,
+        "arrival_mae_h": NaN
+      },
+      "baseline_equal_area_circle": {
+        "iou": 0.0,
+        "dice": 0.0,
+        "pod": 0.0,
+        "far": 1.0,
+        "arrival_mae_h": NaN
+      },
+      "model_beats_uniform_iou": false,
+      "model_beats_circle_iou": true
+    },
+    {
+      "provenance": {
+        "incident_center": [
+          51.2975,
+          -121.4847
+        ],
+        "grid_cells": "36x99",
+        "cell_deg": 0.005,
+        "cutoff_hours_from_first": 0.35,
+        "forecast_horizon_hours": 24.0,
+        "n_early_cells": 321,
+        "n_late_new_cells": 203,
+        "burnable_fraction": 1.0,
+        "inputs": {
+          "detections": "VIIRS active-fire (NASA FIRMS), ~375 m recall proxy",
+          "detections_latest_acq_utc": "2026-08-07 21:21:00",
+          "fuels": "LANDFIRE FBFM40 LF2025 (current vintage)",
+          "wind": "single representative 3.0 m/s (time-varying wind: not wired)",
+          "terrain_dem": "absent (slope_tan=0): documented degradation",
+          "dead_fuel_moisture": 0.06
+        }
+      },
+      "ros_scale_k": 0.136,
+      "ros_mean_mpermin": 20.31,
+      "model_spatial_rothermel": {
+        "iou": 0.0626,
+        "dice": 0.1178,
+        "pod": 1.0,
+        "far": 0.9374,
+        "arrival_mae_h": 16.98
+      },
+      "baseline_uniform_ros": {
+        "iou": 0.0626,
+        "dice": 0.1178,
+        "pod": 1.0,
+        "far": 0.9374,
+        "arrival_mae_h": 16.98
+      },
+      "baseline_persistence": {
+        "iou": 0.0,
+        "dice": 0.0,
+        "pod": 0.0,
+        "far": NaN,
+        "arrival_mae_h": NaN
+      },
+      "baseline_equal_area_circle": {
+        "iou": 0.0606,
+        "dice": 0.1143,
+        "pod": 0.0887,
+        "far": 0.8393,
+        "arrival_mae_h": NaN
+      },
+      "model_beats_uniform_iou": false,
+      "model_beats_circle_iou": true
+    },
+    {
+      "provenance": {
+        "incident_center": [
+          44.4417,
+          -117.0439
+        ],
+        "grid_cells": "84x76",
+        "cell_deg": 0.005,
+        "cutoff_hours_from_first": 23.72,
+        "forecast_horizon_hours": 24.0,
+        "n_early_cells": 446,
+        "n_late_new_cells": 321,
+        "burnable_fraction": 0.917,
+        "inputs": {
+          "detections": "VIIRS active-fire (NASA FIRMS), ~375 m recall proxy",
+          "detections_latest_acq_utc": "2026-08-07 21:18:00",
+          "fuels": "LANDFIRE FBFM40 LF2025 (current vintage)",
+          "wind": "single representative 3.0 m/s (time-varying wind: not wired)",
+          "terrain_dem": "absent (slope_tan=0): documented degradation",
+          "dead_fuel_moisture": 0.06
+        }
+      },
+      "ros_scale_k": 0.032,
+      "ros_mean_mpermin": 34.55,
+      "model_spatial_rothermel": {
+        "iou": 0.0599,
+        "dice": 0.113,
+        "pod": 0.9315,
+        "far": 0.9399,
+        "arrival_mae_h": 16.493
+      },
+      "baseline_uniform_ros": {
+        "iou": 0.0595,
+        "dice": 0.1122,
+        "pod": 0.9346,
+        "far": 0.9403,
+        "arrival_mae_h": 16.634
+      },
+      "baseline_persistence": {
+        "iou": 0.0,
+        "dice": 0.0,
+        "pod": 0.0,
+        "far": NaN,
+        "arrival_mae_h": NaN
+      },
+      "baseline_equal_area_circle": {
+        "iou": 0.0308,
+        "dice": 0.0597,
+        "pod": 0.0561,
+        "far": 0.9362,
+        "arrival_mae_h": NaN
+      },
+      "model_beats_uniform_iou": true,
+      "model_beats_circle_iou": true
+    }
+  ],
+  "refused": []
+}

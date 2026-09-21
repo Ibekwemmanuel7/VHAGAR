@@ -30,6 +30,7 @@ __all__ = [
     "front_prediction",
     "equal_area_disk",
     "iou",
+    "arrival_time_mae",
     "evaluate_perimeter_shape",
 ]
 
@@ -72,6 +73,22 @@ def equal_area_disk(shape, center, area) -> np.ndarray:
     r = np.sqrt(area / np.pi)
     yy, xx = np.mgrid[0:H, 0:W]
     return (yy - center[0]) ** 2 + (xx - center[1]) ** 2 <= r * r
+
+
+def arrival_time_mae(pred, truth, arrival, truth_time) -> float:
+    """Mean absolute arrival-time error (same units as ``arrival``) over cells the
+    forecast got right: cells that are both predicted-burned and truly burned. This
+    scores *when* the front is predicted to reach a cell, not just whether. ``arrival``
+    is the forecast arrival-time field; ``truth_time`` is the observed first-arrival
+    time per cell. Returns NaN when there is no overlap to score.
+
+    Pure numpy, so it runs in the core CI env (no solver / raster dependencies)."""
+    pred = np.asarray(pred, dtype=bool)
+    truth = np.asarray(truth, dtype=bool)
+    hit = pred & truth & np.isfinite(arrival) & np.isfinite(truth_time)
+    if not hit.any():
+        return float("nan")
+    return float(np.mean(np.abs(np.asarray(arrival)[hit] - np.asarray(truth_time)[hit])))
 
 
 def front_prediction(mask, *, lb_cap: float = 12.0, seed_radius: int = 2) -> tuple[np.ndarray, dict]:

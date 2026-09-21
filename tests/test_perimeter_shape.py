@@ -6,6 +6,7 @@ from __future__ import annotations
 import numpy as np
 
 from vhagar.eval.perimeter_shape import (
+    arrival_time_mae,
     evaluate_perimeter_shape,
     front_prediction,
     iou,
@@ -44,6 +45,26 @@ def test_front_area_matches_observed():
     pred, g = front_prediction(m)
     # thresholded to the observed area: predicted count within a small tolerance
     assert abs(pred.sum() - g["area"]) <= max(3, int(0.02 * g["area"]))
+
+
+def test_arrival_time_mae_scores_only_hits():
+    # 3x3: forecast and truth overlap on two cells; arrival vs observed differ by 2 h and 4 h.
+    pred = np.array([[1, 1, 0], [0, 0, 0], [0, 0, 0]], bool)
+    truth = np.array([[1, 1, 0], [1, 0, 0], [0, 0, 0]], bool)   # third truth cell is missed (not predicted)
+    arrival = np.array([[10.0, 12.0, np.inf], [np.inf, np.inf, np.inf],
+                        [np.inf, np.inf, np.inf]])
+    truth_time = np.array([[12.0, 16.0, np.inf], [20.0, np.inf, np.inf],
+                           [np.inf, np.inf, np.inf]])
+    # hits are the two predicted-and-true cells: |10-12|=2, |12-16|=4 -> mean 3.0
+    assert abs(arrival_time_mae(pred, truth, arrival, truth_time) - 3.0) < 1e-9
+
+
+def test_arrival_time_mae_nan_without_overlap():
+    pred = np.zeros((4, 4), bool)
+    truth = np.ones((4, 4), bool)
+    arrival = np.zeros((4, 4))
+    truth_time = np.zeros((4, 4))
+    assert np.isnan(arrival_time_mae(pred, truth, arrival, truth_time))
 
 
 def test_iou_helper_bounds():

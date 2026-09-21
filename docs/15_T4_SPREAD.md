@@ -40,6 +40,35 @@ respect that.
 > with time-varying wind and fuel breaks, the named next step. Script
 > `scripts/t4_mtbs_perimeter.py`, test `tests/test_perimeter_shape.py`.
 
+> **Update (2026-09-21): operational replay baseline (spatial Rothermel, real cutoff,
+> later-progression scoring).** The first genuinely *operational-shaped* T4 test: for real
+> incidents, cut observations off at a time T, build a cell-by-cell Rothermel ROS raster
+> from real LANDFIRE FBFM40 fuels (plus a representative wind and dead-fuel moisture),
+> calibrate the per-fire ROS scale on the pre-T detections only, forecast a short horizon
+> (24 h), and score the NEW burn within that window against the incident's own later VIIRS
+> detections, next to persistence, an equal-area circle, and a uniform-ROS baseline. Every
+> run carries a provenance record (detection acquisition window, LF2025 fuel vintage, wind
+> value, DEM absent) and refuses with a stated reason when a required input is too sparse.
+> Script `scripts/t4_operational_replay.py`; pure-numpy scoring core `arrival_time_mae` in
+> `eval/perimeter_shape.py`, tested in `tests/test_perimeter_shape.py`.
+>
+> The claim this is allowed to support is narrow: *short-horizon, surface-fire directional
+> spread decision support for a selected incident* — not structure spread, spotting, or
+> agency perimeters. The honest result across an 8-incident deterministic sweep (largest
+> multi-day western complexes in the VIIRS record, 0 refused): the front captures **where**
+> the fire goes (mean POD **0.90** against later detections) but a single-rate, single-wind,
+> no-DEM forecast **over-predicts extent** (mean FAR ~**0.95** against the sparse VIIRS proxy,
+> which itself misses burned cells so commission is overstated), lands at **mean new-burn IoU
+> 0.054**, essentially tied with uniform ROS (0.054) and only marginally above an equal-area
+> circle (0.049; spatial ≥ circle on 6/8 incidents), with mean arrival-time MAE ~**20 h** on a
+> 24 h horizon. The reading: the physics core and the replay harness are real and validated,
+> but on this proxy the spatial fuel signal does not yet beat a naive circle, which is exactly
+> the gap that motivates the next inputs — time-varying wind, DEM slope/aspect, per-fire
+> calibration that decays with lead time, and an ensemble producing probability-of-arrival
+> bands rather than one hard contour. One sweep is a milestone, not a validated domain; a
+> representative multi-region validation set is the prerequisite before "operational decision
+> support" is an honest label. Figure `outputs/t4_operational_replay.png`.
+
 ## What is built
 
 **Physics propagation core (`models/spread.py`).** Fire spread is a
