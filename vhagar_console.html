@@ -349,21 +349,39 @@ function openDrawer(p){const fdc=isFDC();state.selProps=p;
  const exports=`<div class="exports" style="padding:0"><a href="${API}/api/export/geojson?${q}" target="_blank" rel="noopener">GeoJSON</a><a href="${API}/api/export/kmz?${q}" target="_blank" rel="noopener">KMZ</a></div>`;
  const note=fdc?`Perimeter: ${p.perimeter_method||"detection convex hull"}. The footprint is the hull of GOES FDC detection pixels, a detection extent, not a burned-area measurement.`:`Perimeter method: ${p.perimeter_method||"alpha-shape"}.`;
  const fc=(p.wind_speed_ms!=null&&p.centroid_lat!=null)
-  ?`<button id="fcbtn" style="width:100%;margin-top:9px;padding:.42rem;border-radius:8px;border:1px solid #3a2a12;background:#241a0e;color:#ffb000;font-size:.77rem;font-weight:600;cursor:pointer">&#9650; Forecast spread (experimental)</button><div id="fcnote" class="note" style="color:#c79a55"></div>`
+  ?`<button id="fcbtn" style="width:100%;margin-top:9px;padding:.42rem;border-radius:8px;border:1px solid #3a2a12;background:#241a0e;color:#ffb000;font-size:.77rem;font-weight:600;cursor:pointer">&#9650; Forecast spread (experimental)</button><div id="fcctrl" style="display:none;margin-top:7px;align-items:center;gap:.5rem"><button id="fcplay" title="Play spread" style="flex:none;width:2rem;padding:.25rem;border-radius:6px;border:1px solid #3a2a12;background:#241a0e;color:#ffb000;cursor:pointer">&#9654;</button><input id="fcrange" type="range" min="0" max="0" value="0" step="1" style="flex:1;accent-color:#ff9d3a"><span id="fclabel" style="font-size:.72rem;color:#ffb000;min-width:3.4rem;text-align:right">+0 h</span></div><div id="fcnote" class="note" style="color:#c79a55"></div>`
   :"";
  document.getElementById("d_body").innerHTML=metrics+wx+exports+fc+`<div class="note">${note}</div>`;
  const b=document.getElementById("fcbtn");if(b)b.onclick=forecastSpread;
  document.getElementById("drawer").classList.add("open");
 }
-function clearForecast(){if(map&&map.getSource("forecast"))map.getSource("forecast").setData(empty());}
+const FC_HOURS=[3,6,9,12,15,18,21,24,30,36,42,48];
+let fcState={feats:[],hours:[],timer:null};
+function fcStop(){if(fcState.timer){clearInterval(fcState.timer);fcState.timer=null;}const pb=document.getElementById("fcplay");if(pb)pb.innerHTML="&#9654;";}
+function clearForecast(){fcStop();fcState={feats:[],hours:[],timer:null};const c=document.getElementById("fcctrl");if(c)c.style.display="none";if(map&&map.getSource("forecast"))map.getSource("forecast").setData(empty());}
+function fcSetStep(k){const hrs=fcState.hours;if(!hrs.length||!map)return;k=Math.max(0,Math.min(k,hrs.length-1));const cut=hrs[k];
+ const shown=fcState.feats.filter(f=>f.properties.hour<=cut);
+ if(map.getSource("forecast"))map.getSource("forecast").setData({type:"FeatureCollection",features:shown});
+ const r=document.getElementById("fcrange");if(r&&+r.value!==k)r.value=k;
+ const l=document.getElementById("fclabel");if(l)l.textContent="+"+cut+" h";}
+function fcPlay(){if(fcState.timer){fcStop();return;}const pb=document.getElementById("fcplay"),r=document.getElementById("fcrange");
+ let k=(r&&+r.value<fcState.hours.length-1)?+r.value:0;
+ if(pb)pb.innerHTML="&#10073;&#10073;";
+ fcState.timer=setInterval(()=>{fcSetStep(k);if(k>=fcState.hours.length-1){fcStop();return;}k++;},280);}
 async function forecastSpread(){const p=state.selProps;if(!p||!map)return;
  const b=document.getElementById("fcbtn"),note=document.getElementById("fcnote");
  if(b){b.disabled=true;b.textContent="Forecasting...";}
  try{
-  const q=`lat=${p.centroid_lat}&lon=${p.centroid_lon}&wind_ms=${p.wind_speed_ms||4}&wind_deg=${p.wind_dir_deg||0}`;
+  const q=`lat=${p.centroid_lat}&lon=${p.centroid_lon}&wind_ms=${p.wind_speed_ms||4}&wind_deg=${p.wind_dir_deg||0}&hours=${FC_HOURS.join(",")}`;
   const fc=await getJSON("/api/forecast?"+q);
-  if(map.getSource("forecast"))map.getSource("forecast").setData(fc);
+  const feats=(fc.features||[]).slice().sort((a,b)=>a.properties.hour-b.properties.hour);
+  fcState.feats=feats;fcState.hours=feats.map(f=>f.properties.hour);
   if(note)note.textContent=(fc.properties&&fc.properties.disclaimer)||"Experimental directional forecast; not a validated perimeter.";
+  if(!feats.length){if(note)note.textContent="Forecast produced no isochrones for this fire.";return;}
+  const c=document.getElementById("fcctrl");if(c)c.style.display="flex";
+  const r=document.getElementById("fcrange");if(r){r.max=fcState.hours.length-1;r.value=fcState.hours.length-1;r.oninput=()=>{fcStop();fcSetStep(+r.value);};}
+  const pb=document.getElementById("fcplay");if(pb)pb.onclick=fcPlay;
+  fcSetStep(fcState.hours.length-1);
  }catch(e){if(note)note.textContent="Forecast unavailable ("+e+").";}
  finally{if(b){b.disabled=false;b.innerHTML="&#9650; Forecast spread (experimental)";}}
 }
