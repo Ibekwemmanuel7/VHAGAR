@@ -286,15 +286,33 @@ function renderFeed(){
    <div class="r1"><span class="name">${esc(p.label||("Event "+p.event_id))}</span>${badge}</div><div class="grid">${grid}</div></button>`;}).join("");
  el.querySelectorAll(".card").forEach(x=>x.onclick=()=>selectEvent(+x.dataset.id));
 }
+function _median(xs){const a=xs.filter(v=>v!=null&&isFinite(v)).sort((x,y)=>x-y);if(!a.length)return null;const m=Math.floor(a.length/2);return a.length%2?a[m]:(a[m-1]+a[m])/2;}
 async function loadDanger(){
  const el=document.getElementById("danger");
- try{const d=await getJSON("/v1/danger");const fd=d.fire_danger||{};
+ // FWI is computed from the region's live weather: the median temp/RH/wind across the
+ // events currently in view. The endpoint scales its 0..1 wind to km/h by *40, so pass
+ // wind as (m/s * 3.6 km/h) / 40. Ignition and E[BA] models are still synthetic-trained.
+ const feats=((state.events&&state.events.features)||[]);
+ const t=_median(feats.map(f=>+f.properties.temp_c));
+ const rh=_median(feats.map(f=>+f.properties.rh_pct));
+ const wms=_median(feats.map(f=>+f.properties.wind_speed_ms));
+ const haveWx=(t!=null&&rh!=null&&wms!=null);
+ let qs="";
+ if(haveWx){
+  const windFrac=Math.max(0,Math.min(1,(wms*3.6)/40));
+  const month=new Date().getUTCMonth()+1;
+  qs=`?temp=${t.toFixed(1)}&rh=${rh.toFixed(1)}&wind=${windFrac.toFixed(4)}&month=${month}`;
+ }
+ try{const d=await getJSON("/v1/danger"+qs);const fd=d.fire_danger||{};
   const igp=d.ignition_probability!=null?(d.ignition_probability*100).toFixed(2)+"%":"n/a";
+  const wxNote=haveWx
+   ?`FWI from live regional weather (median across ${feats.length} events in view: ${t.toFixed(0)}&deg;C, ${rh.toFixed(0)}% RH, ${wms.toFixed(1)} m/s). Ignition and burned-area models pending real-data training.`
+   :`FWI from nominal reference weather (no live weather in view). Ignition and burned-area models pending real-data training.`;
   el.innerHTML='<span class="lab">Fire danger &middot; T3</span>'
    +`<span class="dq">FWI <b>${num(fd.fwi)}</b> ${fd.class||""}</span>`
    +`<span class="dq">Ignition prob. <b>${igp}</b></span>`
    +`<span class="dq">Expected burned area <b>${num(d.expected_burned_area_ha,0)}</b> ha</span>`
-   +'<span class="fine">Three separate quantities, never one combined risk score. FWI from live weather; ignition and burned-area models pending real-data training.</span>';
+   +`<span class="fine">Three separate quantities, never one combined risk score. ${wxNote}</span>`;
   el.style.display="flex";}catch(e){el.style.display="none";}
 }
 
@@ -367,7 +385,7 @@ async function load(){
  }
  if(!ok){state.events=SAMPLE_EVENTS;state.dets=SAMPLE_DETS;state.mode="sample";state.schema="events";state.source="";setLive("sample",true);
   showErr("Live backend not reachable right now, showing a bundled sample. Press Refresh to retry.");}
- render();document.getElementById("updated").textContent="updated "+new Date().toLocaleTimeString();
+ render();loadDanger();document.getElementById("updated").textContent="updated "+new Date().toLocaleTimeString();
  btn.classList.remove("spin");
 }
 function applyChrome(){const fdc=isFDC();
@@ -423,5 +441,5 @@ document.getElementById("basemap").onchange=e=>setBasemap(e.target.value);
 document.getElementById("refresh").onclick=()=>load();
 window.addEventListener("resize",()=>{if(map)map.resize();});
 setInterval(load,REFRESH_MS);
-initMap();load();loadDanger();
+initMap();load();
 </script></body></html>
