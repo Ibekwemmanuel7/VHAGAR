@@ -371,11 +371,11 @@ function openDrawer(p){const fdc=isFDC();state.selProps=p;
  const db=document.getElementById("d_body");
  const hasWind=(p.wind_speed_ms!=null&&p.centroid_lat!=null);
  const tierbar=`<div class="tierbar">`
-  +`<span class="tier ok" title="Real GOES ABI FDC detection for this event: sensor, time, FRP, and detection geometry.">T1 Observed</span>`
+  +`<span class="tier ok" data-tab="ov" style="cursor:pointer" title="Real GOES ABI FDC detection for this event: sensor, time, FRP, and detection geometry. Click for Overview.">T1 Observed</span>`
   +`<span class="tier na" title="No live per-fire burned-area map product in the console yet. T2 is research/validation, leakage-safe vs MTBS.">T2 not yet</span>`
-  +`<span class="tier res" title="Real FPA-FOD danger artifacts (occurrence-climatology ignition + conditional size model). Not yet a fully event-specific live weather/fuel prediction product.">T3 Research</span>`
-  +(hasWind?`<span class="tier exp" title="Experimental directional projection: nominal ROS shaped by this event's live wind. Not yet spatial Rothermel with live fuels, slope, and terrain.">T4 Experimental</span>`
-          :`<span class="tier na" title="A spread forecast needs live wind (and fuel, slope, terrain for a spatial run). None attached to this event, so no forecast is shown.">T4 inputs incomplete</span>`)
+  +`<span class="tier res" data-tab="ov" style="cursor:pointer" title="Real FPA-FOD danger artifacts (occurrence-climatology ignition + conditional size model). Not yet a fully event-specific live weather/fuel product. Click for Overview.">T3 Research</span>`
+  +(hasWind?`<span class="tier exp" data-tab="sp" style="cursor:pointer" title="Experimental directional projection: nominal ROS shaped by this event's live wind. Not yet spatial Rothermel with live fuels, slope, and terrain. Click for Spread.">T4 Experimental</span>`
+          :`<span class="tier na" data-tab="sp" style="cursor:pointer" title="A spread forecast needs live wind (and fuel, slope, terrain for a spatial run). None attached to this event, so no forecast is shown. Click for Spread.">T4 inputs incomplete</span>`)
   +`<span class="tier na" title="Prototype/historical loss work (DINS EP curve). No validated live event-loss forecast.">T5 not yet</span>`
   +`</div>`;
  db.innerHTML=tierbar
@@ -386,6 +386,7 @@ function openDrawer(p){const fdc=isFDC();state.selProps=p;
  db.querySelectorAll(".dtab").forEach(t=>t.onclick=()=>{
   db.querySelectorAll(".dtab").forEach(x=>x.classList.remove("on"));t.classList.add("on");
   db.querySelectorAll(".dpane").forEach(p=>{p.style.display=(p.dataset.p===t.dataset.t)?"":"none";});});
+ db.querySelectorAll(".tier[data-tab]").forEach(t=>t.onclick=()=>{const b=db.querySelector('.dtab[data-t="'+t.dataset.tab+'"]');if(b)b.click();});
  const b=document.getElementById("fcbtn");if(b)b.onclick=forecastSpread;
  document.getElementById("drawer").classList.add("open");
 }
