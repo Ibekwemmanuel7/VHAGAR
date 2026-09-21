@@ -349,7 +349,7 @@ function openDrawer(p){const fdc=isFDC();state.selProps=p;
  const exports=`<div class="exports" style="padding:0"><a href="${API}/api/export/geojson?${q}" target="_blank" rel="noopener">GeoJSON</a><a href="${API}/api/export/kmz?${q}" target="_blank" rel="noopener">KMZ</a></div>`;
  const note=fdc?`Perimeter: ${p.perimeter_method||"detection convex hull"}. The footprint is the hull of GOES FDC detection pixels, a detection extent, not a burned-area measurement.`:`Perimeter method: ${p.perimeter_method||"alpha-shape"}.`;
  const fc=(p.wind_speed_ms!=null&&p.centroid_lat!=null)
-  ?`<button id="fcbtn" style="width:100%;margin-top:9px;padding:.42rem;border-radius:8px;border:1px solid #3a2a12;background:#241a0e;color:#ffb000;font-size:.77rem;font-weight:600;cursor:pointer">&#9650; Forecast spread (experimental)</button><div id="fcctrl" style="display:none;margin-top:7px;align-items:center;gap:.5rem"><button id="fcplay" title="Play spread" style="flex:none;width:2rem;padding:.25rem;border-radius:6px;border:1px solid #3a2a12;background:#241a0e;color:#ffb000;cursor:pointer">&#9654;</button><input id="fcrange" type="range" min="0" max="0" value="0" step="1" style="flex:1;accent-color:#ff9d3a"><span id="fclabel" style="font-size:.72rem;color:#ffb000;min-width:3.4rem;text-align:right">+0 h</span></div><div id="fcnote" class="note" style="color:#c79a55"></div>`
+  ?`<button id="fcbtn" style="width:100%;margin-top:9px;padding:.42rem;border-radius:8px;border:1px solid #3a2a12;background:#241a0e;color:#ffb000;font-size:.77rem;font-weight:600;cursor:pointer">&#9650; Forecast spread (experimental)</button><div id="fcctrl" style="display:none;margin-top:7px;align-items:center;gap:.5rem"><button id="fcplay" title="Play spread" style="flex:none;width:2rem;padding:.25rem;border-radius:6px;border:1px solid #3a2a12;background:#241a0e;color:#ffb000;cursor:pointer">&#9654;</button><input id="fcrange" type="range" min="0" max="0" value="0" step="1" style="flex:1;accent-color:#ff9d3a"><span id="fclabel" style="font-size:.72rem;color:#ffb000;min-width:3.4rem;text-align:right">+0 h</span></div><div id="fcstory" style="display:none;margin-top:8px;font-size:.72rem;line-height:1.55;color:#c9d4e0"></div><div id="fcnote" class="note" style="color:#c79a55"></div>`
   :"";
  document.getElementById("d_body").innerHTML=metrics+wx+exports+fc+`<div class="note">${note}</div>`;
  const b=document.getElementById("fcbtn");if(b)b.onclick=forecastSpread;
@@ -358,7 +358,18 @@ function openDrawer(p){const fdc=isFDC();state.selProps=p;
 const FC_HOURS=[3,6,9,12,15,18,21,24,30,36,42,48];
 let fcState={feats:[],hours:[],timer:null};
 function fcStop(){if(fcState.timer){clearInterval(fcState.timer);fcState.timer=null;}const pb=document.getElementById("fcplay");if(pb)pb.innerHTML="&#9654;";}
-function clearForecast(){fcStop();fcState={feats:[],hours:[],timer:null};const c=document.getElementById("fcctrl");if(c)c.style.display="none";if(map&&map.getSource("forecast"))map.getSource("forecast").setData(empty());}
+function cardinal(deg){const d=["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];return d[Math.round((((deg%360)+360)%360)/22.5)%16];}
+function fcStory(p){
+ const wspd=(+p.wind_speed_ms||0),wdir=(+p.wind_dir_deg||0);
+ const fromC=cardinal(wdir),toC=cardinal(wdir+180);
+ const rh=(p.rh_pct!=null)?`, RH ${num(p.rh_pct,0)}%`:"";
+ return `<div><b style="color:#8fd0ff">1 · Fire.</b> Cluster ${esc(p.event_id)} at ${num(p.centroid_lat,3)}, ${num(p.centroid_lon,3)}, seeded at its current centroid.</div>`
+  +`<div><b style="color:#8fd0ff">2 · Wind.</b> Live <b>${wspd.toFixed(1)} m/s from ${fromC} (${num(wdir,0)}&deg;)</b>${rh}. The front runs <b>toward ${toC}</b>, fastest downwind and slowest backing, a Richards elliptical wavelet (length-to-breadth ~2.5).</div>`
+  +`<div><b style="color:#8fd0ff">3 · Arrival contours.</b> Isochrones at +6 h to +48 h; press play or drag the slider to step the modeled front through time. Each ring is where the front reaches by that hour.</div>`
+  +`<div><b style="color:#ffb000">4 · Assumptions (disclosed).</b> Nominal uniform rate of spread (no live LANDFIRE fuels server-side), wind-only elongation, convex-hull isochrones, no suppression, spotting, or terrain. So this is a directional projection, not an operational perimeter.</div>`
+  +`<div><b style="color:#7fdca0">5 · Validation workflow.</b> Held out later VIIRS detections on real fires, mean S&oslash;rensen 0.30 (high recall, honest over-prediction); front shape vs real MTBS perimeters, IoU 0.46 vs 0.50 for an equal-area circle, winning on wind-driven fires. Next: real fuels, time-resolved perimeters, suppression.</div>`;
+}
+function clearForecast(){fcStop();fcState={feats:[],hours:[],timer:null};const c=document.getElementById("fcctrl");if(c)c.style.display="none";const st=document.getElementById("fcstory");if(st)st.style.display="none";if(map&&map.getSource("forecast"))map.getSource("forecast").setData(empty());}
 function fcSetStep(k){const hrs=fcState.hours;if(!hrs.length||!map)return;k=Math.max(0,Math.min(k,hrs.length-1));const cut=hrs[k];
  const shown=fcState.feats.filter(f=>f.properties.hour<=cut);
  if(map.getSource("forecast"))map.getSource("forecast").setData({type:"FeatureCollection",features:shown});
@@ -379,6 +390,7 @@ async function forecastSpread(){const p=state.selProps;if(!p||!map)return;
   if(note)note.textContent=(fc.properties&&fc.properties.disclaimer)||"Experimental directional forecast; not a validated perimeter.";
   if(!feats.length){if(note)note.textContent="Forecast produced no isochrones for this fire.";return;}
   const c=document.getElementById("fcctrl");if(c)c.style.display="flex";
+  const st=document.getElementById("fcstory");if(st){st.innerHTML=fcStory(p);st.style.display="block";}
   const r=document.getElementById("fcrange");if(r){r.max=fcState.hours.length-1;r.value=fcState.hours.length-1;r.oninput=()=>{fcStop();fcSetStep(+r.value);};}
   const pb=document.getElementById("fcplay");if(pb)pb.onclick=fcPlay;
   fcSetStep(fcState.hours.length-1);
