@@ -11,6 +11,18 @@ next-day spread, or above 0.9 IoU on real perimeters, is almost certainly a leak
 split or cumulative-rather-than-incremental burned area.* This module is built to
 respect that.
 
+> **Update (2026-09-20): Rothermel ROS + real-data forward run.** The front now
+> consumes the canonical Rothermel (1972) surface-fire rate of spread
+> (`models/rothermel.py`), not only the fuel-and-wind surrogate. A real-data forward
+> run on held-out NASA FIRMS VIIRS timed detections (six western-US complexes,
+> `scripts/t4_real_viirs.py`) gives mean Sorensen **0.30**, POD 1.00, FAR 0.82: high
+> recall with honest over-prediction, landing in the real-skill band this doc predicts
+> and far below the optimistic synthetic AP ~0.77. Important scope: the truth is coarse
+> (~1 km) held-out VIIRS active-fire detections, a recall proxy, **not** a mapped future
+> perimeter or an incremental burned-area mask, so this is a forward-run sanity check,
+> not a perimeter validation. Real perimeter scoring (NIROPS/agency perimeters) and a
+> real LANDFIRE fuel prior remain future work.
+
 ## What is built
 
 **Physics propagation core (`models/spread.py`).** Fire spread is a
