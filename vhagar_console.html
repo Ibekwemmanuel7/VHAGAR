@@ -467,7 +467,7 @@ function render(){applyChrome();renderExports();renderTabs();renderFeed();pushDa
 const rsel=document.getElementById("region");
 rsel.innerHTML=Object.entries(REGIONS).map(([k,v])=>`<option value="${k}">${v}</option>`).join("");
 rsel.value=state.region;
-rsel.onchange=()=>{state.region=rsel.value;state.sel=null;fitted=null;const v=VIEW[state.region];if(map&&v)map.flyTo({center:[v[0],v[1]],zoom:v[2]});load();};
+rsel.onchange=()=>{state.region=rsel.value;state.sel=null;const v=VIEW[state.region];if(map&&v)map.flyTo({center:[v[0],v[1]],zoom:v[2],duration:900});fitted=DEMO?state.region+state.sensor:null;load();};
 // Find: jump the map to a "lat,lon" pair or a place name (Mapbox geocoding).
 const locEl=document.getElementById("locSearch");
 async function jumpTo(q){
