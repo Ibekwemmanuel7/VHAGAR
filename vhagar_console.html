@@ -128,7 +128,6 @@ select{font-family:inherit}
   <div class="divider"></div>
   <div class="field" id="regionField"><label>Region</label><select id="region"></select></div>
   <div class="field" id="daysField"><label>Days</label><select id="days"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div>
-  <div class="field" id="scopeChip" style="display:none"><label>Demo scope</label><span id="scopeChipTxt" style="display:inline-flex;align-items:center;padding:.3rem .6rem;border-radius:999px;background:#241a0e;color:#ffb000;border:1px solid #3a2a12;font-size:.72rem;font-weight:700;white-space:nowrap">5 events</span></div>
   <div class="field"><label>Basemap</label><select id="basemap"><option>Dark</option><option>Satellite</option><option>Terrain</option></select></div>
   <div class="field"><label>Find</label><input id="locSearch" type="text" autocomplete="off" spellcheck="false" placeholder="lat,lon or city" title="Type a place name or 'lat,lon' (e.g. Reno NV, or 39.5,-119.8) and press Enter" style="background:#0d1b2a;color:#e6eef8;border:1px solid #24405f;border-radius:6px;padding:5px 9px;min-width:168px;font:inherit;outline:none"/></div>
   <div class="field" id="candField"><label>Candidates</label><label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e6b84a;font:inherit" title="Single-sensor GOES fire pixels, not yet corroborated. Fast early warning, unconfirmed."><input id="candToggle" type="checkbox" style="accent-color:#e6b84a;width:15px;height:15px"/><span id="candCount">unconfirmed GOES</span></label></div>
@@ -490,7 +489,7 @@ function applyChrome(){const fdc=isFDC();
   let age="";const tp=latest?Date.parse(String(latest).replace(" ","T").replace(/Z?$/,"Z")):NaN;
   if(!isNaN(tp)){const hh=(Date.now()-tp)/3.6e6;age=hh<1?Math.max(0,Math.round(hh*60))+" min old":hh.toFixed(1)+" h old";}
   ms.innerHTML=`<div><span class="k">Events</span><b>${fe.length}</b></div><div><span class="k">Candidates</span><b>${nca}</b></div>`
-   +(latest?`<div><span class="k">Latest obs</span><b>${clean(latest)}</b> <span style="color:var(--dim)">${age}</span></div>`:"");
+   +(latest?`<div><span class="k">Latest obs</span><b>${String(latest).replace("T"," ").replace("Z","").slice(0,19)}</b> <span style="color:var(--dim)">${age}</span></div>`:"");
   ms.style.display=fe.length?"flex":"none";}
 }
 function render(){applyChrome();renderExports();renderTabs();renderFeed();pushData();}
