@@ -50,6 +50,14 @@ select{font-family:inherit}
 .danger .lab{font-size:.6rem;text-transform:uppercase;letter-spacing:.1em;color:var(--ice);font-weight:700}
 .danger b{color:var(--text);font-weight:700}
 .danger .dq{padding-left:.9rem;border-left:1px solid var(--line2);white-space:nowrap}
+.t3card{display:inline-flex;flex-direction:column;gap:.05rem;padding:.3rem .7rem;border:1px solid var(--line2);border-radius:8px;background:var(--panel2);cursor:help}
+.t3card .k{font-size:.58rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700}
+.t3card .v{font-size:.92rem;font-weight:700;color:var(--text);white-space:nowrap}
+.t3card .v small{color:var(--dim);font-weight:600;font-size:.7rem}
+.dtabs{display:flex;gap:.3rem;border-bottom:1px solid var(--line);padding-bottom:.45rem}
+.dtab{flex:1;padding:.36rem;border:none;background:transparent;color:var(--muted);font:inherit;font-size:.74rem;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-.5rem}
+.dtab.on{color:var(--text);border-bottom-color:var(--ice)}
+.dpane{display:flex;flex-direction:column;gap:.85rem}
 .danger .fine{color:var(--dim);font-size:.66rem;font-style:italic;margin-left:auto;text-align:right;max-width:24rem}
 .body{flex:1;display:flex;min-height:0}
 .side{width:320px;flex:none;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column}
@@ -316,9 +324,9 @@ async function loadDanger(){
    ?`FWI from ${wxWord} (${wxSrc}). ${prov}`
    :`FWI from nominal reference weather (no live weather in view). ${prov}`)+vNote;
   el.innerHTML='<span class="lab">Fire danger &middot; T3</span>'
-   +`<span class="dq">FWI <b>${num(fd.fwi)}</b> ${fd.class||""}</span>`
-   +`<span class="dq">Ignition prob. <b>${igp}</b></span>`
-   +`<span class="dq">Expected burned area <b>${num(d.expected_burned_area_ha,0)}</b> ha</span>`
+   +`<div class="t3card" title="Fire Weather Index: the Canadian FWI computed from the event's weather. Conditional intensity (how a fire behaves if it starts); carries no ignition information."><span class="k">FWI</span><span class="v">${num(fd.fwi)} <small>${fd.class||""}</small></span></div>`
+   +`<div class="t3card" title="Ignition probability: P(at least one ignition | cell, day). Served from the FPA-FOD occurrence climatology; a rare-event probability, not a certainty."><span class="k">Ignition prob.</span><span class="v">${igp}</span></div>`
+   +`<div class="t3card" title="Expected burned area = P(ignition) x E[BA | ignition]. The conditional size comes from the FPA-FOD quantile model."><span class="k">Expected burned area</span><span class="v">${num(d.expected_burned_area_ha,0)} <small>ha</small></span></div>`
    +`<span class="fine">Three separate quantities, never one combined risk score.</span><details class="fine" style="margin-left:.5rem"><summary style="cursor:pointer;color:var(--ice);font-style:normal">Methods &amp; validation</summary><div style="max-width:34rem;margin-top:.35rem">${wxNote}</div></details>`;
   el.style.display="flex";}catch(e){el.style.display="none";}
 }
@@ -350,7 +358,14 @@ function openDrawer(p){const fdc=isFDC();state.selProps=p;
  const fc=(p.wind_speed_ms!=null&&p.centroid_lat!=null)
   ?`<button id="fcbtn" style="width:100%;margin-top:9px;padding:.42rem;border-radius:8px;border:1px solid #3a2a12;background:#241a0e;color:#ffb000;font-size:.77rem;font-weight:600;cursor:pointer">&#9650; Forecast spread (experimental)</button><div id="fcctrl" style="display:none;margin-top:7px;align-items:center;gap:.5rem"><button id="fcplay" title="Play spread" style="flex:none;width:2rem;padding:.25rem;border-radius:6px;border:1px solid #3a2a12;background:#241a0e;color:#ffb000;cursor:pointer">&#9654;</button><input id="fcrange" type="range" min="0" max="0" value="0" step="1" style="flex:1;accent-color:#ff9d3a"><span id="fclabel" style="font-size:.72rem;color:#ffb000;min-width:3.4rem;text-align:right">+0 h</span></div><div id="fcstory" style="display:none;margin-top:8px;font-size:.72rem;line-height:1.55;color:#c9d4e0"></div><div id="fcnote" class="note" style="color:#c79a55"></div>`
   :"";
- document.getElementById("d_body").innerHTML=metrics+wx+fc+`<div class="note">${note}</div>`+exports;
+ const db=document.getElementById("d_body");
+ db.innerHTML=`<div class="dtabs"><button class="dtab on" data-t="ov">Overview</button><button class="dtab" data-t="sp">Spread</button><button class="dtab" data-t="ev">Evidence</button></div>`
+  +`<div class="dpane" data-p="ov">${metrics}${wx}</div>`
+  +`<div class="dpane" data-p="sp" style="display:none">${fc||'<div class="note">No wind is attached to this event, so the spread forecast is unavailable.</div>'}</div>`
+  +`<div class="dpane" data-p="ev" style="display:none"><div class="note">${note}</div>${exports}</div>`;
+ db.querySelectorAll(".dtab").forEach(t=>t.onclick=()=>{
+  db.querySelectorAll(".dtab").forEach(x=>x.classList.remove("on"));t.classList.add("on");
+  db.querySelectorAll(".dpane").forEach(p=>{p.style.display=(p.dataset.p===t.dataset.t)?"":"none";});});
  const b=document.getElementById("fcbtn");if(b)b.onclick=forecastSpread;
  document.getElementById("drawer").classList.add("open");
 }
