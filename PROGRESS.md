@@ -1,7 +1,65 @@
 # VHAGAR progress tracker
 
-Last updated: 2026-09-21. Keep this file current. It is the single place to look
+Last updated: 2026-09-22. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
+
+## Aon interview guide + console presentation polish (2026-09-22)
+
+Built a tier-by-tier interview guide for the Aon Impact Forecasting "Wildfire Spread
+Modeler" screen (Tammy Viggato, ex-AIR), Times New Roman, no em dashes, saved to Downloads
+(`VHAGAR_Interview_Guide_Aon_v4.docx`, the numbered versions are only because earlier files
+were locked open). It maps every JD line to real evidence and, after a review pass, is
+corrected for claim accuracy: T1 reframed as the leakage-discipline story (random-split F1
+0.767 falls to 0.642 under a spatial block; do NOT sell 0.985 as a headline); research
+spatial-Rothermel kept separate from the live console overlay (nominal ROS, not
+fuel-resolved); T5 framed as a real hazard-to-EP-curve accounting chain run on DINS, NOT a
+predictive-skill claim (WUI does not beat predict-all-destroyed); "reference frameworks"
+not "fluent in FARSITE/FlamMap/BehavePlus/ELMFIRE"; parallax numbers gated behind "only if
+you can open the notebook". Includes a verified four-minute console walkthrough (every
+control it names, `Forecast spread (experimental)`, `fcplay`, `Methods & validation`, the
+T3 conditions label, was confirmed present on the deployed page) and the on-screen
+Assumptions (disclosed) line read verbatim.
+
+Console truthful-operations UI, verified live on Render each time:
+- Fixed a real bug: `applyChrome` called `clean()`, which is defined only inside
+  `openDrawer`, so a ReferenceError blanked the event summary bar on every render. Inlined
+  the timestamp formatting; removed a dead scope chip leaking a stale "5 events".
+- Sensor-aware subheader: "Multi-sensor detection fusion, GOES ABI core + VIIRS/MODIS
+  corroboration" only names VIIRS/MODIS when those sensors are actually in the feed.
+- Header freshness chip: "Latest observation HH:MM UTC, N h ago" from the newest real
+  detection (filled a gap where the old live badge element had been removed).
+- Candidates off by default; clickable tier chips jump to the matching drawer tab; T3 strip
+  label flips regional vs selected-event; map summary shortened to "Events N, Candidates M,
+  Latest <age>" (precise UTC lives only in the header chip).
+Commits pushed through `fe1eb1a`.
+
+## T4 operational replay baseline: spatial Rothermel at a real cutoff, scored vs later VIIRS (2026-09-22)
+
+The operational-baseline milestone. `scripts/t4_operational_replay.py`: for real incidents,
+cut observations off at a time T, build a cell-by-cell Rothermel ROS raster from real
+LANDFIRE FBFM40 fuels (representative wind + moisture; DEM absent, documented), calibrate
+the per-fire ROS scale on ONLY the detections available at T, forecast a 24 h horizon, and
+score the new burn against the incident's own later VIIRS detections, next to persistence,
+an equal-area circle, and a uniform-ROS baseline. Every run carries a provenance record
+(detection acquisition window, LF2025 vintage, wind value, DEM absent) and REFUSES with a
+stated reason when an input is missing or too sparse. Pure-numpy scoring helper
+`arrival_time_mae` added to `eval/perimeter_shape.py` with CI-safe tests.
+
+Narrow claim it is allowed to support: short-horizon, surface-fire directional spread
+decision support for a selected incident. NOT structure spread, spotting, or agency
+perimeters. Honest 8-incident deterministic sweep (largest western complexes in the VIIRS
+record, 0 refused): the front captures WHERE the fire goes (mean POD **0.90**) but a
+single-rate, single-wind, no-DEM forecast **over-predicts extent** (mean FAR ~0.95 against
+the sparse VIIRS proxy, which itself misses burned cells so commission is overstated),
+lands at **mean new-burn IoU 0.054**, essentially tied with uniform ROS (0.054) and only
+marginally above an equal-area circle (0.049; spatial >= circle on 6/8), with mean
+arrival-time MAE ~20 h on a 24 h horizon. Honest reading: the physics core and the replay
+harness are real and validated, but on this proxy the spatial fuel signal does not yet beat
+a naive circle. Named next inputs: time-varying wind, DEM slope/aspect, lead-time-decaying
+calibration, and an ensemble producing probability-of-arrival bands. One sweep is a
+milestone, not a validated domain. Figure `outputs/t4_operational_replay.png`, summary
+`outputs/t4_operational_replay.json`, doc update in `docs/15_T4_SPREAD.md`. Committed and
+pushed (`9149328`).
 
 ## T4 spatial-Rothermel replay on a real fire, validated vs real MTBS (2026-09-21)
 
