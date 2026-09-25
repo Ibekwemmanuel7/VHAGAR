@@ -1,7 +1,35 @@
 # VHAGAR progress tracker
 
-Last updated: 2026-09-22. Keep this file current. It is the single place to look
+Last updated: 2026-09-25. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
+
+## Wildfire Event Evidence Pack: portfolio-to-event intersection (2026-09-25)
+
+Built the market-entry product from `docs/21_PRODUCT_POSITIONING.md`, the narrowest
+sellable slice on top of tiers that already run. A customer supplies a portfolio of
+locations and VHAGAR returns, per location, the nearest fire event, whether it is
+inside the detection footprint or within a screening buffer, first/last detection
+times, sensors, a corroboration confidence, and data age, with an inline disclosure
+that a footprint is a detection hull, not an agency perimeter.
+
+- `src/vhagar/intersect.py`: pure numpy/stdlib core (CI-safe). Ray-casting
+  point-in-polygon, point-to-segment distance in a local metric plane, sensor+count
+  confidence tier, `intersect_portfolio()` returning affected/clear/summary/disclosure.
+- `scripts/evidence_pack.py`: CLI reading a portfolio CSV, events from a local GeoJSON
+  or the live API, writing a JSON report + affected CSV.
+- `POST /api/intersect` in `serve/vhagar_api.py`: same intersection against the live
+  event feed (added `Body` import; endpoint validates a non-empty portfolio).
+- `tests/test_intersect.py`: CI-safe unit tests (synthetic square footprint). Doc
+  `docs/22_EVIDENCE_PACK.md`.
+
+Verified: unit tests pass, ruff clean on src+tests, CLI end-to-end on a synthetic
+portfolio+events fixture (inside/buffer/clear all correct), and a FastAPI TestClient
+smoke test of `/api/intersect` (200 with affected list, 400 on empty portfolio).
+Note: the module uses `from datetime import UTC` per the repo's 3.11 target; the 3.10
+sandbox needs a `datetime.UTC = timezone.utc` shim to run it locally, CI (3.11/3.12)
+does not. This is the exposure/claims/validation-data feeder for later products; next
+steps in the doc are footprint-to-footprint intersection, a dated report artifact, and
+adding T2 burn-area intersection alongside T1 detection.
 
 ## Aon interview guide + console presentation polish (2026-09-22)
 

@@ -253,7 +253,7 @@ def _build_state() -> tuple[pd.DataFrame, list[dict]]:
             print(f"[vhagar-api] cache read failed ({exc}); rebuilding", file=sys.stderr)
 
     df = pd.read_parquet(DET_DIR)
-    df["t"] = pd.to_datetime(df["t"], utc=False)
+    df["t"] = _to_naive_utc(df["t"])
     df["sensor"] = df["granule_key"].map(_sensor_from_granule)
     events = _cluster_all(df)
     try:
@@ -453,25 +453,43 @@ def _tag(source: str, df: pd.DataFrame, events: list[dict]) -> tuple[pd.DataFram
     return df, events
 
 
+def _to_naive_utc(t):
+    """Timestamps (Series or scalar) -> timezone-naive UTC.
+
+    Naive input is taken to be UTC already (GOES/VIIRS times are UTC);
+    timezone-aware input is converted to UTC, then the zone is dropped, so
+    naive and aware snapshots compare on the same clock.
+    """
+    if isinstance(t, pd.Series):
+        return pd.to_datetime(t, utc=True).dt.tz_convert(None)
+    ts = pd.Timestamp(t)
+    return ts.tz_convert("UTC").tz_localize(None) if ts.tzinfo is not None else ts
+
+
 def _data_age_hours() -> float | None:
-    """Hours between now (UTC) and the newest detection in the current state."""
+    """Hours between now (UTC) and the newest detection in the current state.
+    None when there is no state or no valid timestamp (freshness unknown)."""
     if _STATE is None:
         return None
     try:
-        newest = _STATE[0]["t"].max()
-        return float((pd.Timestamp.utcnow().tz_localize(None) - newest) / pd.Timedelta(hours=1))
+        newest = _to_naive_utc(_STATE[0]["t"].max())
+        if pd.isna(newest):
+            return None
+        now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+        return float((now - newest) / pd.Timedelta(hours=1))
     except Exception:  # noqa: BLE001 - never let a label crash a response
         return None
 
 
 def _state_mode() -> str:
     """Honest feed label: 'sample' for the committed demo, else 'live' or 'stale'
-    judged by how old the newest detection is (not a hardcoded string)."""
+    judged by how old the newest detection is (not a hardcoded string).
+    'unknown' when the age cannot be computed: never claim 'live' without proof."""
     if _STATE_SOURCE == "frozen":
         return "sample"
     age = _data_age_hours()
     if age is None:
-        return "live"
+        return "unknown"
     return "stale" if age > STALE_HOURS else "live"
 
 
@@ -518,7 +536,7 @@ def _refresh_loop(interval_s: float) -> None:
 
 
 # --------------------------------------------------------------------------- API
-from fastapi import FastAPI, Query, Response  # noqa: E402
+from fastapi import Body, FastAPI, Query, Response  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 
 app = FastAPI(title="VHAGAR fire API", version="0.1",
@@ -675,6 +693,11 @@ def _events_fc(region: str, days: int) -> dict:
                 p[wk] = r[wk]
         p["risk_class"] = r.get("risk_class") or "Unknown"
         p["perimeter_method"] = "detection convex hull"
+        # The event is SELECTED by the window (last_seen >= window_start), but its
+        # counts, FRP and footprint cover the whole event from first_seen to
+        # last_seen, which can start before the window. Say so explicitly.
+        p["stats_scope"] = "event_lifetime"
+        p["starts_before_window"] = bool(r["_t0"] < cut)
         feats.append({"type": "Feature",
             "geometry": {"type": "Polygon", "coordinates": r["geometry"]},
             "properties": p})
@@ -696,6 +719,10 @@ def _events_fc(region: str, days: int) -> dict:
     return {"type": "FeatureCollection", "features": feats,
             "metadata": {"mode": _state_mode(), "schema": "fdc", "region": region,
                          "source": "GOES-18/19 ABI FDC (VHAGAR)", "event_count": len(feats),
+                         "window_start_utc": cut.isoformat(), "window_end_utc": df["t"].max().isoformat(),
+                         "event_selection": "last_seen within window",
+                         "event_stats_scope": "event_lifetime (first_seen to last_seen); "
+                                              "detection_count and sensor_detections are window-only",
                          "detection_count": int((df["t"] >= cut).sum()),
                          "sensor_detections": sensor_counts,   # this region + window
                          "sensor_totals": sensor_totals,       # whole snapshot, this window
@@ -705,6 +732,30 @@ def _events_fc(region: str, days: int) -> dict:
 @app.get("/api/events")
 def events(region: str = Query("california"), days: int = Query(3, ge=1, le=14)):
     return JSONResponse(_events_fc(region, days))
+
+
+@app.post("/api/intersect")
+def intersect(payload: dict = Body(...)):
+    """Wildfire Event Evidence Pack: intersect a customer portfolio against the live
+    events. Body: {"portfolio": [{"id","lat","lon"}, ...], "region", "days", "buffer_m"}.
+    Returns affected and clear locations with provenance, confidence, and a disclosure
+    that a footprint is a detection hull, not an agency perimeter."""
+    from vhagar.intersect import intersect_portfolio
+    portfolio = payload.get("portfolio") or []
+    if not isinstance(portfolio, list) or not portfolio:
+        return JSONResponse({"status": "bad_request",
+                             "detail": "portfolio must be a non-empty list of {lat, lon}"},
+                            status_code=400)
+    region = payload.get("region", "california")
+    days = int(payload.get("days", 3))
+    buffer_m = float(payload.get("buffer_m", 1000.0))
+    fc = _events_fc(region, days)
+    res = intersect_portfolio(portfolio, fc, buffer_m=buffer_m)
+    meta = fc.get("metadata", {})
+    res["metadata"] = {"region": region, "days": days, "mode": meta.get("mode"),
+                       "event_count": meta.get("event_count"),
+                       "window_end_utc": meta.get("window_end_utc")}
+    return JSONResponse(res)
 
 
 _GOES_SENSORS = ("GOES-18", "GOES-19")
