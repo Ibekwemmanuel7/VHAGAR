@@ -23,6 +23,58 @@ VHAGAR is five tiers and one platform (with a wildland-urban-interface extension
 | [`docs/05_PRIOR_ART.md`](docs/05_PRIOR_ART.md) | lessons borrowed from the FirePerim platform |
 | **[`docs/06_CONSTELLATION.md`](docs/06_CONSTELLATION.md)** | 2026-2030 sensor plan and risk register |
 | **[`docs/07_PHASE0.md`](docs/07_PHASE0.md)** | **start here to build**, week-by-week execution plan |
+| **[`docs/21_PRODUCT_POSITIONING.md`](docs/21_PRODUCT_POSITIONING.md)** | honest insurance, claims, parametric, and consulting product positions |
+
+---
+
+## Where VHAGAR can be sold honestly
+
+VHAGAR is a research-grade, physics-grounded wildfire intelligence platform with
+several commercial decision-support products. It is not yet a primary insurance
+catastrophe model, an approved rating model, or an operational fire-perimeter
+forecast, and every product claim follows the validation state of its tier. Full
+detail, buyers, and do-not-claim lines: [`docs/21_PRODUCT_POSITIONING.md`](docs/21_PRODUCT_POSITIONING.md).
+
+**One-sentence positioning.** VHAGAR helps insurers and risk owners turn wildfire
+observations into auditable event evidence, burn-footprint exposure intelligence,
+and physics-grounded scenario analysis, while keeping the uncertainty and decision
+limits explicit.
+
+**Product-ready now**, built on real observations and honest validation:
+
+- Incident intelligence and portfolio exposure monitoring (T1 fused detection,
+  sensor provenance, freshness).
+- Post-fire burn-footprint and impact evidence (T2 burned area, footprint
+  intersection with a customer portfolio).
+- Reproducible parametric-trigger verification (independent burned-area and
+  perimeter intersection to reduce basis risk).
+- Physics-grounded scenario analysis (T4 Rothermel plus Eikonal, the replay
+  harness, explicit assumptions and sensitivity).
+- Portfolio data-quality and model-risk review (leakage-safe splits, mandatory
+  baselines, calibration, provenance, Olofsson error-adjusted area).
+
+**Sell only after defined upgrades**, gates listed in doc 21:
+
+- Property-level underwriting and mitigation score, after a representative
+  structure inventory, imagery-derived building and defensible-space features, a
+  calibration set that includes undamaged structures, spatially blocked validation,
+  and an explainable mitigation counterfactual. Today T5 does not beat the
+  predict-all-destroyed baseline, so it is a prototype, not a loss score.
+- Portfolio catastrophe analytics, after a stochastic event catalog, validated
+  exposure and vulnerability, a financial module with secondary uncertainty, and
+  OED/ORD or an equivalent governed financial-engine integration (for example Oasis
+  LMF). Until then the catalog runner is an R&D scenario capability, not pricing,
+  PML, or capital advice.
+- Real-time operational spread forecasting, which needs time-varying weather,
+  pre-fire fuels, DEM slope and aspect, fuel moisture, spotting, suppression,
+  uncertainty ensembles, and validation against time-resolved agency perimeters. A
+  roadmap, not a current promise.
+
+**Market entry.** A paid pilot, the Wildfire Event Evidence Pack: the customer
+supplies a portfolio of coordinates or building footprints, VHAGAR monitors and
+detects candidate and confirmed events, and after an event returns a timestamped
+detection record, a burn-footprint intersection, an affected-location list,
+source and confidence metadata, and an optional spread-scenario appendix.
 
 ---
 
