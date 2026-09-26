@@ -57,10 +57,33 @@ lat/latitude/y, lon/lng/longitude/x, case-insensitive) and an optional id/name c
 single_sensor_repeated, or single_sensor_sparse). Locations with no event within the
 buffer are returned under `clear`, so the whole portfolio is accounted for.
 
+## The dated HTML report (the deliverable)
+
+`src/vhagar/report.py` renders the intersection result into a single self-contained
+HTML file, the artifact a claims or exposure team actually receives. It carries a dated
+header with provenance and freshness, summary cards (portfolio, affected, inside
+footprint, within buffer, clear), an inline SVG evidence map (event footprints plus
+portfolio points colored by status, no external assets), the affected-location table,
+and the honest disclosure. `render_evidence_pack(result, events, ...)` is pure stdlib
+and unit-tested (`tests/test_report.py`), including HTML escaping so a hostile portfolio
+id cannot inject markup.
+
+```bash
+python scripts/evidence_pack_report.py portfolio.csv --events events.geojson \
+    --name "ACME Portfolio" --out pack.html
+python scripts/evidence_pack_report.py portfolio.csv \
+    --base-url https://vhagar-console.onrender.com --region california --days 3 --out pack.html
+```
+
+The report opens in any browser and can be emailed as-is; it is screening evidence for
+inspection and triage, not a proof of loss, a claims adjudication, or an agency
+perimeter, and it says so.
+
 ## Next steps toward a paid pilot
 
 - Footprint polygons for portfolio buildings (not just point locations), so the
   intersection is footprint-to-footprint.
-- A dated, timestamped report artifact (PDF or HTML) suitable for a claims file.
-- Post-fire burn-area intersection (T2) in addition to detection footprints (T1),
-  so the pack carries both the fast detection signal and the mapped burn evidence.
+- Post-fire burn-area intersection (T2) and the DINS-validated damage screen
+  (`docs/23`) folded into the same report, so the pack carries the fast detection
+  signal, the mapped burn evidence, and a per-structure damage screen.
+- A PDF export of the HTML report for claims-file archival.

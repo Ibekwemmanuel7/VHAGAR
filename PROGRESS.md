@@ -3,6 +3,20 @@
 Last updated: 2026-09-25. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
+## Dated Evidence Pack HTML report artifact (2026-09-26)
+
+The market-entry deliverable that ties the pieces together. `src/vhagar/report.py`
+(`render_evidence_pack`) turns a portfolio-to-event intersection into a single
+self-contained HTML report: dated header with provenance/freshness, summary cards,
+an inline SVG evidence map (event footprints + portfolio points by status, no external
+assets), the affected-location table, and the honest disclosure. Pure stdlib, unit-
+tested `tests/test_report.py` (incl. HTML-escaping against injection).
+`scripts/evidence_pack_report.py` loads a portfolio CSV + events (local GeoJSON or live
+API), intersects, and writes the .html. Verified: tests pass, ruff clean, CLI produces
+a ~4.5 KB self-contained report from a fixture. Doc section added to
+`docs/22_EVIDENCE_PACK.md`. This is the artifact to put in front of a design partner.
+Next: footprint-to-footprint, fold in the DINS damage screen (docs/23), PDF export.
+
 ## Structure-survival vulnerability model from DINS features (2026-09-26)
 
 The vulnerability/mitigation tier (the L2 layer for an underwriting score; the
