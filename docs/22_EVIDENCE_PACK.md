@@ -100,9 +100,26 @@ python scripts/evidence_pack_report.py portfolio.csv --events events.geojson \
     --name "ACME Portfolio" --out pack.html --pdf
 ```
 
+## Building-polygon portfolios (footprint-to-footprint)
+
+The pack works on real building footprints, not just points. A portfolio entry may carry
+a `footprint` (a lon/lat ring, GeoJSON Polygon coordinates, or a geometry dict), or the
+CLI can be handed a GeoJSON of Polygon features directly (`portfolio.geojson`, with an
+`id`/`name`/`policy_id` property per feature). Footprint entries are matched
+polygon-to-polygon: because an event footprint is a convex hull, the intersection is
+exact via Sutherland-Hodgman clipping (`vhagar.intersect.footprint_overlap` /
+`clip_polygon`, pure stdlib, CI-tested), and each affected building carries an
+`overlap_pct`, the share of the building inside the detection hull, shown as an
+"In fire %" column in the report. Point entries keep the point-in-hull / distance
+behaviour unchanged.
+
+```bash
+python scripts/evidence_pack_report.py buildings.geojson --events events.geojson \
+    --severity-tif mtbs_extract/mtbs_CONUS_2021.tif --severity-source "MTBS 2021" \
+    --name "ACME building portfolio" --out pack.html
+```
+
 ## Next steps toward a paid pilot
 
-- Footprint polygons for portfolio buildings (not just point locations), so the
-  intersection is footprint-to-footprint.
 - Wire the live-event path to VHAGAR's own T2 burned-area product as the severity
   source, so the pack runs end to end on VHAGAR outputs rather than MTBS.

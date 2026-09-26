@@ -83,7 +83,7 @@ def _esc(v) -> str:
 _DC = {"No Damage": "#5b6b7a", "Minor": "#c9a227", "Major": "#ef6c00", "Destroyed": "#c62828"}
 
 
-def _rows(affected, show_damage: bool) -> str:
+def _rows(affected, show_damage: bool, show_overlap: bool) -> str:
     out = []
     for r in affected:
         dmg = ""
@@ -92,11 +92,16 @@ def _rows(affected, show_damage: bool) -> str:
             cell = (f"<span class='pill' style='background:{_DC.get(dc, '#39424e')}'>{_esc(dc)}</span>"
                     if dc else "<span class='none'>n/a</span>")
             dmg = f"<td>{cell}</td>"
+        ov = ""
+        if show_overlap:
+            pct = r.get("overlap_pct")
+            ov = f"<td class='num'>{(_esc(pct) + '%') if pct is not None else '&mdash;'}</td>"
         out.append(
             "<tr>"
             f"<td>{_esc(r.get('id'))}</td>"
             f"<td><span class='pill' style='background:{_C.get(r['status'], '#5b6b7a')}'>"
             f"{_LABEL.get(r['status'], r['status'])}</span></td>"
+            f"{ov}"
             f"<td class='num'>{_esc(r.get('distance_m'))}</td>"
             f"<td>{_esc(r.get('event_label') or r.get('event_id'))}</td>"
             f"{dmg}"
@@ -141,10 +146,12 @@ def render_evidence_pack(result, events=None, *, title="Wildfire Event Evidence 
     card_html = "".join(
         f"<div class='card'><div class='k'>{_esc(k)}</div><div class='v'>{_esc(v)}</div></div>"
         for k, v in cards)
+    show_overlap = any("overlap_pct" in r for r in affected)
     dmg_th = "<th>Damage screen</th>" if show_damage else ""
-    table = (f"<table><thead><tr><th>Location</th><th>Status</th><th>Distance (m)</th>"
+    ov_th = "<th>In fire %</th>" if show_overlap else ""
+    table = (f"<table><thead><tr><th>Location</th><th>Status</th>{ov_th}<th>Distance (m)</th>"
              f"<th>Event</th>{dmg_th}<th>Last seen (UTC)</th><th>Age (h)</th><th>Sensors</th>"
-             f"<th>Confidence</th></tr></thead><tbody>{_rows(affected, show_damage)}</tbody></table>"
+             f"<th>Confidence</th></tr></thead><tbody>{_rows(affected, show_damage, show_overlap)}</tbody></table>"
              if affected else "<p class='none'>No portfolio locations were affected in this window.</p>")
     dmg_disclosure = (" A damage screen column is present: it maps a burn-severity raster "
                       "to an xView2/xBD damage class per location, a screen for inspection "

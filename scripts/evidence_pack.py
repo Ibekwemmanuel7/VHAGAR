@@ -36,6 +36,34 @@ _ID = {"id", "name", "location_id", "policy_id", "ref"}
 
 
 def _read_portfolio(path: str) -> list[dict]:
+    """Load a portfolio from a CSV (lat/lon points) or a GeoJSON (building polygons or
+    points). GeoJSON polygons are matched footprint-to-footprint downstream."""
+    if str(path).lower().endswith((".geojson", ".json")):
+        return _read_portfolio_geojson(path)
+    return _read_portfolio_csv(path)
+
+
+def _read_portfolio_geojson(path: str) -> list[dict]:
+    gj = json.loads(Path(path).read_text(encoding="utf-8"))
+    feats = gj.get("features", []) if isinstance(gj, dict) else gj
+    rows = []
+    for i, f in enumerate(feats):
+        g = (f or {}).get("geometry") or {}
+        props = (f or {}).get("properties") or {}
+        pid = props.get("id") or props.get("name") or props.get("policy_id") or f"loc-{i}"
+        t, c = g.get("type"), g.get("coordinates")
+        if t == "Polygon" and c:
+            rows.append({"id": pid, "footprint": c[0]})
+        elif t == "MultiPolygon" and c:
+            rows.append({"id": pid, "footprint": c[0][0]})     # first polygon's outer ring
+        elif t == "Point" and c:
+            rows.append({"id": pid, "lon": float(c[0]), "lat": float(c[1])})
+    if not rows:
+        raise SystemExit("no Polygon or Point features parsed from the portfolio GeoJSON")
+    return rows
+
+
+def _read_portfolio_csv(path: str) -> list[dict]:
     rows = []
     with open(path, newline="", encoding="utf-8-sig") as fh:
         reader = csv.DictReader(fh)

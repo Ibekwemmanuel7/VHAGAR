@@ -50,6 +50,15 @@ def test_render_empty_portfolio():
     assert "No portfolio locations were affected" in html
 
 
+def test_render_with_footprint_overlap():
+    r = dict(RESULT)
+    r["affected"] = [dict(RESULT["affected"][0], overlap_pct=63.5)]
+    html = render_evidence_pack(r, EVENTS)
+    assert "In fire %" in html and "63.5%" in html
+    # point-only result has no overlap column
+    assert "In fire %" not in render_evidence_pack(RESULT, EVENTS)
+
+
 def test_render_with_damage_screen():
     r = dict(RESULT)
     r["affected"] = [dict(RESULT["affected"][0], damage_class="Destroyed",

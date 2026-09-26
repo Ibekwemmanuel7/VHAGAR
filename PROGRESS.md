@@ -3,6 +3,22 @@
 Last updated: 2026-09-25. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
+## Evidence Pack: footprint-to-footprint intersection (2026-09-26)
+
+The pack now works on real building-polygon portfolios, not just points.
+`vhagar.intersect` gains exact convex-hull polygon clipping (`clip_polygon`,
+`polygon_area`, `footprint_overlap`, pure stdlib Sutherland-Hodgman, valid because an
+event footprint is a convex hull), and `intersect_portfolio` accepts portfolio entries
+with a `footprint` (lon/lat ring, GeoJSON Polygon coords, or geometry dict). Footprint
+entries are matched polygon-to-polygon and carry `overlap_pct` (share of the building
+inside the detection hull); point entries are unchanged. `scripts/evidence_pack.py`
+gains a GeoJSON portfolio loader (Polygon/Point features). The report shows an
+"In fire %" column when overlaps are present. Tests: footprint-overlap helper (fully
+inside ~1.0, edge ~0.5, far 0.0) and a footprint portfolio (inside/edge/near-buffer/far)
+in `tests/test_intersect.py`, plus a report overlap-column test. Verified end to end on
+12 real Caldor building footprints + a covering event + MTBS damage screen (all 100% in
+fire, "In fire %" column rendered). Ruff clean, tests pass. Doc `docs/22_EVIDENCE_PACK.md`.
+
 ## Evidence Pack report: damage-screen fold-in + PDF export (2026-09-26)
 
 Folded the DINS-validated post-fire damage screen into the Evidence Pack report and
