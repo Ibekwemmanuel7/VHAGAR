@@ -3,6 +3,31 @@
 Last updated: 2026-09-25. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
+## Post-fire structure-damage screen vs CAL FIRE DINS (2026-09-26)
+
+The rapid-damage-assessment tier (product review Tier P-1), built and validated on real
+data. `scripts/postfire_damage_screen.py` loads the real DINS inspections for a named
+fire (the 132k-row CAL FIRE master export in the repo), samples the MTBS 2021 severity
+raster at each structure, predicts damage two ways plus a four-class grade, and scores
+against DINS with mandatory baselines. Scoring core `src/vhagar/eval/damage_screen.py`
+is pure numpy and CI-safe: `binary_screen` (POD/FAR/precision/F1/accuracy + predict-all
+baseline + F1 skill), `confusion`, `ordinal_metrics` (accuracy, per-class recall/
+precision, quadratic-weighted kappa). Taxonomy aligned to xView2/xBD (No Damage, Minor,
+Major, Destroyed). Tests `tests/test_damage_screen.py`, doc `docs/23_POSTFIRE_DAMAGE.md`.
+
+Honest result: the inside-burn screen BEATS the predict-all-destroyed baseline on both
+fires, which is the opposite of the T5 WUI predictive model. Caldor (4,442 structures):
+inside-burn destroyed F1 **0.78 vs 0.37 baseline, skill +0.41**, 4-class accuracy 0.74,
+QWK 0.80. Dixie (3,831): F1 **0.73 vs 0.51, skill +0.22**, accuracy 0.53, QWK 0.50. The
+high-severity-only screen is worse (Dixie skill -0.32): MTBS high vegetation severity
+is not structure severity, so it misses structures destroyed in low/moderate severity;
+the inside-burn screen is the right operating point. This is why post-fire evidence is
+product-ready while predictive property loss is not. Scope: MTBS is a 30 m dNBR
+vegetation-severity product, a screen for inspection targeting, not a damage
+adjudication; DINS is destroyed-heavy so skill-over-baseline is the honest number. For a
+live event the same screen runs on VHAGAR's own T2 burned-area output instead of MTBS.
+Figures/summaries `outputs/postfire_{Caldor,Dixie}.{png,json}`.
+
 ## Wildfire Event Evidence Pack: portfolio-to-event intersection (2026-09-25)
 
 Built the market-entry product from `docs/21_PRODUCT_POSITIONING.md`, the narrowest

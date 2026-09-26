@@ -1,0 +1,90 @@
+{
+  "incident": "Dixie",
+  "n_structures": 3831,
+  "dins_class_support": {
+    "No Damage": 2426,
+    "Minor": 83,
+    "Major": 11,
+    "Destroyed": 1311
+  },
+  "mtbs_burned_fraction": 0.4735,
+  "binary_inside_burn": {
+    "n": 3831,
+    "tp": 1138,
+    "fp": 676,
+    "fn": 173,
+    "tn": 1844,
+    "pod": 0.868,
+    "far": 0.3727,
+    "precision": 0.6273,
+    "f1": 0.7283,
+    "accuracy": 0.7784,
+    "base_rate_destroyed": 0.3422,
+    "predict_all_destroyed_f1": 0.5099,
+    "skill_f1_over_baseline": 0.2184
+  },
+  "binary_high_severity_only": {
+    "n": 3831,
+    "tp": 142,
+    "fp": 11,
+    "fn": 1169,
+    "tn": 2509,
+    "pod": 0.1083,
+    "far": 0.0719,
+    "precision": 0.9281,
+    "f1": 0.194,
+    "accuracy": 0.692,
+    "base_rate_destroyed": 0.3422,
+    "predict_all_destroyed_f1": 0.5099,
+    "skill_f1_over_baseline": -0.3159
+  },
+  "four_class": {
+    "accuracy": 0.5278,
+    "per_class_recall": [
+      0.7523,
+      0.6024,
+      0.4545,
+      0.1083
+    ],
+    "per_class_precision": [
+      0.9048,
+      0.0411,
+      0.0112,
+      0.9281
+    ],
+    "quadratic_weighted_kappa": 0.5032,
+    "support": [
+      2426,
+      83,
+      11,
+      1311
+    ]
+  },
+  "four_class_confusion_rows_true_cols_pred": [
+    [
+      1825,
+      524,
+      66,
+      11
+    ],
+    [
+      15,
+      50,
+      18,
+      0
+    ],
+    [
+      4,
+      2,
+      5,
+      0
+    ],
+    [
+      173,
+      640,
+      356,
+      142
+    ]
+  ],
+  "scope": "MTBS 30 m severity screen vs CAL FIRE DINS inspections. A screen, not a per-structure adjudication. DINS is destroyed-heavy, so read skill_f1_over_baseline, not raw F1."
+}
