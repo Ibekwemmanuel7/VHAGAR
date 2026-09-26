@@ -30,7 +30,13 @@ from pathlib import Path
 
 import numpy as np
 
-from vhagar.eval.damage_screen import binary_screen, confusion, ordinal_metrics
+from vhagar.eval.damage_screen import (
+    SEVERITY_CLASS_NAMES,
+    binary_screen,
+    confusion,
+    ordinal_metrics,
+    severity_to_class_index,
+)
 
 _ROOT = Path(__file__).resolve().parents[1]
 DINS_CSV = _ROOT / "POSTFIRE_MASTER_DATA_SHARE_-519030234411900050.csv"
@@ -39,7 +45,7 @@ MTBS_TIF = _ROOT / "mtbs_extract" / "mtbs_CONUS_2021.tif"
 # MTBS thematic burn severity: 1 unburned-to-low, 2 low, 3 moderate, 4 high,
 # 5 increased greenness, 6 non-processing mask (0 = background/no data).
 BURNED = (2, 3, 4)
-CLASS_NAMES = ["No Damage", "Minor", "Major", "Destroyed"]
+CLASS_NAMES = SEVERITY_CLASS_NAMES
 
 # DINS "* Damage" -> ordinal xView2/xBD class index (Inaccessible dropped by caller).
 DINS_TO_IDX = {
@@ -50,13 +56,7 @@ DINS_TO_IDX = {
 }
 
 
-def _severity_to_idx(sev: np.ndarray) -> np.ndarray:
-    """Map MTBS severity codes to the four-class damage grade (screening heuristic)."""
-    idx = np.zeros_like(sev, dtype=int)          # unburned / greenness / mask -> No Damage
-    idx[sev == 2] = 1                             # low        -> Minor
-    idx[sev == 3] = 2                             # moderate   -> Major
-    idx[sev == 4] = 3                             # high       -> Destroyed
-    return idx
+_severity_to_idx = severity_to_class_index
 
 
 def _load_dins(incident: str):

@@ -79,11 +79,30 @@ The report opens in any browser and can be emailed as-is; it is screening eviden
 inspection and triage, not a proof of loss, a claims adjudication, or an agency
 perimeter, and it says so.
 
+### Optional damage screen and PDF
+
+Pass `--severity-tif <burn-severity raster>` (MTBS for a historical fire, or VHAGAR's
+own T2 burned-area product for a live event) and the report samples the severity at
+each affected location and adds a **Damage screen** column with the xView2/xBD class
+(No Damage, Minor, Major, Destroyed), a "Screened destroyed" summary card, and the
+severity source in the provenance line. The scoring core and the honest scope are in
+`docs/23_POSTFIRE_DAMAGE.md`; the report reuses the same severity-to-class mapping
+(`vhagar.eval.damage_screen.severity_to_class_index`).
+
+`--pdf` writes a PDF via LibreOffice as a convenience. The report also carries an
+`@media print` stylesheet (light background, page-break-avoid on rows and the map), so
+the highest-fidelity claims-file PDF is produced by opening the HTML and using the
+browser's Print to PDF.
+
+```bash
+python scripts/evidence_pack_report.py portfolio.csv --events events.geojson \
+    --severity-tif mtbs_extract/mtbs_CONUS_2021.tif --severity-source "MTBS 2021" \
+    --name "ACME Portfolio" --out pack.html --pdf
+```
+
 ## Next steps toward a paid pilot
 
 - Footprint polygons for portfolio buildings (not just point locations), so the
   intersection is footprint-to-footprint.
-- Post-fire burn-area intersection (T2) and the DINS-validated damage screen
-  (`docs/23`) folded into the same report, so the pack carries the fast detection
-  signal, the mapped burn evidence, and a per-structure damage screen.
-- A PDF export of the HTML report for claims-file archival.
+- Wire the live-event path to VHAGAR's own T2 burned-area product as the severity
+  source, so the pack runs end to end on VHAGAR outputs rather than MTBS.

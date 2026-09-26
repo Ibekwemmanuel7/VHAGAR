@@ -3,6 +3,22 @@
 Last updated: 2026-09-25. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
+## Evidence Pack report: damage-screen fold-in + PDF export (2026-09-26)
+
+Folded the DINS-validated post-fire damage screen into the Evidence Pack report and
+added PDF export. Shared severity-to-class mapping now lives in
+`src/vhagar/eval/damage_screen.py` (`severity_to_class_index`, `SEVERITY_CLASS_NAMES`),
+used by both the damage-screen script and the report. `render_evidence_pack` gains an
+optional "Damage screen" column (xView2/xBD class per location), a "Screened destroyed"
+card, a damage disclosure, and an `@media print` stylesheet for clean browser
+Print-to-PDF. `scripts/evidence_pack_report.py` gains `--severity-tif`/`--severity-source`
+(samples a burn-severity raster at each affected location) and `--pdf` (best-effort via
+LibreOffice; browser print recommended for fidelity). Verified end to end on 18 real
+Caldor structures + MTBS 2021: HTML + PDF written, damage column/card/provenance present,
+tests pass, ruff clean. Honest note: MTBS severity under-grades structure damage (a
+random Caldor sample is mostly surviving structures in unburned/low severity), so the
+screen is for inspection targeting, not adjudication.
+
 ## Dated Evidence Pack HTML report artifact (2026-09-26)
 
 The market-entry deliverable that ties the pieces together. `src/vhagar/report.py`

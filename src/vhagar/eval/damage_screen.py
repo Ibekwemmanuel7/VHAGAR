@@ -22,7 +22,26 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["binary_screen", "confusion", "ordinal_metrics"]
+__all__ = ["binary_screen", "confusion", "ordinal_metrics",
+           "SEVERITY_CLASS_NAMES", "severity_to_class_index"]
+
+#: xView2/xBD-aligned ordinal damage classes, index 0..3.
+SEVERITY_CLASS_NAMES = ["No Damage", "Minor", "Major", "Destroyed"]
+
+
+def severity_to_class_index(sev):
+    """Map MTBS thematic burn-severity codes to the four-class damage grade index.
+
+    MTBS: 1 unburned-to-low, 2 low, 3 moderate, 4 high, 5 greenness, 6 mask (0 = no
+    data). The screen maps unburned/greenness/mask to No Damage (0), low to Minor (1),
+    moderate to Major (2), high to Destroyed (3). A screening heuristic, not calibrated:
+    vegetation severity is not structure severity."""
+    sev = np.asarray(sev)
+    idx = np.zeros(sev.shape, dtype=int)
+    idx[sev == 2] = 1
+    idx[sev == 3] = 2
+    idx[sev == 4] = 3
+    return idx
 
 
 def binary_screen(pred_destroyed, truth_destroyed) -> dict:

@@ -48,3 +48,18 @@ def test_render_empty_portfolio():
          "disclosure": "x", "metadata": {}}
     html = render_evidence_pack(r, {})
     assert "No portfolio locations were affected" in html
+
+
+def test_render_with_damage_screen():
+    r = dict(RESULT)
+    r["affected"] = [dict(RESULT["affected"][0], damage_class="Destroyed",
+                          burn_severity=4, damage_idx=3)]
+    r["damage_source"] = "MTBS 2021"
+    html = render_evidence_pack(r, EVENTS)
+    assert "Damage screen" in html              # the new column header
+    assert "Screened destroyed" in html         # the new summary card
+    assert "damage screen MTBS 2021" in html    # provenance line
+    assert "xView2/xBD damage class" in html    # damage disclosure present
+    # without damage fields, the column and card are absent
+    plain = render_evidence_pack(RESULT, EVENTS)
+    assert "Damage screen" not in plain and "Screened destroyed" not in plain
