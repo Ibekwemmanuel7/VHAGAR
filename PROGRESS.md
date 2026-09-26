@@ -3,6 +3,31 @@
 Last updated: 2026-09-25. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
+## Structure-survival vulnerability model from DINS features (2026-09-26)
+
+The vulnerability/mitigation tier (the L2 layer for an underwriting score; the
+imagery-structure competitive gap the deep review named). `scripts/structure_vulnerability.py`
+predicts destroyed vs survived from DINS hardening features (roof, eaves, vent screen,
+siding, window pane, decks, fence, structure type) with LEAKAGE-SAFE grouped CV (whole
+fires held out). Scoring core `src/vhagar/eval/structure_vulnerability.py` is pure numpy
+CI-safe: destroyed_rate_by_level (+ relative risk), odds_ratio (Haldane 2x2),
+relative_risk. Tests `tests/test_structure_vulnerability.py`, doc
+`docs/24_STRUCTURE_VULNERABILITY.md`.
+
+Result (49 CA fires, 122,457 structures, base rate destroyed 0.54): GBM held-out
+**AUC 0.901, AP 0.923**, F1 0.814 vs predict-all 0.702 (logistic 0.886/0.909/0.808).
+The features-based model BEATS its baseline, unlike the spread-based T5 WUI model, so a
+features vulnerability score is a real product where a predictive spread-loss score is
+not. Honest confounding findings: fine-mesh vents (OR 0.41), enclosed eaves (0.48), and
+multi-pane windows (0.73) are protective (match Syphard & Keeley 2019), but
+fire-resistant roof (1.23) and noncombustible siding (1.73) go the "wrong" way, because
+those materials cluster in the dense WUI subdivisions that burned by structure-to-
+structure spread. Univariate ORs are confounded by location; report ADJUSTED effects,
+not raw ORs. Active-defense confounder quantified: hand-crew fuel break 2% destroyed
+vs 54% base. Scope: associations on destroyed-heavy DINS, not causal mitigation;
+rating use needs surviving-structure calibration + adjusted counterfactuals + confounder
+disclosure. Figure/summary `outputs/structure_vulnerability.{png,json}`.
+
 ## Post-fire structure-damage screen vs CAL FIRE DINS (2026-09-26)
 
 The rapid-damage-assessment tier (product review Tier P-1), built and validated on real
