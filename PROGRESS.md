@@ -3,6 +3,25 @@
 Last updated: 2026-09-25. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
+## Customer-facing Evidence Pack product on the console (2026-09-26)
+
+Put the Evidence Pack toolkit on the console as a hosted customer product.
+`vhagar_evidence.html` served at `/evidence` (linked from the operational console
+header): upload a portfolio (CSV or building-footprint GeoJSON) or paste coordinates,
+pick region/days/buffer, generate against the live feed, see summary cards + an
+interactive MapLibre evidence map + affected-locations table (In fire % for footprints,
+Damage column when a severity product is configured), and Download the self-contained
+HTML report. Backend `POST /api/evidence_pack` (in serve/vhagar_api.py): intersect +
+optional env-gated post-fire damage screen (`_attach_severity_live`, exception-safe) +
+`render_evidence_pack`, returns {result, html, damage_available}; portfolio capped at
+20000. New `/evidence` route serves the page. Live damage screen is off by default;
+enable with VHAGAR_SEVERITY_TIF / VHAGAR_SEVERITY_SCHEME (rbr|mtbs) / VHAGAR_SEVERITY_SOURCE.
+Verified: page JS `node --check` OK, serve/vhagar_api.py compiles + ruff clean, TestClient
+smoke (point + footprint portfolios return 200 with report HTML; /evidence 200; empty
+portfolio 400). Self-contained + unbranded for later Lillie Earth Intelligence integration.
+Deploy note: the live damage screen needs rasterio in the serving image and a severity
+raster on disk; without them the pack runs detection-intersection-only. Doc `docs/22`.
+
 ## Evidence Pack: VHAGAR-native T2 RBR severity source (2026-09-26)
 
 Wired the damage screen to VHAGAR's OWN T2 severity product so the whole pack runs on

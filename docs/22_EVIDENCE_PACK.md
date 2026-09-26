@@ -110,6 +110,30 @@ python scripts/evidence_pack_report.py portfolio.csv --events events.geojson \
     --name "ACME Portfolio" --out pack.html --pdf
 ```
 
+## Customer-facing page (`/evidence`)
+
+The whole pack is a hosted customer product, not just a CLI. `vhagar_evidence.html`
+(served at `/evidence`, linked from the operational console) lets a customer upload a
+portfolio (CSV of lat/lon, or a GeoJSON of building footprints) or paste coordinates,
+pick the region / days / screening buffer, and generate a pack against the live fire
+feed. It shows summary cards, an interactive MapLibre evidence map (event footprints
+plus portfolio locations coloured by status), the affected-locations table (with an
+"In fire %" column for footprints and a "Damage" column when a severity product is
+configured), and a **Download report** button that saves the same self-contained HTML
+report `render_evidence_pack` produces. Self-contained and unbranded enough to fold
+into Lillie Earth Intelligence later.
+
+Backend: `POST /api/evidence_pack` (body `{portfolio, region, days, buffer_m, name}`)
+intersects against `_events_fc`, optionally runs the post-fire damage screen, renders
+the report, and returns `{result, html, damage_available}`. The portfolio is capped at
+20000 locations. `POST /api/intersect` remains for the raw intersection JSON.
+
+The live damage screen is **env-gated and off by default** (it is inherently post-fire
+and needs a burn-severity raster on the server): set `VHAGAR_SEVERITY_TIF` to a raster
+path, `VHAGAR_SEVERITY_SCHEME` to `rbr` (VHAGAR's own T2 product) or `mtbs`, and
+optionally `VHAGAR_SEVERITY_SOURCE` for the provenance label. Without it, the pack runs
+detection-intersection-only and says so; it never breaks the live service.
+
 ## Building-polygon portfolios (footprint-to-footprint)
 
 The pack works on real building footprints, not just points. A portfolio entry may carry

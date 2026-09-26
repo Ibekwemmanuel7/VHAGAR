@@ -52,6 +52,7 @@ MAX_GAP_S = 12 * 3600  # same 12 h temporal link as cluster_detections
 
 DET_DIR = Path(os.environ.get("VHAGAR_DET_DIR", _ROOT / "data" / "detections" / "detections"))
 CONSOLE = _ROOT / "vhagar_console.html"
+EVIDENCE = _ROOT / "vhagar_evidence.html"
 CACHE_DIR = _ROOT / "serve" / ".cache"
 # A prebuilt, self-contained snapshot committed to the repo so a hosted deploy
 # (Render, a container) starts instantly with no raw parquet and no clustering.
@@ -758,6 +759,89 @@ def intersect(payload: dict = Body(...)):
     return JSONResponse(res)
 
 
+def _attach_severity_live(res: dict) -> int:
+    """Post-fire damage screen for the live Evidence Pack, active only when a
+    burn-severity product is configured via VHAGAR_SEVERITY_TIF (VHAGAR's own T2 RBR
+    raster with VHAGAR_SEVERITY_SCHEME=rbr, or an MTBS reference). Env-gated and
+    exception-safe so it never breaks the live service; returns the count screened."""
+    tif = os.environ.get("VHAGAR_SEVERITY_TIF")
+    if not tif or not Path(tif).exists():
+        return 0
+    try:
+        import datetime as _dt  # noqa: F401
+
+        import numpy as _np
+        import rasterio
+        from pyproj import Transformer
+        from rasterio.windows import from_bounds
+
+        from vhagar.eval.damage_screen import (
+            SEVERITY_CLASS_NAMES,
+            rbr_to_class_index,
+            severity_to_class_index,
+        )
+        aff = res.get("affected", [])
+        if not aff:
+            return 0
+        scheme = os.environ.get("VHAGAR_SEVERITY_SCHEME", "rbr")
+        lon = _np.array([r["lon"] for r in aff], float)
+        lat = _np.array([r["lat"] for r in aff], float)
+        ds = rasterio.open(tif)
+        xs, ys = Transformer.from_crs("EPSG:4326", ds.crs, always_xy=True).transform(lon, lat)
+        pad = 5 * max(abs(ds.transform.a), abs(ds.transform.e))
+        win = from_bounds(min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad,
+                          ds.transform).round_offsets().round_lengths()
+        arr = ds.read(1, window=win)
+        inv = ~ds.window_transform(win)
+        cols, rows = inv * (_np.asarray(xs), _np.asarray(ys))
+        rows = _np.clip(_np.round(rows).astype(int), 0, arr.shape[0] - 1)
+        cols = _np.clip(_np.round(cols).astype(int), 0, arr.shape[1] - 1)
+        sev = arr[rows, cols]
+        idx = rbr_to_class_index(sev) if scheme == "rbr" else severity_to_class_index(sev.astype(int))
+        for r, sv, ix in zip(aff, sev, idx, strict=False):
+            r["burn_severity"] = round(float(sv), 1)
+            r["damage_class"] = SEVERITY_CLASS_NAMES[int(ix)]
+        res["damage_source"] = os.environ.get(
+            "VHAGAR_SEVERITY_SOURCE", "VHAGAR T2 RBR" if scheme == "rbr" else Path(tif).name)
+        return len(aff)
+    except Exception:                       # noqa: BLE001 (never break the live service)
+        return 0
+
+
+@app.post("/api/evidence_pack")
+def evidence_pack(payload: dict = Body(...)):
+    """Full customer Evidence Pack: intersect a portfolio against the live feed, add a
+    post-fire damage screen when one is configured, render the dated HTML report, and
+    return {result, html, damage_available}. Body: {portfolio, region, days, buffer_m,
+    name}. Portfolio entries are {id, lat, lon} points or {id, footprint} polygons."""
+    import datetime as _dt
+
+    from vhagar.intersect import intersect_portfolio
+    from vhagar.report import render_evidence_pack
+    portfolio = payload.get("portfolio") or []
+    if not isinstance(portfolio, list) or not portfolio:
+        return JSONResponse({"status": "bad_request",
+                             "detail": "portfolio must be a non-empty list of locations"},
+                            status_code=400)
+    if len(portfolio) > 20000:
+        return JSONResponse({"status": "too_large", "detail": "portfolio capped at 20000 locations"},
+                            status_code=413)
+    region = payload.get("region", "california")
+    days = int(payload.get("days", 3))
+    buffer_m = float(payload.get("buffer_m", 1000.0))
+    name = payload.get("name")
+    fc = _events_fc(region, days)
+    res = intersect_portfolio(portfolio, fc, buffer_m=buffer_m)
+    meta = fc.get("metadata", {})
+    res["metadata"] = {"region": region, "days": days, "mode": meta.get("mode"),
+                       "event_count": meta.get("event_count"),
+                       "window_end_utc": meta.get("window_end_utc")}
+    dmg = _attach_severity_live(res)
+    gen = _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%d %H:%M UTC")
+    html = render_evidence_pack(res, fc, portfolio_name=name, generated=gen)
+    return JSONResponse({"result": res, "html": html, "damage_available": bool(dmg)})
+
+
 _GOES_SENSORS = ("GOES-18", "GOES-19")
 _CAND_CELL = 0.05          # ~5.5 km grid: corroboration search radius + dedupe
 _CAND_MAX = 1500
@@ -892,6 +976,15 @@ def console():
     html = CONSOLE.read_text(encoding="utf-8")
     html = html.replace("__MAPBOX_TOKEN__", os.environ.get("VHAGAR_MAPBOX_TOKEN", ""))
     return HTMLResponse(html)
+
+
+@app.get("/evidence")
+def evidence_page():
+    """Serve the customer-facing Evidence Pack page."""
+    from fastapi.responses import HTMLResponse
+    if not EVIDENCE.exists():
+        return JSONResponse({"status": "not_found", "detail": "evidence page not deployed"}, status_code=404)
+    return HTMLResponse(EVIDENCE.read_text(encoding="utf-8"))
 
 
 @app.get("/favicon.ico")

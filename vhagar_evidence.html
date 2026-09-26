@@ -1,0 +1,218 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VHAGAR Wildfire Event Evidence Pack</title>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0f16;color:#e6eef8;font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.5}
+a{color:#7fdcff}
+.hdr{display:flex;align-items:center;gap:.7rem;padding:12px 20px;border-bottom:1px solid #1c2532;background:#0d1420}
+.hdr .logo{font-weight:800;font-size:1.15rem;background:linear-gradient(180deg,#f2ffff,#7fdcff 42%,#1f8dff);-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:1px}
+.hdr .tag{color:#8ea1b6;font-size:.78rem}
+.hdr .by{margin-left:auto;color:#6b7a8d;font-size:.72rem}
+.layout{display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 53px)}
+.panel{padding:18px;border-right:1px solid #1c2532;overflow:auto;background:#0c1119}
+.panel h2{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:#8ea1b6;margin:18px 0 8px}
+.panel h2:first-child{margin-top:0}
+label{display:block;font-size:.74rem;color:#9db0c4;margin:10px 0 3px}
+input,select,textarea,button{font:inherit;color:#e6eef8;background:#111a26;border:1px solid #24405f;border-radius:7px;padding:8px 10px;width:100%}
+textarea{min-height:70px;resize:vertical;font-size:.8rem}
+.row{display:flex;gap:8px}
+.row>*{flex:1}
+.drop{border:1.5px dashed #2c4a6b;border-radius:9px;padding:16px;text-align:center;color:#9db0c4;font-size:.82rem;cursor:pointer;background:#0e1622}
+.drop.hot{border-color:#7fdcff;background:#0f2030}
+.btn{background:#1f8dff;border-color:#1f8dff;color:#fff;font-weight:600;cursor:pointer;margin-top:14px}
+.btn:disabled{opacity:.5;cursor:default}
+.btn.ghost{background:transparent;border-color:#2c4a6b;color:#bcd;font-weight:500;margin-top:8px}
+.count{font-size:.78rem;color:#7fdcff;margin-top:6px}
+.err{color:#ff9b9b;font-size:.8rem;margin-top:8px;min-height:1em}
+.main{position:relative;display:flex;flex-direction:column;min-width:0}
+#map{flex:1;min-height:220px}
+.cards{display:flex;gap:8px;flex-wrap:wrap;padding:12px 16px;background:#0c1119;border-bottom:1px solid #1c2532}
+.card{flex:1;min-width:96px;background:#111a26;border:1px solid #22344a;border-radius:9px;padding:9px 11px}
+.card .k{color:#8ea1b6;font-size:.6rem;text-transform:uppercase;letter-spacing:.06em}
+.card .v{font-size:1.35rem;font-weight:700;margin-top:2px}
+.results{max-height:44%;overflow:auto;padding:0 16px 14px}
+.results .bar{display:flex;align-items:center;gap:10px;position:sticky;top:0;background:#0b0f16;padding:12px 0 8px}
+.results h3{font-size:.9rem;margin:0}
+.dl{margin-left:auto;background:#22c55e;border-color:#22c55e;color:#04210f;font-weight:700;width:auto;padding:7px 13px;cursor:pointer}
+.dl:disabled{opacity:.4}
+table{width:100%;border-collapse:collapse;font-size:.79rem}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #17202c;white-space:nowrap}
+th{color:#8ea1b6;font-size:.66rem;text-transform:uppercase;letter-spacing:.04em;position:sticky;top:44px;background:#0b0f16}
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;color:#fff;font-size:.7rem;font-weight:600}
+.disc{margin:0 16px 16px;background:#1a1206;border:1px solid #3a2a12;border-radius:9px;padding:10px 13px;color:#f0d9b5;font-size:.78rem}
+.empty{padding:40px 16px;color:#8ea1b6;text-align:center}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid #ffffff55;border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style></head><body>
+<div class="hdr">
+  <span class="logo">VHAGAR</span>
+  <span class="tag">Wildfire Event Evidence Pack</span>
+  <span class="by">powered by Lillie Earth Intelligence</span>
+</div>
+<div class="layout">
+  <div class="panel">
+    <h2>1. Your portfolio</h2>
+    <div id="drop" class="drop">Drop a <b>CSV</b> (lat, lon, id) or a
+      <b>GeoJSON</b> of building footprints here, or click to choose a file.</div>
+    <input id="file" type="file" accept=".csv,.geojson,.json" style="display:none">
+    <label>or paste "lat,lon" rows (one per line)</label>
+    <textarea id="paste" placeholder="39.001,-120.512&#10;39.010,-120.498"></textarea>
+    <div id="count" class="count"></div>
+    <button id="sample" class="btn ghost">Load a sample portfolio</button>
+
+    <h2>2. Fire feed</h2>
+    <div class="row">
+      <div><label>Region</label><select id="region"></select></div>
+      <div><label>Days</label><select id="days"></select></div>
+    </div>
+    <label>Screening buffer (metres)</label>
+    <input id="buffer" type="number" value="1000" min="0" step="100">
+    <label>Portfolio name (for the report)</label>
+    <input id="name" type="text" placeholder="ACME Insurance book">
+
+    <button id="run" class="btn" disabled>Generate Evidence Pack</button>
+    <div id="err" class="err"></div>
+  </div>
+
+  <div class="main">
+    <div id="cards" class="cards" style="display:none"></div>
+    <div id="map"></div>
+    <div class="results">
+      <div class="bar"><h3 id="rtitle">Affected locations</h3>
+        <button id="dl" class="dl" disabled>Download report</button></div>
+      <div id="tablewrap"><div class="empty">Load a portfolio and generate a pack to see
+        which locations intersect current fire events.</div></div>
+    </div>
+    <div class="disc"><b>Disclosure.</b> An event footprint is the convex hull of observed
+      GOES, VIIRS, and MODIS thermal detections, an evidence extent, not a legal or agency
+      fire perimeter and not a burned-area measurement. This report is screening evidence
+      for inspection and triage, not a proof of loss or a claims adjudication.</div>
+  </div>
+</div>
+<script>
+const REGIONS={california:"California / US West","us-west":"US West",conus:"Continental US",canada:"Canada",europe:"Europe"};
+const CLR={inside_footprint:"#c62828",within_buffer:"#ef6c00",clear:"#5b6b7a",no_events_in_view:"#5b6b7a"};
+const LAB={inside_footprint:"Inside footprint",within_buffer:"Within buffer",clear:"Clear",no_events_in_view:"No events"};
+const DC={"No Damage":"#5b6b7a",Minor:"#c9a227",Major:"#ef6c00",Destroyed:"#c62828"};
+let portfolio=[], lastHtml=null, lastName="evidence_pack";
+
+const rs=document.getElementById("region");
+rs.innerHTML=Object.entries(REGIONS).map(([k,v])=>`<option value="${k}">${v}</option>`).join("");
+document.getElementById("days").innerHTML=[1,2,3,4,5,7].map(d=>`<option${d===3?" selected":""}>${d}</option>`).join("");
+
+const BASE={version:8,sources:{c:{type:"raster",tiles:["https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"],tileSize:256,attribution:"© CARTO © OpenStreetMap"}},layers:[{id:"c",type:"raster",source:"c"}]};
+const map=new maplibregl.Map({container:"map",style:BASE,center:[-120,39],zoom:5});
+
+function esc(s){return (s==null?"":String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function setCount(){const el=document.getElementById("count");el.textContent=portfolio.length?`${portfolio.length} locations loaded`:"";document.getElementById("run").disabled=!portfolio.length;}
+
+function parseCSV(text){
+  const lines=text.trim().split(/\r?\n/); if(!lines.length) return [];
+  const head=lines[0].split(",").map(s=>s.trim().toLowerCase());
+  const li=head.findIndex(h=>["lat","latitude","y"].includes(h));
+  const oi=head.findIndex(h=>["lon","lng","long","longitude","x"].includes(h));
+  const ii=head.findIndex(h=>["id","name","policy_id","ref"].includes(h));
+  const hasHead=li>=0&&oi>=0; const rows=[];
+  const start=hasHead?1:0, LI=hasHead?li:0, OI=hasHead?oi:1;
+  for(let k=start;k<lines.length;k++){const p=lines[k].split(",");
+    const lat=parseFloat(p[LI]), lon=parseFloat(p[OI]); if(isNaN(lat)||isNaN(lon))continue;
+    rows.push({id:(hasHead&&ii>=0?p[ii]:null)||("loc-"+(k-start)),lat,lon});}
+  return rows;
+}
+function parseGeoJSON(obj){
+  const feats=(obj&&obj.features)||[]; const rows=[];
+  feats.forEach((f,i)=>{const g=f.geometry||{},pr=f.properties||{};
+    const id=pr.id||pr.name||pr.policy_id||("loc-"+i);
+    if(g.type==="Polygon"&&g.coordinates)rows.push({id,footprint:g.coordinates[0]});
+    else if(g.type==="MultiPolygon"&&g.coordinates)rows.push({id,footprint:g.coordinates[0][0]});
+    else if(g.type==="Point"&&g.coordinates)rows.push({id,lon:g.coordinates[0],lat:g.coordinates[1]});});
+  return rows;
+}
+function loadText(text,fname){
+  try{
+    if(/\.(geojson|json)$/i.test(fname||"")||text.trim().startsWith("{"))portfolio=parseGeoJSON(JSON.parse(text));
+    else portfolio=parseCSV(text);
+    if(fname)lastName=fname.replace(/\.[^.]+$/,"");
+    document.getElementById("err").textContent="";
+  }catch(e){portfolio=[];document.getElementById("err").textContent="Could not parse file: "+e.message;}
+  setCount();
+}
+
+const drop=document.getElementById("drop"),file=document.getElementById("file");
+drop.onclick=()=>file.click();
+file.onchange=e=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=()=>loadText(r.result,f.name);r.readAsText(f);}};
+["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("hot");}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("hot");}));
+drop.addEventListener("drop",e=>{const f=e.dataTransfer.files[0];if(f){const r=new FileReader();r.onload=()=>loadText(r.result,f.name);r.readAsText(f);}});
+document.getElementById("paste").addEventListener("input",e=>{const t=e.target.value.trim();if(t){portfolio=parseCSV("lat,lon\n"+t);setCount();}});
+document.getElementById("sample").onclick=()=>{
+  const s=[[39.001,-120.512],[39.010,-120.498],[38.990,-120.520],[39.400,-120.100],[34.05,-118.24]];
+  portfolio=s.map((p,i)=>({id:"SAMPLE-"+i,lat:p[0],lon:p[1]}));lastName="sample_portfolio";
+  document.getElementById("paste").value=s.map(p=>p[0]+","+p[1]).join("\n");setCount();};
+
+async function run(){
+  const btn=document.getElementById("run");btn.disabled=true;const old=btn.innerHTML;
+  btn.innerHTML='<span class="spin"></span> Generating…';document.getElementById("err").textContent="";
+  try{
+    const body={portfolio,region:rs.value,days:parseInt(document.getElementById("days").value),
+      buffer_m:parseFloat(document.getElementById("buffer").value)||1000,name:document.getElementById("name").value||null};
+    const r=await fetch("/api/evidence_pack",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.detail||("HTTP "+r.status));}
+    const data=await r.json();render(data);
+  }catch(e){document.getElementById("err").textContent="Generation failed: "+e.message;}
+  btn.innerHTML=old;btn.disabled=false;
+}
+document.getElementById("run").onclick=run;
+
+async function render(data){
+  const res=data.result, s=res.summary||{}, aff=res.affected||[];
+  lastHtml=data.html;
+  const showDmg=aff.some(a=>a.damage_class), showOv=aff.some(a=>"overlap_pct" in a);
+  const cards=[["Portfolio",s.portfolio_size||0],["Affected",s.affected_count||0],
+    ["Inside footprint",s.inside_footprint_count||0],["Within buffer",s.within_buffer_count||0],
+    ["Clear",(s.portfolio_size||0)-(s.affected_count||0)]];
+  if(showDmg)cards.push(["Screened destroyed",aff.filter(a=>a.damage_class==="Destroyed").length]);
+  const cc=document.getElementById("cards");cc.style.display="flex";
+  cc.innerHTML=cards.map(([k,v])=>`<div class="card"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("");
+
+  const cols=["Location","Status",showOv?"In fire %":null,"Distance (m)","Event",showDmg?"Damage":null,"Last seen (UTC)","Age (h)","Confidence"].filter(Boolean);
+  const rows=aff.map(a=>`<tr><td>${esc(a.id)}</td>
+    <td><span class="pill" style="background:${CLR[a.status]||"#5b6b7a"}">${LAB[a.status]||esc(a.status)}</span></td>
+    ${showOv?`<td>${a.overlap_pct!=null?esc(a.overlap_pct)+"%":"—"}</td>`:""}
+    <td>${esc(a.distance_m)}</td><td>${esc(a.event_label||a.event_id)}</td>
+    ${showDmg?`<td>${a.damage_class?`<span class="pill" style="background:${DC[a.damage_class]||"#39424e"}">${esc(a.damage_class)}</span>`:"—"}</td>`:""}
+    <td>${esc(a.last_seen_utc)}</td><td>${esc(a.data_age_hours)}</td><td>${esc(a.confidence)}</td></tr>`).join("");
+  document.getElementById("tablewrap").innerHTML=aff.length
+    ?`<table><thead><tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>`
+    :`<div class="empty">No portfolio locations were affected in this window. That is a clean result.</div>`;
+  document.getElementById("dl").disabled=!lastHtml;
+
+  drawMap(res);
+}
+
+async function drawMap(res){
+  const aff=res.affected||[],clr=res.clear||[];
+  let events={type:"FeatureCollection",features:[]};
+  try{events=await (await fetch(`/api/events?region=${rs.value}&days=${document.getElementById("days").value}`)).json();}catch(e){}
+  const pts={type:"FeatureCollection",features:aff.concat(clr).filter(p=>p.lon!=null).map(p=>({
+    type:"Feature",geometry:{type:"Point",coordinates:[p.lon,p.lat]},properties:{c:CLR[p.status]||"#5b6b7a"}}))};
+  for(const id of ["ev-fill","ev-line","pf-pts"])if(map.getLayer(id))map.removeLayer(id);
+  for(const id of ["ev","pf"])if(map.getSource(id))map.removeSource(id);
+  map.addSource("ev",{type:"geojson",data:events});
+  map.addLayer({id:"ev-fill",type:"fill",source:"ev",paint:{"fill-color":"#ff8a00","fill-opacity":0.14}});
+  map.addLayer({id:"ev-line",type:"line",source:"ev",paint:{"line-color":"#ff8a00","line-width":1.2}});
+  map.addSource("pf",{type:"geojson",data:pts});
+  map.addLayer({id:"pf-pts",type:"circle",source:"pf",paint:{"circle-radius":5,"circle-color":["get","c"],"circle-stroke-width":1,"circle-stroke-color":"#0b0f16"}});
+  const all=pts.features.concat((events.features||[]).flatMap(f=>((f.geometry||{}).coordinates||[[]])[0].map(c=>({geometry:{coordinates:c}}))));
+  if(all.length){let b=new maplibregl.LngLatBounds();all.forEach(f=>b.extend(f.geometry.coordinates));map.fitBounds(b,{padding:60,maxZoom:12,duration:600});}
+}
+
+document.getElementById("dl").onclick=()=>{
+  if(!lastHtml)return;const blob=new Blob([lastHtml],{type:"text/html"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+  a.download=(lastName||"evidence_pack")+".html";a.click();URL.revokeObjectURL(a.href);};
+</script></body></html>

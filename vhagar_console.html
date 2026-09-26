@@ -132,6 +132,7 @@ select{font-family:inherit}
   <div class="field"><label>Find</label><input id="locSearch" type="text" autocomplete="off" spellcheck="false" placeholder="lat,lon or city" title="Type a place name or 'lat,lon' (e.g. Reno NV, or 39.5,-119.8) and press Enter" style="background:#0d1b2a;color:#e6eef8;border:1px solid #24405f;border-radius:6px;padding:5px 9px;min-width:168px;font:inherit;outline:none"/></div>
   <div class="field" id="candField"><label>Candidates</label><label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e6b84a;font:inherit" title="Single-sensor GOES fire pixels, not yet corroborated. Fast early warning, unconfirmed."><input id="candToggle" type="checkbox" style="accent-color:#e6b84a;width:15px;height:15px"/><span id="candCount">unconfirmed GOES</span></label></div>
   <div class="spacer"></div>
+  <a href="/evidence" title="Customer-facing Wildfire Event Evidence Pack" style="text-decoration:none;color:#7fdcff;font-size:.74rem;font-weight:600;border:1px solid #24405f;border-radius:6px;padding:.32rem .7rem;margin-right:.5rem;white-space:nowrap">Evidence Pack &rarr;</a>
   <span id="freshchip" style="display:none;align-items:center;gap:.4rem;font-size:.72rem;font-weight:600;color:#cbd5e2;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);border-radius:999px;padding:.28rem .7rem;white-space:nowrap" title="Time of the newest detection in the current feed, in UTC, and how long ago that was."></span>
   <span class="updated" id="updated"></span>
   <button class="refresh" id="refresh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/></svg>Refresh</button>
@@ -438,8 +439,8 @@ async function getJSON(path){const c=new AbortController();const t=setTimeout(()
  try{const r=await fetch(API+path,{signal:c.signal});if(!r.ok)throw new Error(r.status);return await r.json();}finally{clearTimeout(t);}}
 function setLive(mode,offline){const w=document.getElementById("livewrap"),x=document.getElementById("livetxt");
  if(!w||!x)return;
- const cls=offline?"offline":mode==="live"?"live":mode==="stale"?"stale":"sample";
- const txt=offline?"OFFLINE":mode==="live"?"LIVE":mode==="stale"?"STALE":mode==="archived"?"ARCHIVED":"SAMPLE";
+ const cls=offline?"offline":mode==="live"?"live":(mode==="stale"||mode==="unknown")?"stale":"sample";
+ const txt=offline?"OFFLINE":mode==="live"?"LIVE":mode==="stale"?"STALE":mode==="unknown"?"AGE UNKNOWN":mode==="archived"?"ARCHIVED":"SAMPLE";
  w.className="livewrap "+cls;x.textContent=txt;
  w.title=mode==="stale"?"Real data, but the newest detection is older than the freshness bound (the snapshot feed may have stalled).":"";}
 function showErr(m){const e=document.getElementById("err");if(!m){e.style.display="none";return;}e.textContent=m;e.style.display="block";}
