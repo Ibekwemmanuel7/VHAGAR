@@ -104,7 +104,7 @@ const rs=document.getElementById("region");
 rs.innerHTML=Object.entries(REGIONS).map(([k,v])=>`<option value="${k}">${v}</option>`).join("");
 document.getElementById("days").innerHTML=[1,2,3,4,5,7].map(d=>`<option${d===3?" selected":""}>${d}</option>`).join("");
 
-const BASE={version:8,sources:{c:{type:"raster",tiles:["https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"],tileSize:256,attribution:"© CARTO © OpenStreetMap"}},layers:[{id:"c",type:"raster",source:"c"}]};
+const BASE="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";  // free, no API key (same as the console)
 const map=new maplibregl.Map({container:"map",style:BASE,center:[-120,39],zoom:5});
 
 function esc(s){return (s==null?"":String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
