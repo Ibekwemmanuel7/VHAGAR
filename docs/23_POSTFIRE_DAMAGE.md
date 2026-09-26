@@ -71,10 +71,12 @@ satellite burn map instead of MTBS.
 The frontier product is per-structure damage from pre/post imagery on the xView2/xBD
 4-class scale, which resolves what a vegetation-severity screen cannot. This module is
 the mandatory baseline that any such model must beat, on the same DINS folds, with the
-same skill-over-baseline discipline. The natural build order: (1) swap MTBS for the T2
-burned-area mask so the screen runs on VHAGAR's own product; (2) add building-footprint
-sampling instead of DINS points; (3) train an imagery damage classifier and score it
-against this screen and the baseline.
+same skill-over-baseline discipline. Build order and status: (1) **done** the Evidence
+Pack now screens on VHAGAR's own T2 scaled-RBR severity via `rbr_to_class_index`
+(`--severity-scheme rbr`), with MTBS kept only as a validation reference (see
+`docs/22_EVIDENCE_PACK.md`); (2) **done** building-footprint sampling instead of points
+(footprint-to-footprint in the Evidence Pack); (3) train an imagery damage classifier
+and score it against this screen and the predict-all baseline.
 
 Figures `outputs/postfire_Caldor.png`, `outputs/postfire_Dixie.png`; summaries
 `outputs/postfire_Caldor.json`, `outputs/postfire_Dixie.json`.

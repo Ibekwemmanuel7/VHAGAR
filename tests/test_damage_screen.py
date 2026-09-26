@@ -3,7 +3,24 @@ from __future__ import annotations
 
 import numpy as np
 
-from vhagar.eval.damage_screen import binary_screen, confusion, ordinal_metrics
+from vhagar.eval.damage_screen import (
+    binary_screen,
+    confusion,
+    ordinal_metrics,
+    rbr_to_class_index,
+    severity_to_class_index,
+)
+
+
+def test_severity_to_class_index_mtbs():
+    assert list(severity_to_class_index(np.array([0, 1, 2, 3, 4, 5]))) == [0, 0, 1, 2, 3, 0]
+
+
+def test_rbr_to_class_index_vhagar():
+    import numpy as _np
+    rbr = _np.array([50, 100, 300, 440, 500, 700, _np.nan])
+    # <100 No Damage, 100-440 Minor, 440-660 Major, >660 Destroyed, NaN -> 0
+    assert list(rbr_to_class_index(rbr)) == [0, 1, 1, 2, 2, 3, 0]
 
 
 def test_binary_perfect_screen():

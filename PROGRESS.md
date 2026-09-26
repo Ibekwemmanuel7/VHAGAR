@@ -3,6 +3,23 @@
 Last updated: 2026-09-25. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
+## Evidence Pack: VHAGAR-native T2 RBR severity source (2026-09-26)
+
+Wired the damage screen to VHAGAR's OWN T2 severity product so the whole pack runs on
+VHAGAR outputs, not MTBS. `eval/damage_screen.py` gains `rbr_to_class_index` +
+`DAMAGE_RBR_BREAKPOINTS` (100/440/660, from VHAGAR's Key-Benson severity thresholds),
+mapping the continuous scaled-RBR that T2's optical Stage-0 produces (RBR reprojected to
+the EPSG:5070 reference grid) to the 4 xView2/xBD damage classes. `evidence_pack_report.py`
+gains `--severity-scheme {mtbs,rbr}`: `rbr` uses VHAGAR's product, `mtbs` stays as a
+validation reference. Also fixed a real bug: the severity window used a hardcoded 2000 m
+pad, wrong for a degree-CRS raster; now the pad is 5 pixels in the raster's own units, so
+both metre-grid and degree rasters sample correctly. Verified: `rbr_to_class_index` tests
+(<100 No Damage, 100-440 Minor, 440-660 Major, >660 Destroyed, NaN->0), and an end-to-end
+run on 12 Caldor buildings against a synthetic EPSG:5070 RBR raster (a pipeline check; a
+real RBR product needs Sentinel-2 imagery, unavailable offline) gives a proper class
+spread (5 Destroyed, 1 Major, 5 Minor, 1 No Damage). MTBS path still works with the fixed
+pad. Ruff clean, 18 new-file tests pass. Docs `docs/22`, `docs/23`.
+
 ## Evidence Pack: footprint-to-footprint intersection (2026-09-26)
 
 The pack now works on real building-polygon portfolios, not just points.

@@ -29,15 +29,18 @@ from evidence_pack import _load_events, _read_portfolio  # noqa: E402
 
 from vhagar.eval.damage_screen import (  # noqa: E402
     SEVERITY_CLASS_NAMES,
+    rbr_to_class_index,
     severity_to_class_index,
 )
 from vhagar.intersect import intersect_portfolio  # noqa: E402
 from vhagar.report import render_evidence_pack  # noqa: E402
 
 
-def _attach_damage(res: dict, severity_tif: str) -> int:
+def _attach_damage(res: dict, severity_tif: str, scheme: str = "mtbs") -> int:
     """Sample the burn-severity raster at each affected location and attach a
-    burn_severity code and an xView2/xBD damage_class. Returns the count sampled."""
+    burn_severity value and an xView2/xBD damage_class. ``scheme`` selects the mapping:
+    'mtbs' for an MTBS thematic raster (validation reference), or 'rbr' for VHAGAR's own
+    T2 scaled-RBR severity product (the VHAGAR-native path). Returns the count sampled."""
     import numpy as np
     import rasterio
     from pyproj import Transformer
@@ -49,7 +52,7 @@ def _attach_damage(res: dict, severity_tif: str) -> int:
     lat = np.array([r["lat"] for r in aff], float)
     ds = rasterio.open(severity_tif)
     xs, ys = Transformer.from_crs("EPSG:4326", ds.crs, always_xy=True).transform(lon, lat)
-    pad = 2000.0
+    pad = 5 * max(abs(ds.transform.a), abs(ds.transform.e))   # 5 pixels, in the raster's own units
     win = from_bounds(min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad,
                       ds.transform).round_offsets().round_lengths()
     arr = ds.read(1, window=win)
@@ -57,10 +60,10 @@ def _attach_damage(res: dict, severity_tif: str) -> int:
     cols, rows = inv * (np.asarray(xs), np.asarray(ys))
     rows = np.clip(np.round(rows).astype(int), 0, arr.shape[0] - 1)
     cols = np.clip(np.round(cols).astype(int), 0, arr.shape[1] - 1)
-    sev = arr[rows, cols].astype(int)
-    idx = severity_to_class_index(sev)
+    sev = arr[rows, cols]
+    idx = rbr_to_class_index(sev) if scheme == "rbr" else severity_to_class_index(sev.astype(int))
     for r, sv, ix in zip(aff, sev, idx, strict=False):
-        r["burn_severity"] = int(sv)
+        r["burn_severity"] = round(float(sv), 1)
         r["damage_idx"] = int(ix)
         r["damage_class"] = SEVERITY_CLASS_NAMES[int(ix)]
     return len(aff)
@@ -87,7 +90,10 @@ def main() -> None:
     ap.add_argument("--region", default="california")
     ap.add_argument("--days", type=int, default=3)
     ap.add_argument("--buffer-m", type=float, default=1000.0)
-    ap.add_argument("--severity-tif", help="burn-severity raster to add a per-location damage screen")
+    ap.add_argument("--severity-tif", help="burn-severity raster to add a per-location damage screen "
+                    "(VHAGAR T2 RBR product with --severity-scheme rbr, or an MTBS reference)")
+    ap.add_argument("--severity-scheme", choices=("mtbs", "rbr"), default="mtbs",
+                    help="'rbr' for VHAGAR's own T2 scaled-RBR severity, 'mtbs' for an MTBS reference")
     ap.add_argument("--severity-source", help="label for the severity source shown in provenance")
     ap.add_argument("--name", default=None, help="portfolio name shown in the report header")
     ap.add_argument("--out", default="evidence_pack.html")
@@ -102,9 +108,11 @@ def main() -> None:
                        "event_count": meta.get("event_count"),
                        "window_end_utc": meta.get("window_end_utc")}
     if args.severity_tif:
-        n = _attach_damage(res, args.severity_tif)
-        res["damage_source"] = args.severity_source or Path(args.severity_tif).name
-        print(f"damage screen: sampled {n} affected locations from {res['damage_source']}")
+        n = _attach_damage(res, args.severity_tif, scheme=args.severity_scheme)
+        default_src = ("VHAGAR T2 RBR" if args.severity_scheme == "rbr" else Path(args.severity_tif).name)
+        res["damage_source"] = args.severity_source or default_src
+        print(f"damage screen ({args.severity_scheme}): sampled {n} affected locations "
+              f"from {res['damage_source']}")
 
     gen = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     html = render_evidence_pack(res, fc, portfolio_name=args.name, generated=gen)

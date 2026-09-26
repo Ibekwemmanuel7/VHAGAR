@@ -81,13 +81,23 @@ perimeter, and it says so.
 
 ### Optional damage screen and PDF
 
-Pass `--severity-tif <burn-severity raster>` (MTBS for a historical fire, or VHAGAR's
-own T2 burned-area product for a live event) and the report samples the severity at
-each affected location and adds a **Damage screen** column with the xView2/xBD class
-(No Damage, Minor, Major, Destroyed), a "Screened destroyed" summary card, and the
-severity source in the provenance line. The scoring core and the honest scope are in
-`docs/23_POSTFIRE_DAMAGE.md`; the report reuses the same severity-to-class mapping
-(`vhagar.eval.damage_screen.severity_to_class_index`).
+Pass `--severity-tif <burn-severity raster>` and the report samples the severity at each
+affected location and adds a **Damage screen** column with the xView2/xBD class (No
+Damage, Minor, Major, Destroyed), a "Screened destroyed" summary card, and the severity
+source in the provenance line. Two schemes:
+
+- `--severity-scheme rbr` (VHAGAR-native): the raster is VHAGAR's own **T2 scaled-RBR
+  severity product** (the optical Stage-0 output, RBR reprojected to the EPSG:5070
+  reference grid). Classified with VHAGAR's Key-Benson-derived thresholds
+  (`vhagar.eval.damage_screen.rbr_to_class_index`, breakpoints 100/440/660). This is
+  what makes the whole pack run on VHAGAR outputs, not a third-party product.
+- `--severity-scheme mtbs` (default, a validation reference): the raster is an MTBS
+  thematic severity mosaic, mapped by `severity_to_class_index`. Useful for historical
+  fires and for validating the RBR screen against MTBS.
+
+The scoring core and the honest scope (a screen, not an adjudication) are in
+`docs/23_POSTFIRE_DAMAGE.md`. The severity raster window is padded in the raster's own
+units (5 pixels), so both metre-grid and degree rasters sample correctly.
 
 `--pdf` writes a PDF via LibreOffice as a convenience. The report also carries an
 `@media print` stylesheet (light background, page-break-avoid on rows and the map), so

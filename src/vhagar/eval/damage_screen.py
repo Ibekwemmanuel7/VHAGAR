@@ -23,10 +23,17 @@ from __future__ import annotations
 import numpy as np
 
 __all__ = ["binary_screen", "confusion", "ordinal_metrics",
-           "SEVERITY_CLASS_NAMES", "severity_to_class_index"]
+           "SEVERITY_CLASS_NAMES", "severity_to_class_index",
+           "DAMAGE_RBR_BREAKPOINTS", "rbr_to_class_index"]
 
 #: xView2/xBD-aligned ordinal damage classes, index 0..3.
 SEVERITY_CLASS_NAMES = ["No Damage", "Minor", "Major", "Destroyed"]
+
+#: Scaled RBR / dNBR (x1000) breakpoints for the four damage classes, derived from
+#: VHAGAR's Key & Benson (2006) severity thresholds (100, 270, 440, 660): the low and
+#: moderate-low severity bins are merged into Minor, moderate-high is Major, and high is
+#: Destroyed. This is what lets the pack run on VHAGAR's OWN T2 RBR product, not MTBS.
+DAMAGE_RBR_BREAKPOINTS = (100.0, 440.0, 660.0)
 
 
 def severity_to_class_index(sev):
@@ -42,6 +49,18 @@ def severity_to_class_index(sev):
     idx[sev == 3] = 2
     idx[sev == 4] = 3
     return idx
+
+
+def rbr_to_class_index(rbr, breakpoints=DAMAGE_RBR_BREAKPOINTS):
+    """Map a scaled RBR / dNBR severity (x1000, VHAGAR's continuous T2 severity metric)
+    to the four-class damage grade index using VHAGAR's Key-Benson-derived thresholds.
+
+    Bins with ``np.digitize`` (right=False): below 100 -> No Damage (0), 100-440 ->
+    Minor (1), 440-660 -> Major (2), above 660 -> Destroyed (3). NaN maps to 0. Same
+    screening caveat as the MTBS path: vegetation burn severity is not structure damage."""
+    idx = np.asarray(rbr, dtype=float)
+    out = np.digitize(idx, np.asarray(breakpoints, dtype=float), right=False)
+    return np.where(np.isnan(idx), 0, out).astype(int)
 
 
 def binary_screen(pred_destroyed, truth_destroyed) -> dict:
