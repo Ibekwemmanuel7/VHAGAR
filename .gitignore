@@ -48,3 +48,22 @@ POSTFIRE_MASTER_DATA_SHARE*.csv
 
 # Private planning notes (business, grants); never commit
 PROGRESS_PRIVATE.md
+
+# Private or local-only material: never commit (added 2026-10-08)
+/docs/25_US_SOUTHEAST_PLATFORM.*
+/docs/26*
+/docs/Appointment_Letter_*
+/ECHOSPECTRA_*.md
+/NEXT_SPRINT_PROMPT.md
+/VHAGAR_Assessment_v2_Changes_Review.md
+/VHAGAR_DEEP_REVIEW_*.md
+/review/
+/.codex_deps/
+/.vhagar-env/
+/.vhagar-console.*.log
+/Recording *.mp4
+/vhagar_canada_fire.mp4
+/vhagar_socal_fire.mp4
+/zi6zs1ZQ
+/ziOQjVAM
+/ziay7Pn8
