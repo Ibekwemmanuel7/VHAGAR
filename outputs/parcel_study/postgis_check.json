@@ -1,0 +1,106 @@
+{
+  "study_version": "tx-solar-1.0",
+  "load": {
+    "counts": {
+      "parcels": 31145,
+      "tx_lines": 13972,
+      "facilities": 176,
+      "protected": 10169
+    },
+    "seconds": 8.8
+  },
+  "features": {
+    "tie_rule": {
+      "ties_removed": 128,
+      "hv_lines": 1055,
+      "lines": 13972
+    },
+    "rows": 31145,
+    "seconds": 145.6
+  },
+  "check": {
+    "parcels_sql": 31145,
+    "parcels_py": 31145,
+    "unmatched_pids": 0,
+    "features": {
+      "dist_tx_robust_km": {
+        "tolerance": 0.001,
+        "within_tolerance_share": 1.0,
+        "mismatches": 0,
+        "max_abs_diff": 1.2589929099249275e-13,
+        "p99_abs_diff": 9.947598300641403e-14,
+        "worst": []
+      },
+      "dist_tx_hv_km": {
+        "tolerance": 0.001,
+        "within_tolerance_share": 1.0,
+        "mismatches": 0,
+        "max_abs_diff": 1.2079226507921703e-13,
+        "p99_abs_diff": 9.769962616701378e-14,
+        "worst": []
+      },
+      "protected_overlap_frac": {
+        "tolerance": 0.001,
+        "within_tolerance_share": 1.0,
+        "mismatches": 0,
+        "max_abs_diff": 1.0935696792557792e-13,
+        "p99_abs_diff": 0.0,
+        "worst": []
+      }
+    },
+    "all_within_tolerance": true,
+    "tie_rule": {
+      "lines": 13972,
+      "removed_py": 128,
+      "removed_sql": 128,
+      "disagreements": 0
+    }
+  },
+  "screen": {
+    "params": {
+      "min_ha": 40.0,
+      "max_protected": 0.1,
+      "max_hv_km": 5.0,
+      "max_flood": 0.1
+    },
+    "note": "counts are case-control sample rows, not population totals",
+    "rows": [
+      {
+        "outcome": "far_from_hv",
+        "parcels": 4819,
+        "case_parcels": 260,
+        "sample_area_ha": 732010.0
+      },
+      {
+        "outcome": "floodplain",
+        "parcels": 349,
+        "case_parcels": 54,
+        "sample_area_ha": 42826.0
+      },
+      {
+        "outcome": "pass",
+        "parcels": 746,
+        "case_parcels": 205,
+        "sample_area_ha": 79953.0
+      },
+      {
+        "outcome": "pass_flood_unknown",
+        "parcels": 985,
+        "case_parcels": 179,
+        "sample_area_ha": 125836.0
+      },
+      {
+        "outcome": "protected",
+        "parcels": 239,
+        "case_parcels": 4,
+        "sample_area_ha": 45300.0
+      },
+      {
+        "outcome": "too_small",
+        "parcels": 24007,
+        "case_parcels": 443,
+        "sample_area_ha": 239670.0
+      }
+    ]
+  }
+}

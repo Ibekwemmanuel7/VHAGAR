@@ -1,0 +1,26 @@
+# PostGIS for the parcel study (docs/29_POSTGIS_PARCEL_STUDY.md).
+#   docker compose -f db/compose.postgis.yml up -d      start
+#   docker compose -f db/compose.postgis.yml down       stop (data is kept in the volume)
+# Port 5433 on the host, so it does not clash with a local PostgreSQL on 5432.
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    container_name: vhagar-postgis
+    environment:
+      POSTGRES_USER: vhagar
+      POSTGRES_PASSWORD: vhagar
+      POSTGRES_DB: vhagar
+    ports:
+      - "5433:5432"
+    volumes:
+      - vhagar_pgdata:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_buffers=1GB", "-c", "work_mem=256MB",
+              "-c", "maintenance_work_mem=512MB"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vhagar -d vhagar"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  vhagar_pgdata:

@@ -3,6 +3,58 @@
 Last updated: 2026-10-08. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
 
+## Texas solar parcel study on real data + PostGIS mirror (2026-10-08)
+
+Real-data study `tx-solar-1.0` (docs/28) ran end to end on the Windows venv.
+Population 1,777,875 TxGIO parcels >= 2 ha; 1,145 case parcels from 150 USPVDB v4.0
+facilities installed 2017-2025 (78 ambiguous excluded); 30,000 controls (weight 59.2);
+features at a 2016 snapshot. Stage-2 fetch: 1,117 NFHL cells (66 FEMA 500/400 failures on
+the first pass, 0 after a rerun) and 89/89 3DEP tiles. Feature table 31,145 x 21; missing:
+floodplain_frac 28.2% (no effective NFHL mapping, kept NaN, never zero), WHP 0.03%.
+Fix: `feat_nfhl` hit MemoryError loading 6.4 GB of NFHL GeoJSON at once; it now streams
+one cell at a time, keeps only polygons that intersect a sampled parcel (STRtree), reads
+UTF-8 explicitly (Windows defaulted to cp1252), and de-duplicates availability polygons
+too. Result unchanged by construction; ran in 14 min (5,521 SFHA polygons kept, 71.8% of
+sampled parcels on effective mapping).
+Results (`outputs/parcel_study/results.json`), temporal holdout (train <= 2020; test
+2021-2025, 878 case parcels from 93 facilities): monotone GBM AUC 0.889, AP lift 14.3x,
+recall 31% at 10% of area; unconstrained GBM AP lift 21.2x, AUC 0.824; GAM lift 14.4x.
+All learned models beat nearest-transmission (bootstrap p(diff <= 0) = 0.0). Spatial
+2-degree blocks agree (lift 16-18x). Coordinates-only diagnostic 1.5x in spatial CV (no
+location memorisation). Irradiance alone 0.9x (POWER grid too coarse within Texas).
+Ablation: raw HIFLD lines (with generator ties) AP 0.0049 vs robust 0.0070; no land cover
+halves AP. Caveats: wide CIs (AP 0.003-0.023, 93 facilities); rules engine v0.2 not beaten
+on recall at 10% of area (0.362 vs 0.314, p 0.75); Brier skill ~0, so scores are
+rank-only, not calibrated probabilities.
+
+PostGIS mirror (docs/29): `src/vhagar/parcel/study/postgis.py` (COPY load with hex EWKB,
+GiST indexes, generator-tie rule in SQL, KNN + exact ST_Distance for transmission
+distances, ST_Union of intersections for protected overlap, customer-style screen that
+reports unmapped floodplain separately), CLI `scripts/parcel_postgis.py`
+(load/features/check/screen/all, report to `outputs/parcel_study/postgis_check.json`),
+`db/compose.postgis.yml` (postgis/postgis:16-3.4 on port 5433), optional extra
+`postgis = psycopg[binary]`. Integration tests `tests/test_parcel_postgis.py` (run only
+with VHAGAR_PG_DSN): 4 pass on PostgreSQL 16 / PostGIS 3.4.2 in the Claude sandbox; ruff
+clean. The tests found a parity issue: PostGIS ST_StartPoint returns a point for an
+unmergeable MultiLineString where shapely returns None; SQL now tests end points only on
+merged single LineStrings, matching the study. End-to-end synthetic CLI run (400 parcels):
+100% of parcels within tolerance, 0 tie-rule disagreements.
+Real run on Windows (PostgreSQL 16 + PostGIS 3.4.2, native install, port 5432): loaded
+31,145 parcels, 13,972 lines, 176 facility footprints, 10,169 protected polygons in 9 s
+(after a fix: some TxGIO parcels carry Z = 0, so the loader now forces 2D; test added,
+5 integration tests pass on Windows). Tie rule in SQL removed 128 lines, identical to
+shapely line by line (0 disagreements); 1,055 robust lines at >= 230 kV. SQL features in
+145 s. Agreement with GeoPandas: 100% of parcels within tolerance for all three
+features, max |diff| 0.000000. Screen (40 ha, < 10% protected, <= 5 km to 230 kV,
+< 10% floodplain), re-weighted to the population: pass + pass_flood_unknown is about
+80,000 parcels (4.5% of TX parcels) holding 34% of future solar case parcels (384 of
+1,145), about 7.5x enrichment. Findings: the 40 ha per-parcel minimum dropped 443 case
+parcels (facilities span several smaller parcels, so size must be tested on assembled
+adjacent parcels, not single parcels); the 5 km HV rule dropped 260 (many facilities tie
+into lower-voltage lines); the protected-land rule dropped only 4.
+Next: parcel assemblage (merge adjacent parcels, test size on the assembly); relax or
+learn the HV distance; commit.
+
 ## Parcel slice v0.2: adversarial review fixes (2026-10-08)
 
 Off-fixture probes showed v0.1 (commit 9fe64dc) overclaiming: a solar parcel scored for wind

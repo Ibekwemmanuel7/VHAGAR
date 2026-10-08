@@ -48,6 +48,8 @@ torch = [
   "timm>=1.0",
 ]
 gbdt = ["lightgbm>=4.3", "scikit-learn>=1.5"]
+# PostGIS mirror of the parcel study (scripts/parcel_postgis.py, docs/29).
+postgis = ["psycopg[binary]>=3.1"]
 # Everything the Tier A backfill needs and nothing it does not. h5py is listed
 # explicitly because pip install h5netcdf does not pull it on Windows, and
 # xarray then fails with a bare ImportError that names nothing.
