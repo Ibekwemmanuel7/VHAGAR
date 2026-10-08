@@ -1032,21 +1032,41 @@ _PARCEL_DISCLAIMER = (
 
 @app.post("/api/parcel/suitability")
 def parcel_suitability(payload: dict = Body(...)):
-    """Score one demo parcel for a proposed use. Body: {parcel_id} (uses the bundled demo
-    feature set) or {parcel_id, use} to override the use. Returns the full auditable result:
-    separate component scores, per-input provenance, completeness, reason codes, and a
-    plain-language explanation. Synthetic demo only."""
+    """Score a parcel for a proposed use. Two modes:
+
+    * demo: ``{parcel_id[, use]}`` scores a bundled synthetic demo parcel with its bundled
+      synthetic feature set (optionally against a different use);
+    * caller polygon: ``{geometry, use, features?, parcel_id?}`` where ``geometry`` is a
+      GeoJSON Polygon or a ``[[lon, lat], ...]`` ring and ``features`` maps feature names to
+      ``{value, status, source?, vintage?}``. No feature pipeline is connected, so nothing is
+      looked up or filled: without supplied features the result is insufficient_evidence.
+
+    Returns the full auditable result: separate component scores, evidence grade,
+    exclusions, provenance, completeness, reason codes, and a plain-language explanation.
+    """
     from vhagar.parcel.fixtures import demo_feature_sets
+    if "geometry" in payload:
+        use = payload.get("use")
+        if not use:
+            return JSONResponse({"status": "bad_request",
+                                 "detail": "use is required with a geometry"}, status_code=400)
+        try:
+            result = _parcel_service().score_geometry(
+                payload["geometry"], use, payload.get("features"),
+                parcel_id=str(payload.get("parcel_id") or "custom"))
+        except ValueError as exc:
+            return JSONResponse({"status": "bad_request", "detail": str(exc)}, status_code=400)
+        return JSONResponse(result)
     parcel_id = payload.get("parcel_id")
     if not parcel_id:
-        return JSONResponse({"status": "bad_request", "detail": "parcel_id is required"},
-                            status_code=400)
+        return JSONResponse({"status": "bad_request",
+                             "detail": "parcel_id or geometry is required"}, status_code=400)
     sets = demo_feature_sets()
     if parcel_id not in sets:
         return JSONResponse({"status": "not_found",
                              "detail": f"unknown demo parcel_id: {parcel_id}"}, status_code=404)
     default_use, features = sets[parcel_id]
-    use = payload.get("use", default_use.value)
+    use = payload.get("use") or default_use.value
     try:
         result = _parcel_service().score(parcel_id, use, features)
     except KeyError:
@@ -1054,6 +1074,7 @@ def parcel_suitability(payload: dict = Body(...)):
                              "detail": f"unknown parcel_id: {parcel_id}"}, status_code=404)
     except ValueError as exc:
         return JSONResponse({"status": "bad_request", "detail": str(exc)}, status_code=400)
+    result["input_mode"] = "demo_fixture"
     return JSONResponse(result)
 
 

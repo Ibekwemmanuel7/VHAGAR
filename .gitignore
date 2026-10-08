@@ -45,3 +45,6 @@ demo/
 
 # CAL FIRE DINS raw export (large, download locally)
 POSTFIRE_MASTER_DATA_SHARE*.csv
+
+# Private planning notes (business, grants); never commit
+PROGRESS_PRIVATE.md

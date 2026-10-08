@@ -48,13 +48,16 @@ def demo_parcels() -> dict[str, Parcel]:
         "P-SOLAR-01": Parcel("P-SOLAR-01", _square(-119.70, 35.10, 0.010), name="Kern County flat (demo)"),
         "P-CONSV-01": Parcel("P-CONSV-01", _square(-121.90, 39.60, 0.012), name="Sierra foothill tract (demo)"),
         "P-DC-01": Parcel("P-DC-01", _square(-121.30, 38.60, 0.006), name="Sacramento edge parcel (demo)"),
+        "P-EXCL-01": Parcel("P-EXCL-01", _square(-118.90, 35.40, 0.010),
+                            name="Flat, sunny, but inside a protected area (demo)"),
         "P-THIN-01": Parcel("P-THIN-01", _square(-120.00, 39.00, 0.0008), name="Tiny parcel, thin evidence (demo)"),
     }
 
 
 def demo_feature_sets() -> dict[str, tuple[ProposedUse, dict[str, FeatureValue]]]:
     """Per-parcel (proposed use, feature values). Chosen to exercise a strong score, a
-    conservation inversion, a data-center access case, and an insufficient-evidence case."""
+    conservation inversion, a data-center access case, a hard exclusion, and an
+    insufficient-evidence case."""
     def fs(**kw):
         return {k: synthetic_feature(k, v) for k, v in kw.items()}
 
@@ -68,7 +71,14 @@ def demo_feature_sets() -> dict[str, tuple[ProposedUse, dict[str, FeatureValue]]
             developed_cover_frac=0.04, wildfire_exposure_0_100=55, market_support_status="supportive")),
         "P-DC-01": (ProposedUse.DATA_CENTER, fs(
             slope_pct=3.5, transmission_distance_km=1.4, road_distance_km=0.5,
-            wildfire_exposure_0_100=22, floodplain_frac=0.12, market_support_status="unknown")),
+            wildfire_exposure_0_100=22, floodplain_frac=0.05, protected_overlap_frac=0.0,
+            market_support_status="unknown")),
+        # excellent solar physics and access, but almost entirely inside a protected area:
+        # the hard exclusion must return "ineligible", not a high score
+        "P-EXCL-01": (ProposedUse.SOLAR, fs(
+            slope_pct=1.5, irradiance_kwh_m2_day=6.4, transmission_distance_km=2.0,
+            road_distance_km=0.5, wildfire_exposure_0_100=15, floodplain_frac=0.0,
+            protected_overlap_frac=0.95, market_support_status="mixed")),
         # thin: missing market and access inputs -> components and overall should refuse
         "P-THIN-01": (ProposedUse.RESIDENTIAL, {
             "slope_pct": synthetic_feature("slope_pct", 9.0),

@@ -3,7 +3,7 @@
 VHAGAR began in wildfire. This subpackage carries the same discipline, sourced data
 with provenance, spatially-valid evaluation, explicit uncertainty, and customer-readable
 explanations, into a parcel-suitability workflow. It is deliberately NOT a land AVM, a
-bankable valuation, or a real community-sentiment product; see ``docs/25_PARCEL_INTELLIGENCE.md``
+bankable valuation, or a real community-sentiment product; see ``docs/27_PARCEL_INTELLIGENCE.md``
 for the honest scope. The wildfire tiers and the parcel slice are kept separate on
 purpose, and wildfire exposure enters here only as one explicit hazard input.
 """

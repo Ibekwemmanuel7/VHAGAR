@@ -85,30 +85,33 @@ VHAGAR began in wildfire, but the underlying strength is building geospatial
 decision systems that work with imperfect evidence: provenance on every input,
 leakage-safe evaluation, and honest refusal when the data cannot support a claim.
 To show that this transfers beyond fire, `src/vhagar/parcel/` adds a small
-self-contained vertical that scores a parcel for a proposed land use (solar, wind,
-conservation, residential, data center). Given a parcel geometry and a use, it
-returns a transparent overall score, four **separate** component scores
-(physical/environmental, access/infrastructure, hazard/ecological, market/community),
-provenance for every input, a completeness statement, and a plain-language
-explanation, or an explicit "cannot score" when evidence is too thin. It runs at
-`GET /parcel` and `POST /api/parcel/suitability`, kept separate from the live
-wildfire console. Design and ingest path: [`docs/27_PARCEL_INTELLIGENCE.md`](docs/27_PARCEL_INTELLIGENCE.md).
+self-contained vertical that screens a parcel for a proposed land use (solar, wind,
+conservation, residential, data center). It returns `scored`, `ineligible` (a hard
+exclusion such as protected-area or floodplain overlap fired), or
+`insufficient_evidence` (a required input is missing), with separate component
+scores, an evidence grade, provenance for every input, and a plain-language
+explanation. It runs at `GET /parcel` and `POST /api/parcel/suitability` (demo parcels
+or a caller-supplied polygon), kept separate from the live wildfire console. Design,
+evidence contract, and ingest path: [`docs/27_PARCEL_INTELLIGENCE.md`](docs/27_PARCEL_INTELLIGENCE.md).
 
 **What this demonstrates for land intelligence.** A config-driven, auditable
-suitability engine with a versioned feature manifest (data contract), evidence
-gating instead of silent gap-filling, a leakage-safe spatial-block evaluation
-scaffold with mandatory rules and null/majority baselines, and a provider-agnostic
-LLM adapter that turns public planning documents into cited evidence **for human
-review, never ground truth**, with prompt-injection and over-certainty guardrails.
-The same discipline behind VHAGAR's wildfire tiers, pointed at land decisions.
+suitability engine with a versioned feature manifest (data contract), use-specific
+required inputs and hard exclusions instead of silent gap-filling, an evaluation
+scaffold that reports coverage and compares against null and rules baselines on
+identical spatially held-out parcels, and a provider-agnostic LLM adapter whose
+citations are verified against the source document before a human reviews them.
+The engine was then attacked with ordinary counterexamples (wrong-use scoring,
+missing hazard evidence, exclusion zones, fabricated citations); each failure became
+a change to the product contract and a regression test (docs/27, "Adversarial review").
 
 **Limitations (read before quoting anything).** This slice runs on
-**clearly-labelled synthetic fixtures**; every input reports itself as synthetic,
-and no performance number here is real. It is **not** a validated land valuation
-(AVM), a bankable number, or a measured community-sentiment product. Wildfire
-enters only as one hazard input. Real values require the manifest's datasets to be
-ingested and validated, real labels to be collected, and the evaluation scaffold to
-be run on them, none of which is done here.
+**clearly labelled synthetic fixtures**; results computed from them are labelled
+"illustrative", and no performance number here is real. It is **not** a validated land
+valuation (AVM), a bankable number, or a measured community-sentiment product. No
+feature pipeline is connected: a caller polygon is scored only from the inputs the
+caller supplies. Exclusion thresholds are screening choices, not regulatory
+determinations. Real values require the manifest's datasets to be ingested and
+validated, real labels to be collected, and the evaluation run on them.
 
 ---
 

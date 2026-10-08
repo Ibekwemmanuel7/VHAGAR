@@ -9,7 +9,6 @@ a{color:#7fdcff}
 .hdr{display:flex;align-items:center;gap:.7rem;padding:12px 20px;border-bottom:1px solid #1c2532;background:#0d1420}
 .hdr .logo{font-weight:800;font-size:1.15rem;background:linear-gradient(180deg,#f2ffff,#7fdcff 42%,#1f8dff);-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:1px}
 .hdr .tag{color:#8ea1b6;font-size:.78rem}
-.hdr .by{margin-left:auto;color:#6b7a8d;font-size:.72rem}
 .demo{display:inline-block;margin-left:.5rem;padding:1px 8px;border-radius:999px;background:#3a2a12;color:#f0d9b5;font-size:.66rem;font-weight:700;letter-spacing:.04em}
 .layout{display:grid;grid-template-columns:320px 1fr;gap:0;min-height:calc(100vh - 53px)}
 .panel{padding:18px;border-right:1px solid #1c2532;overflow:auto;background:#0c1119}
@@ -51,6 +50,23 @@ th{color:#8ea1b6;font-size:.64rem;text-transform:uppercase;letter-spacing:.04em}
 .st.assumed{background:#1a1a06;color:#e8e08a;border:1px solid #5b531d}
 .disc{margin:20px 0 10px;background:#1a1206;border:1px solid #3a2a12;border-radius:9px;padding:11px 14px;color:#f0d9b5;font-size:.78rem}
 .ver{color:#6b7a8d;font-size:.7rem;margin-top:8px}
+.grade{margin:0 0 14px;border-radius:9px;padding:10px 14px;font-size:.84rem;border:1px solid}
+.grade.illustrative{background:#1a1206;border-color:#5a3a12;color:#f0d9b5}
+.grade.provisional{background:#1a1a06;border-color:#5b531d;color:#e8e08a}
+.grade.ineligible{background:#241016;border-color:#5b1d2b;color:#ffc2c2}
+.grade.insufficient{background:#111a26;border-color:#24405f;color:#cfe3f5}
+.score.illus .n{color:#c9b28c}
+.mkt{background:#0e1622;border:1px dashed #2b3d52;border-radius:10px;padding:10px 14px;font-size:.84rem}
+.tbl{overflow-x:auto}
+@media (max-width:760px){
+  .layout{grid-template-columns:1fr;min-height:0}
+  .panel{border-right:0;border-bottom:1px solid #1c2532}
+  .main{padding:16px}
+  .hdr{flex-wrap:wrap;padding:10px 16px}
+  .score{width:96px;height:96px}
+  .score .n{font-size:1.7rem}
+}
+textarea{font:12px/1.4 ui-monospace,Consolas,monospace;color:#e6eef8;background:#111a26;border:1px solid #24405f;border-radius:7px;padding:8px;width:100%;min-height:150px}
 .empty{padding:40px 10px;color:#8ea1b6}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid #ffffff55;border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -59,7 +75,6 @@ th{color:#8ea1b6;font-size:.64rem;text-transform:uppercase;letter-spacing:.04em}
   <span class="logo">VHAGAR</span>
   <span class="tag">Parcel Evidence &amp; Suitability</span>
   <span class="demo">DEMO &middot; SYNTHETIC DATA</span>
-  <span class="by">powered by Lillie Earth Intelligence</span>
 </div>
 <div class="layout">
   <div class="panel">
@@ -77,6 +92,12 @@ th{color:#8ea1b6;font-size:.64rem;text-transform:uppercase;letter-spacing:.04em}
     </select>
     <button id="run" class="btn">Score parcel</button>
     <div id="err" class="err"></div>
+    <h2>Your own polygon</h2>
+    <p style="font-size:.74rem;color:#9db0c4;margin:0 0 6px">Request body for <code>POST /api/parcel/suitability</code>.
+    No feature pipeline is connected, so only the inputs you supply are used; anything required
+    that you leave out makes the screen refuse to score.</p>
+    <textarea id="custom" spellcheck="false"></textarea>
+    <button id="runCustom" class="btn">Score polygon</button>
     <h2>What this is</h2>
     <p style="font-size:.78rem;color:#9db0c4">The same geospatial discipline behind VHAGAR's
     wildfire tiers, applied to land screening: transparent component scores, provenance on
@@ -93,6 +114,17 @@ const $=s=>document.querySelector(s);
 const E=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const band=v=>v>=75?'strong':v>=55?'moderate':v>=40?'marginal':'poor';
 const col=v=>v==null?'#4a5a6b':v>=75?'#22c55e':v>=55?'#7fdcff':v>=40?'#f0b45b':'#ff7a7a';
+const NAMES={physical:'Physical / environmental',access:'Access / infrastructure',hazard:'Hazard / ecological constraint',market:'Community / market evidence'};
+const EXAMPLE={
+  geometry:{type:'Polygon',coordinates:[[[-119.71,35.09],[-119.69,35.09],[-119.69,35.11],[-119.71,35.11],[-119.71,35.09]]]},
+  use:'solar',
+  features:{
+    slope_pct:{value:2.5,status:'synthetic'},
+    irradiance_kwh_m2_day:{value:6.0,status:'synthetic'},
+    transmission_distance_km:{value:4.0,status:'synthetic'},
+    road_distance_km:{value:1.0,status:'synthetic'}
+  }
+};
 
 async function loadParcels(){
   try{
@@ -101,55 +133,79 @@ async function loadParcels(){
     (j.parcels||[]).forEach(p=>{
       const o=document.createElement('option');
       o.value=p.parcel_id;
-      o.textContent=p.parcel_id+' — '+(p.name||'')+'  ['+p.use+']';
+      o.textContent=p.parcel_id+' - '+(p.name||'')+'  ['+p.use+']';
       sel.appendChild(o);
     });
   }catch(e){ $('#err').textContent='Could not load demo parcels.'; }
 }
 
-async function run(){
-  const pid=$('#parcel').value; if(!pid) return;
-  const use=$('#use').value;
-  $('#err').textContent=''; $('#run').disabled=true;
-  $('#main').innerHTML='<div class="empty"><span class="spin"></span> Scoring…</div>';
+async function post(body){
+  $('#err').textContent=''; $('#run').disabled=true; $('#runCustom').disabled=true;
+  $('#main').innerHTML='<div class="empty"><span class="spin"></span> Scoring...</div>';
   try{
-    const body={parcel_id:pid}; if(use) body.use=use;
     const r=await fetch('/api/parcel/suitability',{method:'POST',
       headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const j=await r.json();
     if(!r.ok){ throw new Error(j.detail||('HTTP '+r.status)); }
     render(j);
   }catch(e){ $('#main').innerHTML='<div class="empty">Error.</div>'; $('#err').textContent=e.message; }
-  finally{ $('#run').disabled=false; }
+  finally{ $('#run').disabled=false; $('#runCustom').disabled=false; }
+}
+function runDemo(){
+  const pid=$('#parcel').value; if(!pid) return;
+  const body={parcel_id:pid}; const use=$('#use').value; if(use) body.use=use;
+  post(body);
+}
+function runCustom(){
+  let body; try{ body=JSON.parse($('#custom').value); }catch(e){ $('#err').textContent='Request body is not valid JSON.'; return; }
+  post(body);
+}
+
+function gradeBanner(j){
+  if(j.overall_status==='ineligible')
+    return '<div class="grade ineligible"><b>Ineligible for this use.</b> A hard exclusion fired ('+
+      E(j.exclusions.join(', '))+'). No suitability score is produced.</div>';
+  if(j.overall_status!=='scored')
+    return '<div class="grade insufficient"><b>Cannot score.</b> Required inputs are missing: '+
+      E(j.missing_required.join(', '))+'. The screen does not estimate or skip required evidence.</div>';
+  if(j.evidence_grade==='illustrative')
+    return '<div class="grade illustrative"><b>Illustrative demo result.</b> Computed from synthetic inputs; '+
+      'it shows how the screen works and is not an assessment of a real parcel.</div>';
+  if(j.evidence_grade==='provisional')
+    return '<div class="grade provisional"><b>Provisional result.</b> Some inputs are assumed defaults, not measurements.</div>';
+  return '';
 }
 
 function render(j){
   const scored=j.overall_status==='scored';
-  const n=scored?j.overall_score:'—';
-  let h='';
-  h+='<div class="hero"><div class="score" style="border-color:'+col(scored?j.overall_score:null)+'">'+
-     '<div class="n">'+E(n)+'</div><div class="l">'+(scored?E(band(j.overall_score)):'no score')+'</div></div>'+
+  const real=j.evidence_grade==='evidence_based';
+  const n=scored?j.overall_score:(j.overall_status==='ineligible'?'n/a':'-');
+  const lab=scored?(real?band(j.overall_score):j.evidence_grade):(j.overall_status==='ineligible'?'ineligible':'no score');
+  let h=gradeBanner(j);
+  h+='<div class="hero"><div class="score'+(scored&&!real?' illus':'')+'" style="border-color:'+
+     (scored?(real?col(j.overall_score):'#5a3a12'):(j.overall_status==='ineligible'?'#5b1d2b':'#22344a'))+'">'+
+     '<div class="n">'+E(n)+'</div><div class="l">'+E(lab)+'</div></div>'+
      '<div class="meta"><h1>'+E(j.parcel_id)+' &middot; '+E(j.use.replace(/_/g,' '))+'</h1>'+
-     '<div class="sub">overall status: <b>'+E(j.overall_status)+'</b> &nbsp;·&nbsp; '+
-     E(j.completeness.completeness_pct)+'% of inputs real</div></div></div>';
+     '<div class="sub">status: <b>'+E(j.overall_status.replace(/_/g,' '))+'</b> &nbsp;&middot;&nbsp; evidence: <b>'+
+     E(j.evidence_grade.replace(/_/g,' '))+'</b> &nbsp;&middot;&nbsp; '+E(j.completeness.completeness_pct)+'% of inputs real'+
+     (j.parcel?(' &nbsp;&middot;&nbsp; '+E(j.parcel.area_ha)+' ha'):'')+'</div></div></div>';
 
   h+='<div class="explain">'+E(j.explanation)+'</div>';
+  if(j.input_note) h+='<div class="explain" style="font-size:.78rem;color:#9db0c4">'+E(j.input_note)+'</div>';
 
-  h+='<h3>Component scores (kept separate — no black-box aggregate)</h3>';
-  j.components.forEach(c=>{
-    const insuf=c.status!=='scored';
-    h+='<div class="comp'+(insuf?' insuf':'')+'"><div class="top"><span class="name">'+E(c.component)+
-       '</span><span class="val">'+(insuf?'insufficient evidence':E(c.score)+' / 100')+
-       '  <span style="color:#6b7a8d">w='+E(c.weight)+'</span></span></div>';
-    if(!insuf){ const w=Math.max(0,Math.min(100,c.score));
-      h+='<div class="track"><div class="fill" style="width:'+w+'%;background:'+col(c.score)+'"></div></div>'; }
-    const rc=(c.reason_codes||[]).filter(x=>x.startsWith('weak:')||x.startsWith('strong:'))
-      .map(x=>x.replace(':',' ')).join(', ');
-    const miss=(c.missing||[]).length?('missing: '+c.missing.join(', ')):'';
-    const line=[rc,miss].filter(Boolean).join('  ·  ');
-    if(line) h+='<div class="rc">'+E(line)+'</div>';
-    h+='</div>';
-  });
+  h+='<h3>Component scores (kept separate, fixed weights, every listed input required)</h3>';
+  j.components.filter(c=>c.in_overall).forEach(c=>{ h+=comp(c); });
+
+  const me=j.market_evidence||{};
+  {
+    const how={synthetic:'synthetic demo value, not reviewed evidence',observed:'human-reviewed extraction',
+      derived:'derived from reviewed extractions',assumed:'assumed default, not evidence'}[me.status]||'';
+    h+='<h3>Community / market evidence (reported separately, not in the score)</h3><div class="mkt">'+
+      (me.value?('Status: <b>'+E(me.value)+'</b>'+(how?' ('+E(how)+')':'')):
+       'No reviewed community or market evidence for this parcel.')+
+      '<div class="rc" style="color:#8ea1b6;font-size:.72rem;margin-top:4px">Evidence comes from public documents via a cited, '+
+      'human-reviewed extraction step. It is never an autonomous sentiment decision.</div></div>';
+  }
 
   const cm=j.completeness;
   h+='<h3>Confidence &amp; completeness</h3><div class="cmpl">'+
@@ -157,22 +213,38 @@ function render(j){
      chipSyn(cm.synthetic+' synthetic')+chip(cm.missing+' missing')+
      chip('of '+cm.total+' inputs')+'</div>';
 
-  h+='<h3>Provenance (every input)</h3><table><thead><tr><th>Feature</th><th>Source</th>'+
+  h+='<h3>Provenance (every input)</h3><div class="tbl"><table><thead><tr><th>Feature</th><th>Source</th>'+
      '<th>Vintage</th><th>Resolution</th><th>Status</th></tr></thead><tbody>';
   j.provenance.forEach(p=>{
     h+='<tr><td>'+E(p.feature)+'</td><td>'+E(p.source)+'</td><td>'+E(p.vintage)+'</td><td>'+
        E(p.resolution)+'</td><td><span class="st '+E(p.status)+'">'+E(p.status)+'</span></td></tr>';
   });
-  h+='</tbody></table>';
+  h+='</tbody></table></div>';
 
   h+='<div class="disc">'+E(j.disclaimer)+'</div>';
   h+='<div class="ver">config '+E(j.config_version)+'</div>';
   $('#main').innerHTML=h;
 }
+function comp(c){
+  const insuf=c.status!=='scored';
+  let h='<div class="comp'+(insuf?' insuf':'')+'"><div class="top"><span class="name">'+E(NAMES[c.component]||c.component)+
+     '</span><span class="val">'+(insuf?'insufficient evidence':E(c.score)+' / 100')+
+     '  <span style="color:#6b7a8d">w='+E(c.weight)+'</span></span></div>';
+  if(!insuf){ const w=Math.max(0,Math.min(100,c.score));
+    h+='<div class="track"><div class="fill" style="width:'+w+'%;background:'+col(c.score)+'"></div></div>'; }
+  const rc=(c.reason_codes||[]).filter(x=>x.startsWith('weak:')||x.startsWith('strong:'))
+    .map(x=>x.replace(':',' ')).join(', ');
+  const miss=(c.missing||[]).length?('missing: '+c.missing.join(', ')):'';
+  const line=[rc,miss].filter(Boolean).join('  |  ');
+  if(line) h+='<div class="rc">'+E(line)+'</div>';
+  return h+'</div>';
+}
 function chip(t){return '<span class="chip">'+E(t)+'</span>';}
 function chipSyn(t){return '<span class="chip syn">'+E(t)+'</span>';}
 
-$('#run').addEventListener('click',run);
+$('#custom').value=JSON.stringify(EXAMPLE,null,2);
+$('#run').addEventListener('click',runDemo);
+$('#runCustom').addEventListener('click',runCustom);
 loadParcels();
 </script>
 </body></html>
