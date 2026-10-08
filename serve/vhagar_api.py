@@ -53,6 +53,7 @@ MAX_GAP_S = 12 * 3600  # same 12 h temporal link as cluster_detections
 DET_DIR = Path(os.environ.get("VHAGAR_DET_DIR", _ROOT / "data" / "detections" / "detections"))
 CONSOLE = _ROOT / "vhagar_console.html"
 EVIDENCE = _ROOT / "vhagar_evidence.html"
+PARCEL = _ROOT / "vhagar_parcel.html"
 CACHE_DIR = _ROOT / "serve" / ".cache"
 # A prebuilt, self-contained snapshot committed to the repo so a hosted deploy
 # (Render, a container) starts instantly with no raw parquet and no clustering.
@@ -985,6 +986,85 @@ def evidence_page():
     if not EVIDENCE.exists():
         return JSONResponse({"status": "not_found", "detail": "evidence page not deployed"}, status_code=404)
     return HTMLResponse(EVIDENCE.read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------- Parcel suitability (demo slice)
+# A separate, explicitly-demo vertical that scores a parcel for a proposed use with fully
+# transparent component scores, per-input provenance, and a completeness statement. It is
+# kept apart from the live wildfire console on purpose and runs on SYNTHETIC fixtures; it is
+# not a land valuation (AVM), a bankable number, or a measured community-sentiment product.
+_PARCEL_SVC = None
+_PARCEL_LOCK = threading.Lock()
+
+
+def _parcel_service():
+    """Lazily build the in-memory parcel service over the synthetic demo parcels."""
+    global _PARCEL_SVC
+    if _PARCEL_SVC is None:
+        with _PARCEL_LOCK:
+            if _PARCEL_SVC is None:
+                from vhagar.parcel.fixtures import demo_parcels
+                from vhagar.parcel.service import ParcelSuitabilityService
+                from vhagar.parcel.store import InMemoryParcelStore
+                _PARCEL_SVC = ParcelSuitabilityService(InMemoryParcelStore(demo_parcels()))
+    return _PARCEL_SVC
+
+
+@app.get("/api/parcel/demo")
+def parcel_demo():
+    """List the synthetic demo parcels and the proposed use + feature set bundled for each,
+    so the console can offer a one-click demo without the caller supplying geometry."""
+    from vhagar.parcel.fixtures import demo_feature_sets, demo_parcels
+    parcels = demo_parcels()
+    sets = demo_feature_sets()
+    out = []
+    for pid, parcel in parcels.items():
+        use, _feats = sets[pid]
+        out.append({"parcel_id": pid, "name": parcel.name, "use": use.value,
+                    "area_ha": parcel.area_ha, "centroid": parcel.centroid})
+    return JSONResponse({"parcels": out, "disclaimer": _PARCEL_DISCLAIMER})
+
+
+_PARCEL_DISCLAIMER = (
+    "Demo slice on synthetic fixtures. Transparent suitability screening, not a validated "
+    "land valuation (AVM), a bankable number, or a measured community-sentiment product.")
+
+
+@app.post("/api/parcel/suitability")
+def parcel_suitability(payload: dict = Body(...)):
+    """Score one demo parcel for a proposed use. Body: {parcel_id} (uses the bundled demo
+    feature set) or {parcel_id, use} to override the use. Returns the full auditable result:
+    separate component scores, per-input provenance, completeness, reason codes, and a
+    plain-language explanation. Synthetic demo only."""
+    from vhagar.parcel.fixtures import demo_feature_sets
+    parcel_id = payload.get("parcel_id")
+    if not parcel_id:
+        return JSONResponse({"status": "bad_request", "detail": "parcel_id is required"},
+                            status_code=400)
+    sets = demo_feature_sets()
+    if parcel_id not in sets:
+        return JSONResponse({"status": "not_found",
+                             "detail": f"unknown demo parcel_id: {parcel_id}"}, status_code=404)
+    default_use, features = sets[parcel_id]
+    use = payload.get("use", default_use.value)
+    try:
+        result = _parcel_service().score(parcel_id, use, features)
+    except KeyError:
+        return JSONResponse({"status": "not_found",
+                             "detail": f"unknown parcel_id: {parcel_id}"}, status_code=404)
+    except ValueError as exc:
+        return JSONResponse({"status": "bad_request", "detail": str(exc)}, status_code=400)
+    return JSONResponse(result)
+
+
+@app.get("/parcel")
+def parcel_page():
+    """Serve the standalone parcel-suitability demo panel (kept separate from the console)."""
+    from fastapi.responses import HTMLResponse
+    if not PARCEL.exists():
+        return JSONResponse({"status": "not_found", "detail": "parcel page not deployed"},
+                            status_code=404)
+    return HTMLResponse(PARCEL.read_text(encoding="utf-8"))
 
 
 @app.get("/favicon.ico")

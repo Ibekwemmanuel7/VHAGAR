@@ -24,6 +24,7 @@ VHAGAR is five tiers and one platform (with a wildland-urban-interface extension
 | **[`docs/06_CONSTELLATION.md`](docs/06_CONSTELLATION.md)** | 2026-2030 sensor plan and risk register |
 | **[`docs/07_PHASE0.md`](docs/07_PHASE0.md)** | **start here to build**, week-by-week execution plan |
 | **[`docs/21_PRODUCT_POSITIONING.md`](docs/21_PRODUCT_POSITIONING.md)** | honest insurance, claims, parametric, and consulting product positions |
+| [`docs/27_PARCEL_INTELLIGENCE.md`](docs/27_PARCEL_INTELLIGENCE.md) | parcel evidence & suitability demo slice (land-intelligence transfer) |
 
 ---
 
@@ -75,6 +76,39 @@ supplies a portfolio of coordinates or building footprints, VHAGAR monitors and
 detects candidate and confirmed events, and after an event returns a timestamped
 detection record, a burn-footprint intersection, an affected-location list,
 source and confidence metadata, and an optional spread-scenario appendix.
+
+---
+
+## Parcel Evidence & Suitability (demo slice)
+
+VHAGAR began in wildfire, but the underlying strength is building geospatial
+decision systems that work with imperfect evidence: provenance on every input,
+leakage-safe evaluation, and honest refusal when the data cannot support a claim.
+To show that this transfers beyond fire, `src/vhagar/parcel/` adds a small
+self-contained vertical that scores a parcel for a proposed land use (solar, wind,
+conservation, residential, data center). Given a parcel geometry and a use, it
+returns a transparent overall score, four **separate** component scores
+(physical/environmental, access/infrastructure, hazard/ecological, market/community),
+provenance for every input, a completeness statement, and a plain-language
+explanation, or an explicit "cannot score" when evidence is too thin. It runs at
+`GET /parcel` and `POST /api/parcel/suitability`, kept separate from the live
+wildfire console. Design and ingest path: [`docs/27_PARCEL_INTELLIGENCE.md`](docs/27_PARCEL_INTELLIGENCE.md).
+
+**What this demonstrates for land intelligence.** A config-driven, auditable
+suitability engine with a versioned feature manifest (data contract), evidence
+gating instead of silent gap-filling, a leakage-safe spatial-block evaluation
+scaffold with mandatory rules and null/majority baselines, and a provider-agnostic
+LLM adapter that turns public planning documents into cited evidence **for human
+review, never ground truth**, with prompt-injection and over-certainty guardrails.
+The same discipline behind VHAGAR's wildfire tiers, pointed at land decisions.
+
+**Limitations (read before quoting anything).** This slice runs on
+**clearly-labelled synthetic fixtures**; every input reports itself as synthetic,
+and no performance number here is real. It is **not** a validated land valuation
+(AVM), a bankable number, or a measured community-sentiment product. Wildfire
+enters only as one hazard input. Real values require the manifest's datasets to be
+ingested and validated, real labels to be collected, and the evaluation scaffold to
+be run on them, none of which is done here.
 
 ---
 

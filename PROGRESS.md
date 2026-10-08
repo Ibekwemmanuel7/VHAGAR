@@ -1,7 +1,81 @@
 # VHAGAR progress tracker
 
-Last updated: 2026-09-25. Keep this file current. It is the single place to look
+Last updated: 2026-10-08. Keep this file current. It is the single place to look
 before starting a session, and the place to update before ending one.
+
+## Parcel Evidence & Suitability demo slice (2026-10-08)
+
+New pure-stdlib (CI-safe) package `src/vhagar/parcel/` demonstrating that VHAGAR's
+geospatial / imperfect-evidence discipline transfers beyond wildfire to land screening,
+WITHOUT turning VHAGAR into an AVM or making commercial land claims. Modules: `schemas.py`
+(ProposedUse, EvidenceStatus, Provenance, FeatureValue, Parcel with equal-area hectares,
+ComponentScore, Completeness, SuitabilityResult); `manifest.py` (versioned feature manifest /
+data contract, real datasets named, every value SYNTHETIC in this build); `config.py`
+(versioned explainable scoring config: per-use weights, min-area gates, transparent curves);
+`engine.py` (four separate component scores, evidence gating, min-area gate, overall withheld
+unless physical scored + >=0.5 weight coverage, reason codes, plain-language explanation);
+`llm.py` (provider-agnostic EvidenceExtractor protocol + deterministic MockEvidenceExtractor,
+no API key; guardrails: malformed output, missing citation, unsupported certainty,
+prompt-injection detection; output is evidence for HUMAN REVIEW, market status only scorable
+after reviewer acceptance); `evaluation.py` (leakage-safe scaffold reusing
+`vhagar.eval.splits.spatial_block_split`, mandatory rules + null/majority baselines,
+EvaluationReport leading with deployment question + label limitations, synthetic fixtures, no
+invented numbers); `store.py` (ParcelStore protocol, InMemoryParcelStore, optional lazy-import
+PostGISParcelStore, not a hard dep); `service.py` (store+engine+JSON serialisation);
+`fixtures.py` (labelled synthetic demo parcels incl. an insufficient-evidence case).
+API: `GET /api/parcel/demo`, `POST /api/parcel/suitability`, `GET /parcel`
+(`vhagar_parcel.html`, badged DEMO/SYNTHETIC, kept separate from the live wildfire console).
+Doc: `docs/27_PARCEL_INTELLIGENCE.md`; README "Parcel Evidence & Suitability" capability +
+limitations + "What this demonstrates for land intelligence" section.
+Verified in Python 3.10 sandbox: 21 tests pass (tests/test_parcel.py), ruff clean on
+src/vhagar/parcel + tests/test_parcel.py + serve/vhagar_api.py; endpoints exercised directly
+(solar scores 87.3 with four separate components; thin parcel refuses; unknown parcel -> 404);
+page rendered and screenshotted. NOT run on real data: all inputs synthetic, no real labels, no
+PostGIS. Next before customer use: ingest manifest datasets (flip statuses to OBSERVED/DERIVED),
+collect real labels and run the evaluation scaffold for real metrics + threshold sweep, wire a
+real LLM provider behind the protocol.
+
+## VHAGAR Southeast release 1 code: association / control / threat in shadow mode (2026-10-03)
+
+New package `src/vhagar/southeast/` (pure numpy/stdlib, CI-safe), implementing docs/25 section 6:
+`records.py` BurnRecord + bitemporal BurnRegistry (versions by ingest time, per-source poll
+freshness) + GeoJSON/CSV loaders; `assess.py` candidate rules DECLARED / PERMIT / OWNER_ONLY,
+best-single-group association (no noisy-OR; same holder + same day merged), levels
+DECLARED_MATCH / PERMIT_MATCH / WEAK_MATCH / OWNER_ONLY / NONE, control IN_BOUNDS /
+ESCAPE_SUSPECTED / UNKNOWN, threat LOW / ELEVATED / HIGH, routing with shadow mode
+(operational_action PASS_THROUGH) and a JSON audit record; `events.py` FIRMS -> detections with
+location error, exact clustering (fusion) and a grid-indexed clusterer for full seasons (tested
+equal to fusion); `metrics.py` dangerous-event downgrade rate with Clopper-Pearson upper bound,
+nuisance reduction, recall among detected, analyst load, detection coverage.
+`scripts/southeast_replay.py`: FIRMS archive for GA/FL in 10-day chunks cached under
+data/southeast/firms/, events by month, optional matching to reported wildfires (FPA FOD columns
+accepted); unmatched events are NOT labels (caveat written into the output).
+Bug caught by tests: OWNER_ONLY matches were raising ESCAPE because the address point is far
+from the fire; spatial escape test now skipped for OWNER_ONLY (control UNKNOWN, analyst review).
+Verified in a Python 3.13 sandbox: 25 tests pass (tests/test_southeast.py), doctests pass, ruff
+clean, offline end-to-end replay on synthetic cached FIRMS files. NOT yet run on the Windows venv
+or on real FIRMS data: needs FIRMS_MAP_KEY. Next: run
+`python scripts/southeast_replay.py --years 2019 2020 --source VIIRS_SNPP_SP` with FPA FOD
+(1992-2020) for GA/FL as --wildfire-ref; then registry adapters once GFC/FFS access is confirmed.
+
+## VHAGAR Southeast: US South product design for Lillie Earth Intelligence (2026-10-03)
+
+Design baseline for the USA product line: `docs/25_US_SOUTHEAST_PLATFORM.docx` (and `.md` source).
+Covers sensor tiers for understory fire under Southern pine (GOES-19, VIIRS NOAA-20/21,
+OroraTech, FireSat, SLSTR night, S2/Landsat SWIR, NISAR/ALOS-4 L-band), canopy-aware contextual
+detection, the Permit Registry (FL FFS OBA dashboard, GA GFC online permits live 1 Oct 2026,
+customer burn plans) with a calibrated permit matcher and five decision states, near-miss
+handling and escape watch, Peat Watch (Okefenokee, NC pocosins), the dispatch edge
+(DispatchOrder schema, autonomy levels L0-L3, CloudEvents webhooks, MQTT, TFR checks), tech
+stack, build plan (Phase 0 Oct-Dec 2026, live for the Jan 2027 Rx season) and grants (NSF
+SBIR 26-510 pitch now; deadlines 4 Nov 2026 / 4 Mar 2027; USDA NIFA 8.1). No code yet.
+v0.2 (same day, after external review): release 1 cut to one timberland partner, customer
+polygons, GOES + VIIRS, confirmed permit adapters only, analyst review, evidence report, shadow
+mode for the Jan-Apr 2027 season (no alert suppression). Association / control / threat are now
+separate outputs (DECLARED_MATCH replaces RX_CONFIRMED); central failure metric = dangerous-event
+downgrade rate; owner-parcel match is candidate-only; noisy-OR removed; canopy correction is a
+research track with abstain; dispatch gated with action classes needing prior approval; sensor
+table audited (TROPOMI CO only, S2 5-day nominal, S1 now 1C+1D). Go/no-go criteria in section 2.
 
 ## Customer-facing Evidence Pack product on the console (2026-09-26)
 

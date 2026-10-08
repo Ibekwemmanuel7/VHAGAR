@@ -1,0 +1,178 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VHAGAR Parcel Evidence &amp; Suitability (demo)</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0f16;color:#e6eef8;font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.5}
+a{color:#7fdcff}
+.hdr{display:flex;align-items:center;gap:.7rem;padding:12px 20px;border-bottom:1px solid #1c2532;background:#0d1420}
+.hdr .logo{font-weight:800;font-size:1.15rem;background:linear-gradient(180deg,#f2ffff,#7fdcff 42%,#1f8dff);-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:1px}
+.hdr .tag{color:#8ea1b6;font-size:.78rem}
+.hdr .by{margin-left:auto;color:#6b7a8d;font-size:.72rem}
+.demo{display:inline-block;margin-left:.5rem;padding:1px 8px;border-radius:999px;background:#3a2a12;color:#f0d9b5;font-size:.66rem;font-weight:700;letter-spacing:.04em}
+.layout{display:grid;grid-template-columns:320px 1fr;gap:0;min-height:calc(100vh - 53px)}
+.panel{padding:18px;border-right:1px solid #1c2532;overflow:auto;background:#0c1119}
+.panel h2{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:#8ea1b6;margin:18px 0 8px}
+.panel h2:first-child{margin-top:0}
+label{display:block;font-size:.74rem;color:#9db0c4;margin:10px 0 3px}
+select,button{font:inherit;color:#e6eef8;background:#111a26;border:1px solid #24405f;border-radius:7px;padding:8px 10px;width:100%}
+.btn{background:#1f8dff;border-color:#1f8dff;color:#fff;font-weight:600;cursor:pointer;margin-top:14px}
+.btn:disabled{opacity:.5;cursor:default}
+.err{color:#ff9b9b;font-size:.8rem;margin-top:8px;min-height:1em}
+.main{min-width:0;padding:18px 22px;overflow:auto}
+.hero{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.score{width:116px;height:116px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;border:3px solid #22344a;background:#0e1622;flex:0 0 auto}
+.score .n{font-size:2.1rem;font-weight:800;line-height:1}
+.score .l{font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;color:#8ea1b6;margin-top:3px}
+.hero .meta h1{font-size:1.1rem;margin:0 0 4px}
+.hero .meta .sub{color:#8ea1b6;font-size:.82rem}
+.explain{margin:16px 0;background:#0e1622;border:1px solid #22344a;border-radius:10px;padding:13px 15px;font-size:.9rem}
+h3{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#8ea1b6;margin:22px 0 10px}
+.comp{margin-bottom:12px}
+.comp .top{display:flex;justify-content:space-between;align-items:baseline;font-size:.86rem}
+.comp .top .name{font-weight:600;text-transform:capitalize}
+.comp .top .val{font-variant-numeric:tabular-nums}
+.track{height:9px;border-radius:999px;background:#17202c;margin:5px 0;overflow:hidden}
+.fill{height:100%;border-radius:999px}
+.comp .rc{font-size:.72rem;color:#8ea1b6}
+.comp.insuf .top .val{color:#f0b45b}
+.cmpl{display:flex;gap:7px;flex-wrap:wrap;margin:6px 0 2px}
+.chip{padding:2px 9px;border-radius:999px;font-size:.7rem;border:1px solid #22344a;background:#111a26;color:#cdd}
+.chip.syn{border-color:#5a3a12;color:#f0d9b5;background:#1a1206}
+table{width:100%;border-collapse:collapse;font-size:.76rem;margin-top:6px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #17202c;vertical-align:top}
+th{color:#8ea1b6;font-size:.64rem;text-transform:uppercase;letter-spacing:.04em}
+.st{display:inline-block;padding:1px 7px;border-radius:999px;font-size:.66rem;font-weight:700}
+.st.synthetic{background:#1a1206;color:#f0d9b5;border:1px solid #5a3a12}
+.st.observed{background:#07210f;color:#86efac;border:1px solid #1d5b33}
+.st.derived{background:#07210f;color:#86efac;border:1px solid #1d5b33}
+.st.missing{background:#241016;color:#ff9b9b;border:1px solid #5b1d2b}
+.st.assumed{background:#1a1a06;color:#e8e08a;border:1px solid #5b531d}
+.disc{margin:20px 0 10px;background:#1a1206;border:1px solid #3a2a12;border-radius:9px;padding:11px 14px;color:#f0d9b5;font-size:.78rem}
+.ver{color:#6b7a8d;font-size:.7rem;margin-top:8px}
+.empty{padding:40px 10px;color:#8ea1b6}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid #ffffff55;border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style></head><body>
+<div class="hdr">
+  <span class="logo">VHAGAR</span>
+  <span class="tag">Parcel Evidence &amp; Suitability</span>
+  <span class="demo">DEMO &middot; SYNTHETIC DATA</span>
+  <span class="by">powered by Lillie Earth Intelligence</span>
+</div>
+<div class="layout">
+  <div class="panel">
+    <h2>Demo parcel</h2>
+    <label>Parcel</label>
+    <select id="parcel"></select>
+    <label>Proposed use</label>
+    <select id="use">
+      <option value="">(as bundled with parcel)</option>
+      <option value="solar">solar</option>
+      <option value="wind">wind</option>
+      <option value="conservation">conservation</option>
+      <option value="residential">residential</option>
+      <option value="data_center">data_center</option>
+    </select>
+    <button id="run" class="btn">Score parcel</button>
+    <div id="err" class="err"></div>
+    <h2>What this is</h2>
+    <p style="font-size:.78rem;color:#9db0c4">The same geospatial discipline behind VHAGAR's
+    wildfire tiers, applied to land screening: transparent component scores, provenance on
+    every input, and an explicit completeness statement. It refuses to produce a score when
+    evidence is too thin. It is <b>not</b> a validated land valuation (AVM) or a
+    community-sentiment product.</p>
+  </div>
+  <div class="main" id="main">
+    <div class="empty">Pick a parcel and press <b>Score parcel</b>.</div>
+  </div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const E=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const band=v=>v>=75?'strong':v>=55?'moderate':v>=40?'marginal':'poor';
+const col=v=>v==null?'#4a5a6b':v>=75?'#22c55e':v>=55?'#7fdcff':v>=40?'#f0b45b':'#ff7a7a';
+
+async function loadParcels(){
+  try{
+    const r=await fetch('/api/parcel/demo'); const j=await r.json();
+    const sel=$('#parcel'); sel.innerHTML='';
+    (j.parcels||[]).forEach(p=>{
+      const o=document.createElement('option');
+      o.value=p.parcel_id;
+      o.textContent=p.parcel_id+' — '+(p.name||'')+'  ['+p.use+']';
+      sel.appendChild(o);
+    });
+  }catch(e){ $('#err').textContent='Could not load demo parcels.'; }
+}
+
+async function run(){
+  const pid=$('#parcel').value; if(!pid) return;
+  const use=$('#use').value;
+  $('#err').textContent=''; $('#run').disabled=true;
+  $('#main').innerHTML='<div class="empty"><span class="spin"></span> Scoring…</div>';
+  try{
+    const body={parcel_id:pid}; if(use) body.use=use;
+    const r=await fetch('/api/parcel/suitability',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const j=await r.json();
+    if(!r.ok){ throw new Error(j.detail||('HTTP '+r.status)); }
+    render(j);
+  }catch(e){ $('#main').innerHTML='<div class="empty">Error.</div>'; $('#err').textContent=e.message; }
+  finally{ $('#run').disabled=false; }
+}
+
+function render(j){
+  const scored=j.overall_status==='scored';
+  const n=scored?j.overall_score:'—';
+  let h='';
+  h+='<div class="hero"><div class="score" style="border-color:'+col(scored?j.overall_score:null)+'">'+
+     '<div class="n">'+E(n)+'</div><div class="l">'+(scored?E(band(j.overall_score)):'no score')+'</div></div>'+
+     '<div class="meta"><h1>'+E(j.parcel_id)+' &middot; '+E(j.use.replace(/_/g,' '))+'</h1>'+
+     '<div class="sub">overall status: <b>'+E(j.overall_status)+'</b> &nbsp;·&nbsp; '+
+     E(j.completeness.completeness_pct)+'% of inputs real</div></div></div>';
+
+  h+='<div class="explain">'+E(j.explanation)+'</div>';
+
+  h+='<h3>Component scores (kept separate — no black-box aggregate)</h3>';
+  j.components.forEach(c=>{
+    const insuf=c.status!=='scored';
+    h+='<div class="comp'+(insuf?' insuf':'')+'"><div class="top"><span class="name">'+E(c.component)+
+       '</span><span class="val">'+(insuf?'insufficient evidence':E(c.score)+' / 100')+
+       '  <span style="color:#6b7a8d">w='+E(c.weight)+'</span></span></div>';
+    if(!insuf){ const w=Math.max(0,Math.min(100,c.score));
+      h+='<div class="track"><div class="fill" style="width:'+w+'%;background:'+col(c.score)+'"></div></div>'; }
+    const rc=(c.reason_codes||[]).filter(x=>x.startsWith('weak:')||x.startsWith('strong:'))
+      .map(x=>x.replace(':',' ')).join(', ');
+    const miss=(c.missing||[]).length?('missing: '+c.missing.join(', ')):'';
+    const line=[rc,miss].filter(Boolean).join('  ·  ');
+    if(line) h+='<div class="rc">'+E(line)+'</div>';
+    h+='</div>';
+  });
+
+  const cm=j.completeness;
+  h+='<h3>Confidence &amp; completeness</h3><div class="cmpl">'+
+     chip(cm.observed+' observed')+chip(cm.derived+' derived')+chip(cm.assumed+' assumed')+
+     chipSyn(cm.synthetic+' synthetic')+chip(cm.missing+' missing')+
+     chip('of '+cm.total+' inputs')+'</div>';
+
+  h+='<h3>Provenance (every input)</h3><table><thead><tr><th>Feature</th><th>Source</th>'+
+     '<th>Vintage</th><th>Resolution</th><th>Status</th></tr></thead><tbody>';
+  j.provenance.forEach(p=>{
+    h+='<tr><td>'+E(p.feature)+'</td><td>'+E(p.source)+'</td><td>'+E(p.vintage)+'</td><td>'+
+       E(p.resolution)+'</td><td><span class="st '+E(p.status)+'">'+E(p.status)+'</span></td></tr>';
+  });
+  h+='</tbody></table>';
+
+  h+='<div class="disc">'+E(j.disclaimer)+'</div>';
+  h+='<div class="ver">config '+E(j.config_version)+'</div>';
+  $('#main').innerHTML=h;
+}
+function chip(t){return '<span class="chip">'+E(t)+'</span>';}
+function chipSyn(t){return '<span class="chip syn">'+E(t)+'</span>';}
+
+$('#run').addEventListener('click',run);
+loadParcels();
+</script>
+</body></html>
