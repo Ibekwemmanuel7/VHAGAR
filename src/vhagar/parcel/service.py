@@ -8,8 +8,10 @@ Two entry points:
 * ``ParcelSuitabilityService.score_geometry``: a caller-supplied polygon plus
   caller-supplied feature values. No feature pipeline is connected in this build, so
   nothing is looked up, estimated, or filled: inputs the caller does not supply are missing,
-  and the engine returns ``insufficient_evidence``. Caller-declared statuses are recorded
-  as declared and are not independently verified.
+  and the engine returns ``insufficient_evidence``. A caller cannot make its own values
+  count as evidence: values declared ``observed`` or ``derived`` are stored as
+  ``caller_declared`` (the declared status is kept in provenance), and the result grade is
+  ``unverified`` until a server-side provenance check exists.
 
 Serialisation lives here (not in the engine) so the schemas stay pure dataclasses and there
 is exactly one place that decides the wire shape of a result.
@@ -44,7 +46,8 @@ __all__ = [
 CALLER_INPUT_NOTE = (
     "No feature pipeline is connected in this build. Only caller-supplied inputs are used; "
     "nothing is looked up, estimated, or filled. Caller-declared evidence statuses are "
-    "recorded as declared and are not independently verified.")
+    "not independently verified: values declared observed or derived are graded "
+    "caller_declared, and the result is unverified, not evidence based.")
 
 _CATEGORY_FEATURES = {"market_support_status"}
 
@@ -126,6 +129,9 @@ def features_from_payload(payload: dict[str, Any] | None) -> dict[str, FeatureVa
             status = EvidenceStatus(spec["status"])
         except ValueError as exc:
             raise ValueError(f"feature {name}: invalid status {spec['status']!r}") from exc
+        declared = status
+        if status in (EvidenceStatus.OBSERVED, EvidenceStatus.DERIVED):
+            status = EvidenceStatus.CALLER_DECLARED  # no server-side provenance check yet
         value = spec.get("value")
         if status != EvidenceStatus.MISSING:
             if name in _CATEGORY_FEATURES:
@@ -137,7 +143,8 @@ def features_from_payload(payload: dict[str, Any] | None) -> dict[str, FeatureVa
         prov = Provenance(
             feature=name, source=str(spec.get("source") or "caller-supplied (unverified)"),
             vintage=str(spec.get("vintage") or "unknown"), resolution="unknown",
-            method="supplied by the caller", coverage="this parcel",
+            method=f"supplied by the caller (declared {declared.value}; not verified)",
+            coverage="this parcel",
             license="caller responsibility", status=status)
         out[name] = FeatureValue(name=name, value=None if status == EvidenceStatus.MISSING
                                  else value, unit="", status=status, provenance=prov,

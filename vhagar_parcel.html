@@ -53,6 +53,7 @@ th{color:#8ea1b6;font-size:.64rem;text-transform:uppercase;letter-spacing:.04em}
 .grade{margin:0 0 14px;border-radius:9px;padding:10px 14px;font-size:.84rem;border:1px solid}
 .grade.illustrative{background:#1a1206;border-color:#5a3a12;color:#f0d9b5}
 .grade.provisional{background:#1a1a06;border-color:#5b531d;color:#e8e08a}
+.grade.unverified{background:#1a1a06;border-color:#5b531d;color:#e8e08a}
 .grade.ineligible{background:#241016;border-color:#5b1d2b;color:#ffc2c2}
 .grade.insufficient{background:#111a26;border-color:#24405f;color:#cfe3f5}
 .score.illus .n{color:#c9b28c}
@@ -173,6 +174,8 @@ function gradeBanner(j){
       'it shows how the screen works and is not an assessment of a real parcel.</div>';
   if(j.evidence_grade==='provisional')
     return '<div class="grade provisional"><b>Provisional result.</b> Some inputs are assumed defaults, not measurements.</div>';
+  if(j.evidence_grade==='unverified')
+    return '<div class="grade unverified"><b>Unverified result.</b> Inputs were declared by the caller and not checked against source data.</div>';
   return '';
 }
 

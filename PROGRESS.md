@@ -5,6 +5,21 @@ before starting a session, and the place to update before ending one.
 
 ## Texas solar parcel study on real data + PostGIS mirror (2026-10-08)
 
+Review fixes (same day, after the PostGIS run):
+(1) Provenance: API callers could label their own feature values `observed` and receive an
+`evidence_based` grade. New status `EvidenceStatus.CALLER_DECLARED`: caller values declared
+observed or derived are stored as caller_declared (declared status kept in provenance
+`method`), counted in `Completeness.caller_declared`, and graded `unverified` with an
+"Unverified result" prefix and page banner. Tests updated and added; 116 tests pass
+(tests/test_parcel.py + tests/test_parcel_study.py, Python 3.13 sandbox).
+(2) Framing: transmission is the 2025 HIFLD inventory and the generator-tie filter uses all
+USPVDB facilities, including held-out 2021-2025 ones (not split-safe). docs/28 now frames
+the study as a retrospective siting-association study and leads with the
+transmission-free model (AP lift 14.0x, AUC 0.856, recall 0.248 at 10% of area); the
+transmission gain (AUC 0.889, recall 0.314) is not claimed until transmission is rebuilt
+from decision-date inputs with a split-safe tie filter.
+(3) docs/28 Results section written (caveated, numbers from results.json only).
+
 Real-data study `tx-solar-1.0` (docs/28) ran end to end on the Windows venv.
 Population 1,777,875 TxGIO parcels >= 2 ha; 1,145 case parcels from 150 USPVDB v4.0
 facilities installed 2017-2025 (78 ambiguous excluded); 30,000 controls (weight 59.2);

@@ -1,8 +1,8 @@
 # 28. Real-data parcel study: where Texas utility-scale solar was built
 
-Status: design fixed before any result was computed (2026-10-08). Results: see
-"Results" (filled from `outputs/parcel_study/results.json`, which is the only source of
-every number quoted).
+Status: design fixed before any result was computed (2026-10-08). First run complete;
+results below, framed as a retrospective association study (see "Framing after review").
+`outputs/parcel_study/results.json` is the only source of every number quoted.
 
 ## Question
 
@@ -16,6 +16,24 @@ proof of unsuitability. The labels are therefore biased toward land that was off
 financed, and connected first. The study measures how well a screen anticipates where
 development actually went, which is the deployment question for a siting product, and it
 states that limitation wherever a number is quoted.
+
+## Framing after review (2026-10-08)
+
+The question above is the design target. The current build does not fully meet it, for
+two reasons found in review after the first run:
+
+1. **The transmission layer is not historical.** It is the 2025 HIFLD inventory, so it
+   includes lines built after 2016, some of them for the facilities being predicted.
+2. **The generator-tie filter uses future labels.** It removes short lines near *any*
+   USPVDB facility, including the 2021 to 2025 facilities held out for testing. A feature
+   transformation that depends on where test cases are is label leakage, whatever its
+   direction.
+
+Other inputs also post-date 2016 (2026 parcel boundaries, PAD-US 2022, current NFHL,
+WHP 2018), with lower recorded leakage risk. Until transmission is rebuilt from
+decision-date inputs, the results are a **retrospective siting-association study**, not
+a prospective 2016 model. The transmission-free model (all transmission features removed)
+is the result that does not depend on either issue, and it is reported first below.
 
 ## Data (all public; vintages and checksums in `data/parcel/raw/manifest.json`)
 
@@ -58,6 +76,8 @@ feature's leakage risk relative to 2016 is recorded in `FEATURE_SPECS`
   also drop genuine pre-existing lines near facilities. The evaluation reports the model
   with the raw distance (optimistic), the robust distance (main), and no transmission
   features at all, so the effect of this leak is measured rather than hidden.
+  Review found a second issue: the tie filter uses all USPVDB facilities, including the
+  held-out 2021 to 2025 ones, so it is not split-safe (see "Framing after review").
 * **No raw coordinates.** In VHAGAR's fire-detection work, raw lat/lon supplied most of a
   model's gain under a random split and harmed transfer under a spatial holdout
   (docs/02_VALIDATION.md). Here location enters only through physical layers; a
@@ -89,7 +109,8 @@ test data.
 * **Temporal holdout (primary):** train on cases installed 2017 to 2020 plus a random half
   of the controls; test on cases installed 2021 to 2025 plus the other half. This is the
   prospective question: would a screen built on earlier projects have pointed at the
-  next ones?
+  next ones? With the current transmission layer it answers that question only
+  retrospectively (see "Framing after review").
 * **Spatial holdout:** 5 folds of 2-degree blocks (`vhagar.eval.splits.spatial_block_split`);
   cases are blocked by their facility's location so no facility straddles train and test.
 * **Metrics (population-weighted):** average precision and its lift over prevalence,
@@ -121,4 +142,58 @@ python scripts/parcel_build.py evaluate
 
 ## Results
 
-(Filled after the evaluation run.)
+All numbers come from `outputs/parcel_study/results.json` (study `tx-solar-1.0`, run
+2026-10-08). Framing: retrospective association (see "Framing after review").
+
+**Data.** 1,777,875 parcels; 1,145 case parcels from 150 facilities installed 2017 to
+2025 (78 ambiguous parcels excluded); 30,000 controls (weight 59.2). Population
+prevalence 0.064%. Floodplain is missing for 28.2% of sampled parcels (no effective NFHL
+mapping) and is kept missing.
+
+**Temporal holdout** (train on cases installed 2017 to 2020; test on 878 case parcels from
+93 facilities installed 2021 to 2025). Lift is average precision divided by prevalence.
+
+| Model | AP lift | ROC AUC | Recall at 10% of area |
+|---|---|---|---|
+| Null (prevalence) | 1.0 | 0.500 | 0.100 |
+| Nearest transmission line only | 2.6 | 0.720 | 0.260 |
+| Irradiance only | 0.9 | 0.492 | 0.027 |
+| Rules engine v0.2 (not fitted) | 1.6 | 0.582 | 0.362 |
+| **Monotone gradient boosting, no transmission features** | **14.0** | **0.856** | **0.248** |
+| Monotone gradient boosting, robust transmission | 14.3 | 0.889 | 0.314 |
+| Monotone gradient boosting, raw HIFLD transmission | 10.0 | 0.880 | 0.304 |
+| Spline logistic (GAM), robust transmission | 14.4 | 0.857 | 0.233 |
+| Unconstrained gradient boosting, robust transmission | 21.2 | 0.824 | 0.219 |
+| Coordinates only (diagnostic) | 2.7 | 0.676 | 0.097 |
+
+**Spatial holdout** (5 folds of 2-degree blocks, robust transmission): learned models
+reach AP lift 16 to 18; coordinates only reaches 1.5, so the models do not depend on
+memorising where solar already is.
+
+**What the evidence supports**
+
+* Parcel-level public data rank later solar land well above chance: about 14 times the
+  base rate in average precision without any transmission feature (AUC 0.856).
+* Transmission adds little to average precision (14.0 to 14.3) but raises AUC and recall
+  at 10% of area (0.248 to 0.314). That gain is the part exposed to the leakage above, so
+  it is not claimed until transmission is rebuilt.
+* Land cover carries the most signal (removing it halves AP); parcel size ranks first in
+  permutation importance. Irradiance does not discriminate within Texas at the NASA POWER
+  grid scale.
+* All learned models beat nearest-transmission in average precision (facility-clustered
+  bootstrap: 0 of 300 resamples favour the baseline).
+
+**Limits**
+
+* Intervals are wide: 93 test facilities; AP 95% interval for the monotone model is about
+  0.003 to 0.022.
+* For a broad screen (top 10% of area), the transparent rules engine is not beaten: 0.362
+  against 0.314 for the monotone model (bootstrap probability 0.75 that the model is not
+  better).
+* Scores rank parcels; they are not calibrated probabilities (Brier skill about 0 against
+  climatology).
+* Labels record where facilities were built, not where land was suitable.
+
+**Next:** rebuild transmission from decision-date inputs (a historical line inventory, or
+lines filtered by in-service date), apply the generator-tie filter inside each training
+split only, and rerun the evaluation. Until then, quote the transmission-free model.

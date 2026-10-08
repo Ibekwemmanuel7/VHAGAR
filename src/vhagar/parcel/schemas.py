@@ -58,6 +58,9 @@ class EvidenceStatus(str, Enum):
     DERIVED = "derived"  # computed from observed inputs
     ASSUMED = "assumed"  # a documented default standing in for a missing input
     SYNTHETIC = "synthetic"  # demo/fixture value, never real
+    # Supplied through the API and declared observed/derived by the caller, but not checked
+    # server-side against a source. Never counts as evidence until a provenance check passes.
+    CALLER_DECLARED = "caller_declared"
     MISSING = "missing"  # not available for this parcel
 
 
@@ -137,6 +140,7 @@ class Completeness:
     total: int
     completeness_pct: float  # (observed + derived) / total
     has_synthetic: bool
+    caller_declared: int = 0  # unverified caller inputs (not counted as complete)
 
 
 @dataclass
@@ -147,6 +151,7 @@ class SuitabilityResult:
     gate fired; no score), or ``insufficient_evidence`` (a required input or component is
     missing; no score). ``evidence_grade`` is ``evidence_based`` only when every required
     input present is observed or derived; ``provisional`` when any is assumed;
+    ``unverified`` when any was declared by an API caller and not verified server-side;
     ``illustrative`` when any is synthetic; ``no_evidence`` when no required input is present.
     """
 

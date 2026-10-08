@@ -317,6 +317,7 @@ def test_market_evidence_never_changes_the_score(big_parcel):
 @pytest.mark.parametrize("status,grade,prefix", [
     (EvidenceStatus.SYNTHETIC, "illustrative", "Illustrative demo result"),
     (EvidenceStatus.ASSUMED, "provisional", "Provisional result"),
+    (EvidenceStatus.CALLER_DECLARED, "unverified", "Unverified result"),
     (EvidenceStatus.OBSERVED, "evidence_based", ""),
     (EvidenceStatus.DERIVED, "evidence_based", ""),
 ])
@@ -328,7 +329,8 @@ def test_evidence_grade_labels_the_result(big_parcel, status, grade, prefix):
         assert res.explanation.startswith(prefix)
         assert f"{grade})" in res.explanation  # band is qualified, e.g. "(strong, illustrative)"
     else:
-        assert "Illustrative" not in res.explanation and "Provisional" not in res.explanation
+        assert all(w not in res.explanation
+                   for w in ("Illustrative", "Provisional", "Unverified"))
 
 
 def test_one_synthetic_input_makes_the_result_illustrative(big_parcel):
@@ -603,11 +605,27 @@ def test_caller_polygon_with_full_declared_inputs_scores():
     payload = {k: {"value": v, "status": "observed", "source": "survey 2026"}
                for k, v in SOLAR_OK.items()}
     out = svc.score_geometry(GEOM, "solar", payload)
-    assert out["overall_status"] == "scored" and out["evidence_grade"] == "evidence_based"
+    # A caller cannot make its own values count as evidence: "observed" is downgraded.
+    assert out["overall_status"] == "scored" and out["evidence_grade"] == "unverified"
+    assert out["explanation"].startswith("Unverified result")
     prov = {p["feature"]: p for p in out["provenance"]}
     assert prov["slope_pct"]["source"] == "survey 2026"
-    assert prov["slope_pct"]["method"] == "supplied by the caller"
+    assert prov["slope_pct"]["status"] == "caller_declared"
+    assert prov["slope_pct"]["method"] == "supplied by the caller (declared observed; not verified)"
+    assert out["completeness"]["caller_declared"] == len(SOLAR_OK)
     assert "not independently verified" in out["input_note"]
+
+
+@pytest.mark.parametrize("declared", ["observed", "derived", "caller_declared"])
+def test_caller_cannot_declare_evidence(declared):
+    fv = features_from_payload({"slope_pct": {"value": 2.0, "status": declared}})["slope_pct"]
+    assert fv.status == EvidenceStatus.CALLER_DECLARED
+
+
+@pytest.mark.parametrize("declared", ["assumed", "synthetic", "missing"])
+def test_caller_weaker_statuses_pass_through(declared):
+    fv = features_from_payload({"slope_pct": {"value": 2.0, "status": declared}})["slope_pct"]
+    assert fv.status.value == declared
 
 
 @pytest.mark.parametrize("payload,msg", [

@@ -155,7 +155,8 @@ def _completeness(features: dict[str, FeatureValue], referenced: list[str]) -> C
                         assumed=counts["assumed"], synthetic=counts["synthetic"],
                         missing=counts["missing"], total=total,
                         completeness_pct=round(100.0 * real / total, 1) if total else 0.0,
-                        has_synthetic=counts["synthetic"] > 0)
+                        has_synthetic=counts["synthetic"] > 0,
+                        caller_declared=counts["caller_declared"])
 
 
 def _evidence_grade(features: dict[str, FeatureValue], required: list[str]) -> str:
@@ -166,6 +167,8 @@ def _evidence_grade(features: dict[str, FeatureValue], required: list[str]) -> s
         return "illustrative"
     if EvidenceStatus.ASSUMED in statuses:
         return "provisional"
+    if EvidenceStatus.CALLER_DECLARED in statuses:
+        return "unverified"
     return "evidence_based"
 
 
@@ -174,6 +177,9 @@ def _grade_prefix(grade: str) -> str:
         return "Illustrative demo result (synthetic inputs, not a real assessment). "
     if grade == "provisional":
         return "Provisional result (some inputs are assumed defaults). "
+    if grade == "unverified":
+        return ("Unverified result (inputs were declared by the caller and not checked "
+                "against source data). ")
     return ""
 
 
