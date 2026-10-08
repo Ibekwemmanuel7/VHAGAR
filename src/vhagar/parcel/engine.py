@@ -311,9 +311,13 @@ def _top_drivers(comps: list[ComponentScore], features: dict[str, FeatureValue])
 
 
 def _evidence_sentence(c: Completeness) -> str:
+    declared = (f"{c.caller_declared} caller-declared (unverified), "
+                if c.caller_declared else "")
     bits = (f"Evidence: {c.observed} observed, {c.derived} derived, {c.assumed} assumed, "
-            f"{c.synthetic} synthetic, {c.missing} missing of {c.total} inputs "
+            f"{c.synthetic} synthetic, {declared}{c.missing} missing of {c.total} inputs "
             f"({c.completeness_pct}% real).")
+    if c.caller_declared:
+        bits += " Caller-declared inputs are not verified against source data."
     if c.has_synthetic:
         bits += " Synthetic inputs are demo fixtures, not real measurements."
     return bits

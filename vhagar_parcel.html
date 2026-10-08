@@ -48,6 +48,8 @@ th{color:#8ea1b6;font-size:.64rem;text-transform:uppercase;letter-spacing:.04em}
 .st.derived{background:#07210f;color:#86efac;border:1px solid #1d5b33}
 .st.missing{background:#241016;color:#ff9b9b;border:1px solid #5b1d2b}
 .st.assumed{background:#1a1a06;color:#e8e08a;border:1px solid #5b531d}
+.st.caller_declared{background:#1a1a06;color:#e8e08a;border:1px solid #5b531d}
+.chip.unv{border-color:#5b531d;color:#e8e08a;background:#1a1a06}
 .disc{margin:20px 0 10px;background:#1a1206;border:1px solid #3a2a12;border-radius:9px;padding:11px 14px;color:#f0d9b5;font-size:.78rem}
 .ver{color:#6b7a8d;font-size:.7rem;margin-top:8px}
 .grade{margin:0 0 14px;border-radius:9px;padding:10px 14px;font-size:.84rem;border:1px solid}
@@ -202,7 +204,8 @@ function render(j){
   const me=j.market_evidence||{};
   {
     const how={synthetic:'synthetic demo value, not reviewed evidence',observed:'human-reviewed extraction',
-      derived:'derived from reviewed extractions',assumed:'assumed default, not evidence'}[me.status]||'';
+      derived:'derived from reviewed extractions',assumed:'assumed default, not evidence',
+      caller_declared:'declared by the caller, not verified'}[me.status]||'';
     h+='<h3>Community / market evidence (reported separately, not in the score)</h3><div class="mkt">'+
       (me.value?('Status: <b>'+E(me.value)+'</b>'+(how?' ('+E(how)+')':'')):
        'No reviewed community or market evidence for this parcel.')+
@@ -213,7 +216,9 @@ function render(j){
   const cm=j.completeness;
   h+='<h3>Confidence &amp; completeness</h3><div class="cmpl">'+
      chip(cm.observed+' observed')+chip(cm.derived+' derived')+chip(cm.assumed+' assumed')+
-     chipSyn(cm.synthetic+' synthetic')+chip(cm.missing+' missing')+
+     chipSyn(cm.synthetic+' synthetic')+
+     (cm.caller_declared?'<span class="chip unv">'+cm.caller_declared+' caller-declared / unverified</span>':'')+
+     chip(cm.missing+' missing')+
      chip('of '+cm.total+' inputs')+'</div>';
 
   h+='<h3>Provenance (every input)</h3><div class="tbl"><table><thead><tr><th>Feature</th><th>Source</th>'+

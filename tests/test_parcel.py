@@ -613,6 +613,7 @@ def test_caller_polygon_with_full_declared_inputs_scores():
     assert prov["slope_pct"]["status"] == "caller_declared"
     assert prov["slope_pct"]["method"] == "supplied by the caller (declared observed; not verified)"
     assert out["completeness"]["caller_declared"] == len(SOLAR_OK)
+    assert f"{len(SOLAR_OK)} caller-declared (unverified)" in out["explanation"]
     assert "not independently verified" in out["input_note"]
 
 
