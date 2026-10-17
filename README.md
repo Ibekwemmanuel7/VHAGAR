@@ -1,5 +1,11 @@
 # VHAGAR
 
+<!-- LILLIE_US_PORTFOLIO_START -->
+**Part of [Lillie US](https://github.com/Ibekwemmanuel7/Lillie_US)** · [Portfolio map](https://github.com/Ibekwemmanuel7/Lillie_US/blob/main/docs/PORTFOLIO.md) · [Scope and boundaries](docs/portfolio/SCOPE.md)
+
+**Portfolio domain:** Wildfire intelligence. **Status:** Existing research code; Southern validation remains a separate task.
+<!-- LILLIE_US_PORTFOLIO_END -->
+
 **Multi-sensor wildfire intelligence, detection, burned area, danger, spread.**
 Coverage: CONUS/USA · Canada · Europe.
 
