@@ -33,6 +33,7 @@ __all__ = [
     "length_to_breadth",
     "eccentricity_from_lb",
     "anisotropic_arrival",
+    "dynamic_anisotropic_forecast",
     "front_length_breadth",
 ]
 
@@ -215,6 +216,54 @@ def anisotropic_arrival(head_ros, wind_speed, wind_dir, seeds, dx: float = 1.0,
                     T[ny, nx] = nt
                     heapq.heappush(heap, (nt, ny, nx))
     return T
+
+
+def dynamic_anisotropic_forecast(
+    head_ros,
+    wind_ellipse_index,
+    wind_dir,
+    burned_now,
+    frame_hours,
+    *,
+    dx: float = 1.0,
+    lb_max: float = 4.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Advance an anisotropic front through time-varying forecast frames.
+
+    ``head_ros``, ``wind_ellipse_index``, and ``wind_dir`` are ``[T,H,W]``.
+    Each frame is held constant only for its declared duration in
+    ``frame_hours``; the resulting burned front becomes the next frame's seed.
+    This is a segmented, discrete arrival solver, not a coupled atmosphere-fire
+    model. ``wind_ellipse_index`` must be a documented 0--1 transformation of
+    physical midflame wind, separate from the physical ROS field.
+    """
+    ros = np.asarray(head_ros, dtype=float)
+    ellipse_wind = np.asarray(wind_ellipse_index, dtype=float)
+    direction = np.asarray(wind_dir, dtype=float)
+    durations = np.asarray(frame_hours, dtype=float)
+    if ros.ndim != 3 or ellipse_wind.shape != ros.shape or direction.shape != ros.shape:
+        raise ValueError("head ROS, ellipse wind, and direction must share [T,H,W] shape")
+    if durations.shape != (ros.shape[0],) or not np.isfinite(durations).all() or (durations <= 0).any():
+        raise ValueError("frame_hours must be positive and have one value per forecast frame")
+    if not np.isfinite(ros).all() or not np.isfinite(ellipse_wind).all() or not np.isfinite(direction).all():
+        raise ValueError("forecast fields must be finite")
+
+    burned = np.asarray(burned_now, dtype=bool).copy()
+    if burned.shape != ros.shape[1:]:
+        raise ValueError("burned_now must match forecast grid")
+    cumulative_arrival = np.full(burned.shape, np.inf)
+    cumulative_arrival[burned] = 0.0
+    elapsed = 0.0
+    for frame in range(ros.shape[0]):
+        local_arrival = anisotropic_arrival(
+            ros[frame], np.clip(ellipse_wind[frame], 0.0, 1.0), direction[frame], burned, dx, lb_max
+        )
+        new_burned = local_arrival <= durations[frame] * 60.0
+        newly_arrived = new_burned & ~burned
+        cumulative_arrival[newly_arrived] = elapsed + local_arrival[newly_arrived] / 60.0
+        burned |= new_burned
+        elapsed += durations[frame]
+    return burned, cumulative_arrival
 
 
 def front_length_breadth(mask) -> float:
