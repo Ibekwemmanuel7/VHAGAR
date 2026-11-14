@@ -1,0 +1,93 @@
+schema_version: 1
+evaluation:
+  outer_split: leave_one_region_out
+  inner_split: leave_one_fire_out
+  score_only_post_cutoff: true
+  required_metrics:
+  - arrival_mae_hours
+  - log_ros_rmse
+  - interval_10_90_coverage
+  - ood_trust
+fires:
+- fire_id: example-2026
+  region: pacific_northwest
+  status: blocked_surface_domain_review
+  observations: viirs_truth.csv
+  physics_grid: data/t4m/example-2026_333m_grids.npz
+  physics_provenance: data/t4m/example-2026_333m_grids.json
+  issue_time_utc: '2026-08-04T00:00:00Z'
+  thermal_sensor: VIIRS NOAA-20
+  weather: pending_operational_availability_audit
+  weather_cached: data/t4m/example-2026_hrrr_20260804T00Z.npz
+  weather_provenance: data/t4m/example-2026_hrrr_20260804T00Z.json
+  terrain: data/t4m/example-2026_terrain.npz
+  terrain_provenance: data/t4m/example-2026_terrain.json
+  note: HRRR wind/RH has been spatially regridded from the prior-run forecast, but
+    its 23:50Z availability timestamp needs an operational-log audit before replay
+    scoring. Eight of 3,216 first-seen cells lack burnable LANDFIRE support after
+    375 m footprint sampling; retain for WUI/unsupported-domain review.
+- fire_id: creek-2020
+  region: sierra_nevada
+  status: blocked_weather_availability_audit
+  observations: data/t4m/creek-2020.parquet
+  physics_grid: data/t4m/creek-2020_grids.npz
+  physics_provenance: data/t4m/creek-2020_grids.json
+  issue_time_utc: '2020-09-08T00:00:00+00:00'
+  thermal_sensor: VIIRS S-NPP standard processing
+  weather: pending_operational_availability_audit
+  weather_cached: data/t4m/creek-2020_hrrr_20200908T00Z.npz
+  weather_provenance: data/t4m/creek-2020_hrrr_20200908T00Z.json
+  terrain: data/t4m/creek-2020_terrain.npz
+  terrain_provenance: data/t4m/creek-2020_terrain.json
+  observations_provenance: data/raw/firms/creek-2020.json
+  note: FIRMS footprint-aware fuel support (375 m radius); pre-fire LANDFIRE 2016
+    FBFM13 mapped to representative FBFM40 fuel groups.
+- fire_id: bootleg-2021
+  region: southern_oregon
+  status: blocked_weather_availability_audit
+  observations: data/t4m/bootleg-2021.parquet
+  physics_grid: data/t4m/bootleg-2021_grids.npz
+  physics_provenance: data/t4m/bootleg-2021_grids.json
+  issue_time_utc: '2021-07-08T00:00:00+00:00'
+  thermal_sensor: VIIRS S-NPP standard processing
+  weather: pending_operational_availability_audit
+  weather_cached: data/t4m/bootleg-2021_hrrr_20210708T00Z.npz
+  weather_provenance: data/t4m/bootleg-2021_hrrr_20210708T00Z.json
+  terrain: data/t4m/bootleg-2021_terrain.npz
+  terrain_provenance: data/t4m/bootleg-2021_terrain.json
+  observations_provenance: data/raw/firms/bootleg-2021.json
+  note: FIRMS footprint-aware fuel support (500 m radius; minimum retained support
+    0.09); pre-fire LANDFIRE 2016 FBFM13 mapped to representative FBFM40 fuel groups.
+- fire_id: caldor-2021
+  region: sierra_nevada
+  status: blocked_weather_availability_audit
+  observations: data/t4m/caldor-2021.parquet
+  physics_grid: data/t4m/caldor-2021_grids.npz
+  physics_provenance: data/t4m/caldor-2021_grids.json
+  issue_time_utc: '2021-08-17T00:00:00+00:00'
+  thermal_sensor: VIIRS S-NPP standard processing
+  weather: pending_operational_availability_audit
+  weather_cached: data/t4m/caldor-2021_hrrr_20210817T00Z.npz
+  weather_provenance: data/t4m/caldor-2021_hrrr_20210817T00Z.json
+  terrain: data/t4m/caldor-2021_terrain.npz
+  terrain_provenance: data/t4m/caldor-2021_terrain.json
+  observations_provenance: data/raw/firms/caldor-2021.json
+  note: FIRMS footprint-aware fuel support (500 m radius); pre-fire LANDFIRE 2016
+    FBFM13 mapped to representative FBFM40 fuel groups.
+- fire_id: camp-2018
+  region: northern_california
+  status: blocked_weather_availability_audit
+  observations: data/t4m/camp-2018.parquet
+  physics_grid: data/t4m/camp-2018_grids.npz
+  physics_provenance: data/t4m/camp-2018_grids.json
+  issue_time_utc: '2018-11-09T00:00:00+00:00'
+  thermal_sensor: VIIRS S-NPP standard processing
+  weather: pending_operational_availability_audit
+  weather_cached: data/t4m/camp-2018_hrrr_20181109T00Z.npz
+  weather_provenance: data/t4m/camp-2018_hrrr_20181109T00Z.json
+  terrain: data/t4m/camp-2018_terrain.npz
+  terrain_provenance: data/t4m/camp-2018_terrain.json
+  observations_provenance: data/raw/firms/camp-2018.json
+  note: FIRMS footprint-aware fuel support (750 m radius sensitivity; minimum retained
+    support 0.33); pre-fire LANDFIRE 2016 FBFM13 mapped to representative FBFM40 fuel
+    groups.

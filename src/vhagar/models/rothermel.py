@@ -31,8 +31,8 @@ import numpy as np
 
 from vhagar.models.fuels import FBFM40_NONBURNABLE
 
-__all__ = ["FuelParams", "STANDARD_FUELS", "rothermel_ros", "params_for_codes",
-           "rothermel_head_ros_field"]
+__all__ = ["FuelParams", "STANDARD_FUELS", "fbfm13_to_fbfm40_proxy", "rothermel_ros",
+           "params_for_codes", "rothermel_head_ros_field"]
 
 _MS_TO_FTMIN = 196.850394        # m/s -> ft/min
 _FTMIN_TO_MMIN = 0.3048          # ft/min -> m/min
@@ -70,6 +70,37 @@ STANDARD_FUELS: dict[str, FuelParams] = {
 #: FBFM40 leading-code ranges -> fuel-type group (matches models.fuels bands).
 _BANDS = ((101, 109, "GR"), (121, 124, "GS"), (141, 149, "SH"),
           (161, 165, "TU"), (181, 189, "TL"), (201, 204, "SB"))
+
+# Anderson's original 13 fire-behaviour fuel models are not numerically
+# interchangeable with Scott & Burgan's 40 models.  The present Rothermel
+# implementation uses six documented representative fuel groups, so historical
+# FBFM13 rasters can be mapped to those groups only as a declared proxy.  The
+# values below are representative FBFM40 codes in the corresponding group;
+# non-burnable/nodata values remain unchanged for normal handling downstream.
+_FBFM13_TO_FBFM40_PROXY = {
+    1: 101,  # short grass -> grass
+    2: 121,  # timber/grass understory -> grass-shrub
+    3: 103,  # tall grass -> grass
+    4: 141, 5: 143, 6: 145, 7: 147,  # chaparral/brush -> shrub
+    8: 181, 9: 183, 10: 163,  # litter / litter-understory
+    11: 201, 12: 202, 13: 204,  # logging slash -> slash-blowdown
+}
+
+
+def fbfm13_to_fbfm40_proxy(codes) -> np.ndarray:
+    """Map Anderson FBFM13 codes into declared representative FBFM40 groups.
+
+    This is a compatibility adapter for historical LANDFIRE FBFM13 rasters,
+    not a claim that the classifications or fuel loads are identical.  It lets
+    the single-group Rothermel field preserve the broad grass/shrub/timber/
+    slash distinction while retaining the original raster's vintage in case
+    provenance.  Unknown and non-burnable values are returned unchanged.
+    """
+    source = np.asarray(codes)
+    out = source.copy()
+    for old, proxy in _FBFM13_TO_FBFM40_PROXY.items():
+        out[source == old] = proxy
+    return out
 
 
 def _ros_core(w_o, depth, sav, m_x, m_f, wind_ms, slope_tan):

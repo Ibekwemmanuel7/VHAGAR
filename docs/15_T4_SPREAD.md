@@ -165,6 +165,117 @@ loop are torch-guarded and run on a GPU box.
 
 ## What is next
 
+### T4-M residual correction (first production baseline)
+
+`models/spread_residual.py` now supplies the first deliberately modest learned
+component: regularised regression of the **log ROS residual**,
+`log(ROS_observed / ROS_physics)`.  The physics model remains the positive,
+inspectable prior; the learned model can only make a bounded multiplicative
+correction.  Its target comes from timed thermal observations via the inverse
+arrival-time relationship, with invalid / seed / unreachable observations
+explicitly excluded rather than silently treated as labels.
+
+Evaluation is **leave-one-fire-out**, not random points from the same incident:
+each fold reports RMSE against both the learned correction and the zero-correction
+physics baseline.  This is the required benchmark for a later U-Net, transformer,
+or diffusion residual model.  It is a model contract and test harness today, not
+a claim of training on ORBIT or NIROPS observations.  Before fitting real data,
+the event record must retain observation timing, geolocation uncertainty, sensor
+quality, and whether a point is a first-seen detection or an extracted perimeter.
+
+`datasets/t4m.py` is that event-record contract.  Every training row carries a
+fire and observation identifier, UTC time, sensor/product provenance, analysis
+grid cell, observation kind, timing and location uncertainty, quality, prior
+arrival/ROS, and only forecast-available covariates.  `training_rows` excludes
+seed cells and insufficient-quality observations; `time_forward_split` makes
+the issue-time cutoff explicit so later thermal frames cannot leak into a
+forecast.  This table is the handoff format for FIRMS/GOES now and airborne IR
+when available.
+
+`eval/t4m_replay.py` closes the first evaluation loop.  It fits the residual
+model on **other historical fires**, estimates a shrunk per-fire offset only
+from target observations available by the stated issue-time cutoff, and scores
+physics-only versus corrected arrival error on the target's later observations.
+It also reports empirical 10--90% interval coverage.  Coverage is measured and
+reported, never assumed; until a real held-out event set shows appropriate
+coverage, these bands are diagnostic uncertainty rather than a decision product.
+
+### Sparse-label physics-guided neural path
+
+`datasets/t4m_tensor.py` makes a fire at a declared issue time into a
+leakage-safe tensor: early observed-front mask and detection-time channel,
+physical-prior arrival channel, and complete fuel/moisture, midflame-wind, and
+slope grids.  Later observations enter only as a **masked** arrival-time target;
+unknown cells remain NaN, not a fabricated no-burn label.  `models/t4m_neural.py`
+then trains a U-Net with masked arrival loss plus an Eikonal-consistency term
+over the grid.  It is GPU-ready and is the right modern architecture for
+time-sequenced thermal fronts, but it remains an untrained implementation until
+it beats the physics and residual baselines on held-out real incidents.
+
+### Real FIRMS / airborne observation handoff
+
+`datasets/t4m_firms.py` converts a NASA FIRMS-style CSV into this same contract,
+keeping real acquisition time, sensor/product, confidence, FRP when present,
+and explicit nominal revisit/footprint uncertainty.  `scripts/t4m_from_firms.py`
+writes the versionable event table.  It refuses to run without declared,
+same-grid physics-prior arrival/ROS and fuel-moisture, midflame-wind, and slope
+arrays; it will not quietly substitute synthetic covariates for a real incident.
+
+### Terrain and weather are explicit input products
+
+`scripts/t4m_terrain_grid.py` turns a real, provenance-declared DEM GeoTIFF/COG
+into the slope and aspect arrays required by the T4-M grid. It reprojects the
+source DEM onto the fire's declared analysis grid, refuses incomplete coverage,
+and records the source, grid, and derivative conventions next to the output.
+For a US incident, a USGS 3DEP GeoTIFF is an appropriate starting source. The
+script does not accept a fabricated flat array: if a real DEM is unavailable,
+terrain remains a named blocker rather than a silent zero-slope assumption.
+
+Weather is likewise a cached, versioned input product. `t4m_weather_io.py`
+reads an ERA5, HRRR, WRF, or comparable cube only after it has been downloaded
+and regridded. The cube separates valid time from availability time, so a replay
+cannot borrow a forecast or analysis that an incident team did not yet have.
+ERA5 is the global historical/reanalysis baseline; HRRR is the US short-horizon
+operational input. Neither is described as a universal truth field: both need
+event-level wind-direction, timing, terrain-flow, and station/airborne checks.
+
+### Multi-year corpus rule
+
+T4-M treats an incident—not a pixel or a time slice—as the independent unit of
+validation. Historical fires from multiple years are the correct way to build
+the corpus, but each is replayed at a declared issue time using only products
+available then. A first training corpus needs at least three independent fires
+in two regions; the meaningful target is a deliberately diverse collection of
+historical incidents across fuel, terrain, and wind regimes. Hold out complete
+fires, then whole regions, and reserve the newest season for untouched
+operational-style replay. Every case must declare its physical grid spacing;
+the dynamic solver reads that provenance rather than applying a 333 m
+assumption inherited from an example case.
+
+`scripts/t4m_register_case.py` is the intake gate for that corpus. It refuses
+duplicate incident IDs, files outside the repository, missing products, and
+timezone-free issue times. Run it with `--dry-run` first. A historical weather
+file is entered as **pending** by default, because archive possession does not
+prove forecast availability at incident time; only `--weather-availability
+verified` makes it eligible for replay or ML validation.
+It also refuses to count a shared observation export or physics grid as a new
+fire: leave-one-fire-out is only meaningful when the held-out incident has
+independent inputs.
+
+For historical thermal observations, `scripts/t4m_fetch_firms.py` requests a
+bounded date-and-bounding-box export from the NASA FIRMS Area API, partitions
+long windows into the service's five-day requests, and records a SHA-256 digest
+and request manifest without persisting the user's MAP_KEY. Standard-processing
+(`*_SP`) VIIRS products are the scientific replay default; NRT inputs are kept
+only when the evaluation question is operational availability.
+
+Historical LANDFIRE rasters must match the incident date as closely as feasible.
+When only an older FBFM13 raster is available, the physics builder requires
+`--fuel-model-scheme FBFM13` and records its explicit mapping to VHAGAR's six
+representative FBFM40 fuel groups. It is a compatibility proxy—not a claim that
+Anderson 13 and Scott--Burgan 40 fuel parameters are interchangeable—and should
+be superseded by a contemporaneous FBFM40 product when available.
+
 - **Anisotropy** (done): wind-driven elliptical spread, `anisotropic_arrival` in
   `models/spread.py`. In direction `psi` from the head the rate is
   `ROS(psi) = head_ros * (1 - e) / (1 - e * cos psi)` (Richards' elliptical
